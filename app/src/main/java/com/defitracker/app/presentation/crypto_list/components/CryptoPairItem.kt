@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.defitracker.app.domain.model.CryptoPair
+import com.defitracker.app.ui.theme.Rajdhani
 
 @Composable
 fun CryptoPairItem(
@@ -79,20 +80,30 @@ fun CryptoPairItem(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // ponytail: perps sin slash (ETHUSDT), spot con slash
+                if (pair.source == "MEXC") {
                     Text(
-                        text = pair.baseAsset,
+                        text = pair.baseAsset + pair.quoteAsset,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
-                    Text(
-                        text = " /${pair.quoteAsset}",
-                        fontSize = 12.sp,
-                        color = Color(0xFF777777),
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 2.dp)
-                    )
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = pair.baseAsset,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = " /${pair.quoteAsset}",
+                            fontSize = 12.sp,
+                            color = Color(0xFF777777),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 2.dp)
+                        )
+                    }
                 }
                 Text(
                     text = pair.symbol,
@@ -107,7 +118,8 @@ fun CryptoPairItem(
                     text = pair.price,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = Color.White,
+                    fontFamily = Rajdhani
                 )
                 
                 Surface(
@@ -120,6 +132,7 @@ fun CryptoPairItem(
                         color = changeColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
+                        fontFamily = Rajdhani,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }

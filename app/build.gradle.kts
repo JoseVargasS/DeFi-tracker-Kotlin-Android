@@ -124,4 +124,7 @@ dependencies {
     // Splash Screen
     //noinspection GradleDependency
     implementation("androidx.core:core-splashscreen:1.0.1")
+    // DataStore (indicadores persistentes)
+    //noinspection GradleDependency
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 }

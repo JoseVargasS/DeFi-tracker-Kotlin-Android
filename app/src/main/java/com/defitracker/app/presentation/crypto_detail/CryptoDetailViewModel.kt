@@ -13,6 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -22,6 +23,7 @@ import kotlin.math.sqrt
 @HiltViewModel
 class CryptoDetailViewModel @Inject constructor(
     private val repository: CryptoRepository,
+    private val prefsRepo: IndicatorPrefsRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -32,6 +34,9 @@ class CryptoDetailViewModel @Inject constructor(
     private val _state = mutableStateOf(CryptoDetailState())
     val state: State<CryptoDetailState> = _state
 
+    private val _prefs = mutableStateOf(IndicatorPrefs.DEFAULT)
+    val prefs: State<IndicatorPrefs> = _prefs
+
     private val symbol: String = checkNotNull(savedStateHandle["symbol"])
     private val source: String = checkNotNull(savedStateHandle["source"])
 
@@ -39,10 +44,44 @@ class CryptoDetailViewModel @Inject constructor(
     private var chartJob: Job? = null
 
     init {
-        _state.value = state.value.copy(symbol = symbol)
+        _state.value = state.value.copy(symbol = symbol, source = source)
+        viewModelScope.launch {
+            try {
+                _prefs.value = prefsRepo.prefsFlow.first()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
         loadDetail()
         startUpdates()
         loadChartData(DEFAULT_CHART_INTERVAL)
+    }
+
+    private fun updatePrefs(transform: (IndicatorPrefs) -> IndicatorPrefs) {
+        val next = transform(_prefs.value)
+        _prefs.value = next
+        viewModelScope.launch {
+            try {
+                prefsRepo.save(next)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun toggleBB() = updatePrefs { it.copy(bbVisible = !it.bbVisible) }
+    fun toggleProfile() = updatePrefs { it.copy(profileVisible = !it.profileVisible) }
+    fun toggleVolumeSub() = updatePrefs { it.copy(volumeVisible = !it.volumeVisible) }
+    fun toggleStochSub() = updatePrefs { it.copy(stochVisible = !it.stochVisible) }
+    fun toggleRsiSub() = updatePrefs { it.copy(rsiVisible = !it.rsiVisible) }
+    fun toggleMA(period: Int) = updatePrefs {
+        it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(visible = !ma.visible) else ma })
+    }
+    fun setMAColor(period: Int, colorHex: String) = updatePrefs {
+        it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(colorHex = colorHex) else ma })
+    }
+    fun setMAWidth(period: Int, width: Float) = updatePrefs {
+        it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(width = width) else ma })
     }
 
     private fun loadDetail() {
@@ -89,7 +128,9 @@ class CryptoDetailViewModel @Inject constructor(
                             bbMiddle = chartData.bbMiddle,
                             bbLower = chartData.bbLower,
                             stochK = chartData.stochK,
-                            stochD = chartData.stochD
+                            stochD = chartData.stochD,
+                            maLines = chartData.maLines,
+                            rsi = chartData.rsi
                         )
                     }
                 } catch (e: CancellationException) {
@@ -107,9 +148,16 @@ class CryptoDetailViewModel @Inject constructor(
         chartJob = viewModelScope.launch {
             _state.value = state.value.copy(selectedInterval = normalizedInterval, isLoading = true, error = "")
             try {
-                val rawKlines = repository.getKlines(symbol, normalizedInterval.toBinanceInterval(), source)
+                val rawKlines = repository.getKlines(
+                    symbol,
+                    // ponytail: MEXC mapea+agrega en repo, Binance usa su formato
+                    if (source == "MEXC") normalizedInterval else normalizedInterval.toBinanceInterval(),
+                    source
+                )
                 val chartData = withContext(Dispatchers.Default) {
-                    val candles = rawKlines.toCandles().aggregateForInterval(normalizedInterval)
+                    val candles = rawKlines.toCandles().let {
+                        if (source == "MEXC") it else it.aggregateForInterval(normalizedInterval)
+                    }
 
                     if (candles.isEmpty()) {
                         return@withContext ChartComputation()
@@ -125,6 +173,8 @@ class CryptoDetailViewModel @Inject constructor(
                     bbLower = chartData.bbLower,
                     stochK = chartData.stochK,
                     stochD = chartData.stochD,
+                    maLines = chartData.maLines,
+                    rsi = chartData.rsi,
                     isLoading = false
                 )
             } catch (e: CancellationException) {
@@ -148,7 +198,8 @@ class CryptoDetailViewModel @Inject constructor(
                         high = row.getOrNull(2).toDoubleValue(),
                         low = row.getOrNull(3).toDoubleValue(),
                         close = row.getOrNull(4).toDoubleValue(),
-                        volume = row.getOrNull(5).toDoubleValue()
+                        volume = row.getOrNull(5).toDoubleValue(),
+                        takerBuyVol = row.getOrNull(9).toDoubleValue()
                     )
                 )
             }
@@ -209,6 +260,20 @@ class CryptoDetailViewModel @Inject constructor(
         val stochD = mutableListOf<Pair<Long, Double>>()
         val rsiValues = calculateRSI(this)
 
+        // ponytail: SMA por periodo, una pasada O(n) cada una, fuera del hilo principal
+        val maLines = mutableMapOf<Int, List<Pair<Long, Double>>>()
+        for (maPeriod in IndicatorPrefs.MA_PERIODS) {
+            if (size < maPeriod) continue
+            val line = mutableListOf<Pair<Long, Double>>()
+            var sum = 0.0
+            for (i in indices) {
+                sum += this[i].close
+                if (i >= maPeriod) sum -= this[i - maPeriod].close
+                if (i >= maPeriod - 1) line.add(i.toLong() to sum / maPeriod)
+            }
+            maLines[maPeriod] = line
+        }
+
         if (rsiValues.size >= STOCH_RSI_PERIOD) {
             val stochRSI = mutableListOf<Double>()
             for (i in rsiValues.indices) {
@@ -236,13 +301,18 @@ class CryptoDetailViewModel @Inject constructor(
             }
         }
 
+        // ponytail: RSI(14) alineado a vela para el subpanel, reusa el calculo de arriba
+        val rsi = rsiValues.mapIndexed { i, v -> (i + (size - rsiValues.size)).toLong() to v }
+
         return ChartComputation(
             candles = this,
             bbUpper = bbUpper,
             bbMiddle = bbMiddle,
             bbLower = bbLower,
             stochK = stochK,
-            stochD = stochD
+            stochD = stochD,
+            maLines = maLines,
+            rsi = rsi
         )
     }
 
@@ -321,6 +391,7 @@ class CryptoDetailViewModel @Inject constructor(
             var high = first.high
             var low = first.low
             var volume = 0.0
+            var takerBuy = 0.0
             val endExclusive = (index + chunkSize).coerceAtMost(size)
 
             for (itemIndex in index until endExclusive) {
@@ -329,6 +400,7 @@ class CryptoDetailViewModel @Inject constructor(
                 high = high.coerceAtLeast(item.high)
                 low = low.coerceAtMost(item.low)
                 volume += item.volume
+                takerBuy += item.takerBuyVol
             }
 
             aggregated.add(
@@ -338,7 +410,8 @@ class CryptoDetailViewModel @Inject constructor(
                     high = high,
                     low = low,
                     close = last.close,
-                    volume = volume
+                    volume = volume,
+                    takerBuyVol = takerBuy
                 )
             )
             index += chunkSize
@@ -350,7 +423,7 @@ class CryptoDetailViewModel @Inject constructor(
     private companion object {
         const val TAG = "CryptoDetailVM"
         const val DETAIL_REFRESH_MS = 5_000L
-        const val DEFAULT_CHART_INTERVAL = "12h"
+        const val DEFAULT_CHART_INTERVAL = "15m"
         const val STOCH_RSI_PERIOD = 14
         const val STOCH_SMOOTH_PERIOD = 3
     }
@@ -358,6 +431,7 @@ class CryptoDetailViewModel @Inject constructor(
 
 data class CryptoDetailState(
     val symbol: String = "",
+    val source: String = "Binance",
     val detail: PairDetail? = null,
     val candles: List<CandleData> = emptyList(),
     val bbUpper: List<Pair<Long, Double>> = emptyList(),
@@ -365,7 +439,9 @@ data class CryptoDetailState(
     val bbLower: List<Pair<Long, Double>> = emptyList(),
     val stochK: List<Pair<Long, Double>> = emptyList(),
     val stochD: List<Pair<Long, Double>> = emptyList(),
-    val selectedInterval: String = "12h",
+    val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
+    val rsi: List<Pair<Long, Double>> = emptyList(),
+    val selectedInterval: String = "15m",
     val isLoading: Boolean = false,
     val error: String = ""
 )
@@ -376,7 +452,9 @@ data class CandleData(
     val high: Double,
     val low: Double,
     val close: Double,
-    val volume: Double = 0.0
+    val volume: Double = 0.0,
+    // ponytail: taker buy base volume (indice 9 de klines Binance), sell = volume - buy
+    val takerBuyVol: Double = 0.0
 )
 
 private data class ChartComputation(
@@ -385,5 +463,7 @@ private data class ChartComputation(
     val bbMiddle: List<Pair<Long, Double>> = emptyList(),
     val bbLower: List<Pair<Long, Double>> = emptyList(),
     val stochK: List<Pair<Long, Double>> = emptyList(),
-    val stochD: List<Pair<Long, Double>> = emptyList()
+    val stochD: List<Pair<Long, Double>> = emptyList(),
+    val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
+    val rsi: List<Pair<Long, Double>> = emptyList()
 )

@@ -24,6 +24,7 @@ fun DeFiTrackerTheme(
 ) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
+        typography = AppTypography,
         content = content
     )
 }

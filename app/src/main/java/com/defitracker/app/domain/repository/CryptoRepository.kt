@@ -14,7 +14,7 @@ interface CryptoRepository {
     suspend fun removeTrackedPair(symbol: String)
     suspend fun getPairDetail(symbol: String, source: String): PairDetail
     suspend fun getKlines(symbol: String, interval: String, source: String): List<List<Any>>
-    suspend fun getAvailableSymbols(): List<AvailableCryptoPair>
+    suspend fun getAvailableSymbols(source: String = "Binance"): List<AvailableCryptoPair>
 
     // Wallets
     fun getSavedWallets(): Flow<List<WalletEntity>>

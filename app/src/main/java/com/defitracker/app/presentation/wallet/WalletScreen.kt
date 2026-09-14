@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.defitracker.app.ui.theme.PlexMono
+import com.defitracker.app.ui.theme.Rajdhani
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -291,7 +293,8 @@ fun WalletScreen(
                         text = "$${String.format("%,.2f", totalWorth)}",
                         color = Color.White,
                         fontSize = 36.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = Rajdhani
                     )
                     AnimatedVisibility(visible = state.isLoading) {
                         LinearProgressIndicator(
@@ -409,7 +412,8 @@ fun ChainCard(chainName: String, assets: List<com.defitracker.app.data.remote.dt
                     text = "Total $chainName: $${String.format("%,.2f", chainTotal)}",
                     color = Color.White,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = Rajdhani
                 )
             }
 
@@ -467,6 +471,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
             text = String.format("%.4f", asset.amount ?: 0.0),
             color = Color.White,
             fontSize = 12.sp,
+            fontFamily = PlexMono,
             modifier = Modifier.weight(1f),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
@@ -476,6 +481,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
             text = "$${if ((asset.price ?: 0.0) < 1.0) String.format("%.4f", asset.price) else String.format("%,.2f", asset.price)}",
             color = Color.White,
             fontSize = 12.sp,
+            fontFamily = PlexMono,
             modifier = Modifier.weight(1f),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
@@ -486,6 +492,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
+            fontFamily = PlexMono,
             modifier = Modifier.weight(1f),
             textAlign = androidx.compose.ui.text.style.TextAlign.End
         )

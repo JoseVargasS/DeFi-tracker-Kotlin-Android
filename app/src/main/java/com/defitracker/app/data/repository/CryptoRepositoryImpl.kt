@@ -8,6 +8,7 @@ import com.defitracker.app.data.local.WalletDao
 import com.defitracker.app.data.local.WalletEntity
 import com.defitracker.app.data.remote.BinanceApi
 import com.defitracker.app.data.remote.CoinStatsApi
+import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.remote.dto.CoinStatsBalanceDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionSyncRequest
@@ -33,6 +34,7 @@ import javax.inject.Singleton
 class CryptoRepositoryImpl @Inject constructor(
     private val binanceApi: BinanceApi,
     private val coinStatsApi: CoinStatsApi,
+    private val mexcFuturesApi: MexcFuturesApi,
     private val trackedPairDao: TrackedPairDao,
     private val walletDao: WalletDao
 ) : CryptoRepository {
@@ -42,6 +44,7 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     private var cachedSymbols: List<AvailableCryptoPair> = emptyList()
+    private var cachedMexcSymbols: List<AvailableCryptoPair> = emptyList()
     private val klineCache = object : LinkedHashMap<String, CachedKlines>(
         KLINE_CACHE_MAX_ENTRIES,
         0.75f,
@@ -87,7 +90,7 @@ class CryptoRepositoryImpl @Inject constructor(
     override suspend fun getPairDetail(symbol: String, source: String): PairDetail {
         return try {
             when (source) {
-                "Binance" -> getBinancePairDetail(symbol)
+                "MEXC" -> getMexcFuturesPairDetail(symbol)
                 else -> getBinancePairDetail(symbol)
             }
         } catch (e: CancellationException) {
@@ -103,7 +106,7 @@ class CryptoRepositoryImpl @Inject constructor(
 
         return try {
             val klines = when (source) {
-                "Binance" -> getBinanceKlines(symbol, interval)
+                "MEXC" -> getMexcFuturesKlines(symbol, interval)
                 else -> getBinanceKlines(symbol, interval)
             }
             if (klines.isNotEmpty()) {
@@ -118,8 +121,35 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getAvailableSymbols(): List<AvailableCryptoPair> {
-        if (cachedSymbols.isNotEmpty()) return cachedSymbols
+    override suspend fun getAvailableSymbols(source: String): List<AvailableCryptoPair> {
+        return when (source) {
+            "MEXC" -> getMexcFuturesSymbols()
+            else -> getBinanceSymbols()
+        }
+    }
+
+    // ponytail: solo futuros USDT; la API devuelve contratos spot/coin-m/futuros mezclados
+    private suspend fun getMexcFuturesSymbols(): List<AvailableCryptoPair> {
+        if (cachedMexcSymbols.isNotEmpty()) return cachedMexcSymbols
+        return try {
+            cachedMexcSymbols = mexcFuturesApi.getContracts().data
+                .filter { it.futureType == 1 && it.state == 0 && it.quoteCoin == "USDT" }
+                .map {
+                    AvailableCryptoPair(
+                        symbol = it.symbol,
+                        baseAsset = it.baseCoin,
+                        quoteAsset = it.quoteCoin
+                    )
+                }
+            cachedMexcSymbols
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun getBinanceSymbols(): List<AvailableCryptoPair> {
         return try {
             val info = binanceApi.getExchangeInfo()
             cachedSymbols = info.symbols
@@ -416,6 +446,130 @@ class CryptoRepositoryImpl @Inject constructor(
         return allKlines
     }
 
+    // ponytail: riseFallRate viene en fraccion, volumen en contratos (no en monedas)
+    private suspend fun getMexcFuturesPairDetail(symbol: String): PairDetail {
+        val t = mexcFuturesApi.getTicker(symbol).data
+        val changePct = t.riseFallRate * 100.0
+        return PairDetail(
+            symbol = symbol,
+            price = formatPrice(t.lastPrice),
+            priceChange = formatPrice(t.riseFallValue),
+            priceChangePercent = String.format(java.util.Locale.US, "%.2f", changePct),
+            highPrice = formatPrice(t.high24Price),
+            lowPrice = formatPrice(t.lower24Price),
+            volume = t.volume24.toString(),
+            quoteVolume = t.amount24.toString(),
+            isPositive = changePct >= 0
+        )
+    }
+
+    // ponytail: kline columnar (segundos) -> filas estilo Binance + agregacion en repo
+    private suspend fun getMexcFuturesKlines(symbol: String, interval: String): List<List<Any>> {
+        val (mexcInterval, factor) = mexcKlinePlan(interval)
+        val allRows = mutableListOf<List<Any>>()
+        var end: Long? = null
+        var pagesFetched = 0
+        val pageCount = chartPageCountForInterval(interval)
+
+        while (pagesFetched < pageCount) {
+            val data = mexcFuturesApi.getKlines(
+                symbol = symbol,
+                interval = mexcInterval,
+                end = end
+            ).data
+            val n = data.time.size
+            if (n == 0) break
+
+            for (i in n - 1 downTo 0) {
+                allRows.add(
+                    0,
+                    listOf<Any>(
+                        data.time[i] * 1000L,
+                        data.open.getOrNull(i) ?: 0.0,
+                        data.high.getOrNull(i) ?: 0.0,
+                        data.low.getOrNull(i) ?: 0.0,
+                        data.close.getOrNull(i) ?: 0.0,
+                        data.vol.getOrNull(i) ?: 0.0,
+                        0L, 0.0, 0, 0.0
+                    )
+                )
+            }
+            end = data.time.firstOrNull()?.minus(1) ?: break
+            pagesFetched++
+
+            if (n < MEXC_KLINE_PAGE_SIZE) break
+        }
+
+        if (factor <= 1) return allRows
+        return aggregateRows(allRows, factor)
+    }
+
+    private fun aggregateRows(rows: List<List<Any>>, factor: Int): List<List<Any>> {
+        if (factor <= 1 || rows.isEmpty()) return rows
+        val out = ArrayList<List<Any>>((rows.size + factor - 1) / factor)
+        var index = 0
+        while (index < rows.size) {
+            val endExclusive = (index + factor).coerceAtMost(rows.size)
+            var high = Double.NEGATIVE_INFINITY
+            var low = Double.POSITIVE_INFINITY
+            var volume = 0.0
+            for (j in index until endExclusive) {
+                val row = rows[j]
+                high = high.coerceAtLeast(row.toDoubleAt(2))
+                low = low.coerceAtMost(row.toDoubleAt(3))
+                volume += row.toDoubleAt(5)
+            }
+            val first = rows[index]
+            val last = rows[endExclusive - 1]
+            out.add(
+                listOf<Any>(
+                    first.toLongAt(0), first.toDoubleAt(1), high, low,
+                    last.toDoubleAt(4), volume, 0L, 0.0, 0, 0.0
+                )
+            )
+            index += factor
+        }
+        return out
+    }
+
+    private fun List<Any>.toDoubleAt(index: Int): Double {
+        return when (val v = getOrNull(index)) {
+            is Number -> v.toDouble()
+            is String -> v.toDoubleOrNull() ?: 0.0
+            else -> 0.0
+        }
+    }
+
+    private fun List<Any>.toLongAt(index: Int): Long {
+        return when (val v = getOrNull(index)) {
+            is Number -> v.toLong()
+            is String -> v.toLongOrNull() ?: v.toDoubleOrNull()?.toLong() ?: 0L
+            else -> 0L
+        }
+    }
+
+    // ponytail: base MEXC mas cercana + factor para agregar en repo
+    private fun mexcKlinePlan(interval: String): Pair<String, Int> {
+        return when (interval) {
+            "1m" -> "Min1" to 1
+            "5m" -> "Min5" to 1
+            "15m" -> "Min15" to 1
+            "30m" -> "Min30" to 1
+            "1h" -> "Min60" to 1
+            "2h" -> "Min60" to 2
+            "4h" -> "Hour4" to 1
+            "6h" -> "Min60" to 6
+            "12h" -> "Hour4" to 3
+            "1d" -> "Day1" to 1
+            "3d" -> "Day1" to 3
+            "5d" -> "Day1" to 5
+            "1w" -> "Week1" to 1
+            "2w" -> "Week1" to 2
+            "1mo" -> "Month1" to 1
+            else -> "Min60" to 1
+        }
+    }
+
     private fun getFreshCachedKlines(cacheKey: String): List<List<Any>>? {
         val cached = klineCache[cacheKey] ?: return null
         val ageMs = System.currentTimeMillis() - cached.createdAtMs
@@ -463,6 +617,7 @@ class CryptoRepositoryImpl @Inject constructor(
     private companion object {
         const val TAG = "CryptoRepository"
         const val CHART_KLINE_PAGE_SIZE = 1000
+        const val MEXC_KLINE_PAGE_SIZE = 2000
         const val KLINE_CACHE_MAX_ENTRIES = 24
         const val KLINE_CACHE_TTL_MS = 30_000L
         const val TRANSACTION_MIN_DISPLAY_LIMIT = 5

@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
+import com.defitracker.app.ui.theme.PlexMono
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
@@ -370,6 +371,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
                         color = directionColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
+                        fontFamily = PlexMono,
                         textAlign = TextAlign.End
                     )
                     Text(tokenSymbol, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)

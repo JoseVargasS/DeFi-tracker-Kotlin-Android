@@ -8,9 +8,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -20,6 +22,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,7 +32,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -54,6 +62,26 @@ fun CryptoListScreen(
 
     val showSymbolError = state.availableSymbols.isEmpty() && state.symbolsError.isNotEmpty()
 
+    // ponytail: cada fuente ve solo sus pares, en orden manual guardado
+    val pairOrder = viewModel.pairOrder.value
+    val orderIndex = remember(pairOrder) {
+        pairOrder.withIndex().associate { it.value to it.index }
+    }
+    val visiblePairs = remember(state.pairs, state.selectedSource, orderIndex) {
+        state.pairs.filter { it.source == state.selectedSource }
+            .sortedBy { orderIndex["${it.symbol}-${it.source}"] ?: Int.MAX_VALUE }
+    }
+    val sources = listOf("Binance", "MEXC")
+
+    // ponytail: drag con long-press, vive en copia local hasta soltar
+    val listState = rememberLazyListState()
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    val dragKey = remember { mutableStateOf<String?>(null) }
+    val dragOffsetY = remember { mutableStateOf(0f) }
+    val localOrder = remember { mutableStateOf<List<CryptoPair>?>(null) }
+    val displayPairs = localOrder.value ?: visiblePairs
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
@@ -67,7 +95,7 @@ fun CryptoListScreen(
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
@@ -88,6 +116,48 @@ fun CryptoListScreen(
                             contentDescription = "Search",
                             tint = Color.White
                         )
+                    }
+                }
+
+                // ponytail: segmentado compacto centrado, solo el ancho necesario
+                Row(
+                    modifier = Modifier
+                        .align(androidx.compose.ui.Alignment.CenterHorizontally)
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1A1D23))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    sources.forEach { source ->
+                        val selected = state.selectedSource == source
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (selected) Color(0xFF1ECB81).copy(alpha = 0.25f)
+                                    else Color.Transparent
+                                )
+                                .clickable { viewModel.selectSource(source) }
+                                .padding(horizontal = 14.dp, vertical = 4.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = source,
+                                    color = if (selected) Color.White else Color.Gray,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = if (source == "Binance") "Spot" else "Futuros",
+                                    color = if (selected) Color(0xFF1ECB81) else Color.Gray.copy(alpha = 0.7f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -151,15 +221,23 @@ fun CryptoListScreen(
                                             key = { pair -> pair.symbol }
                                         ) { pair ->
                                             ListItem(
-                                                headlineContent = { Text(pair.displayName, color = Color.White, fontSize = 14.sp) },
-                                                supportingContent = { Text(pair.symbol, color = Color.Gray, fontSize = 11.sp) },
+                                                headlineContent = {
+                                                    Text(
+                                                        // ponytail: perps sin slash tambien al buscar
+                                                        if (state.selectedSource == "MEXC") pair.baseAsset + pair.quoteAsset
+                                                        else pair.displayName,
+                                                        color = Color.White,
+                                                        fontSize = 14.sp
+                                                    )
+                                                },
+                                                supportingContent = { Text("${pair.symbol} · ${state.selectedSource}", color = Color.Gray, fontSize = 11.sp) },
                                                 modifier = Modifier
                                                     .clickable {
                                                         viewModel.onAddPair(
                                                             symbol = pair.symbol,
                                                             baseAsset = pair.baseAsset,
                                                             quoteAsset = pair.quoteAsset,
-                                                            source = "Binance"
+                                                            source = state.selectedSource
                                                         )
                                                         isSearchMode = false
                                                         searchQuery = ""
@@ -179,12 +257,12 @@ fun CryptoListScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .animateContentSize()
                 ) {
-                    if (state.pairs.isEmpty() && !isSearchMode) {
+                    if (visiblePairs.isEmpty() && !isSearchMode) {
                         Column(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.Center,
@@ -201,16 +279,78 @@ fun CryptoListScreen(
                             Text("Use search to add your first pair", color = Color.Gray, fontSize = 12.sp)
                         }
                     } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
                             items(
-                                items = state.pairs,
+                                items = displayPairs,
                                 key = { pair -> "${pair.symbol}-${pair.source}" }
                             ) { pair ->
-                                CryptoPairItem(
-                                    pair = pair,
-                                    onClick = { onNavigateToDetail(pair.symbol, pair.source) },
-                                    onDelete = { viewModel.onRemovePair(pair.symbol) }
-                                )
+                                val key = "${pair.symbol}-${pair.source}"
+                                val dragging = dragKey.value == key
+                                Box(
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            translationY = if (dragging) dragOffsetY.value else 0f
+                                        }
+                                        .pointerInput(key) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                                    dragKey.value = key
+                                                    localOrder.value = displayPairs
+                                                    dragOffsetY.value = 0f
+                                                },
+                                                onDragEnd = {
+                                                    localOrder.value?.let { ordered ->
+                                                        viewModel.savePairOrder(ordered.map { "${it.symbol}-${it.source}" })
+                                                    }
+                                                    dragKey.value = null
+                                                    dragOffsetY.value = 0f
+                                                    localOrder.value = null
+                                                },
+                                                onDragCancel = {
+                                                    dragKey.value = null
+                                                    dragOffsetY.value = 0f
+                                                    localOrder.value = null
+                                                },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragOffsetY.value += dragAmount.y
+                                                    val current = localOrder.value?.toMutableList()
+                                                        ?: return@detectDragGesturesAfterLongPress
+                                                    val from = current.indexOfFirst { "${it.symbol}-${it.source}" == dragKey.value }
+                                                    if (from < 0) return@detectDragGesturesAfterLongPress
+                                                    val itemH = listState.layoutInfo.visibleItemsInfo
+                                                        .find { it.index == from }?.size ?: 180
+                                                    val target = (from + (dragOffsetY.value / itemH).roundToInt())
+                                                        .coerceIn(0, current.size - 1)
+                                                    if (target != from) {
+                                                        val item = current.removeAt(from)
+                                                        current.add(target, item)
+                                                        localOrder.value = current
+                                                    }
+                                                    // ponytail: autoscroll en bordes
+                                                    val info = listState.layoutInfo
+                                                    val vi = info.visibleItemsInfo.find { it.index == from }
+                                                    val center = (vi?.offset ?: 0) + dragOffsetY.value + (vi?.size ?: 0) / 2
+                                                    val viewportH = info.viewportEndOffset - info.viewportStartOffset
+                                                    if (center < 120) {
+                                                        scope.launch { listState.scroll { scrollBy(-60f) } }
+                                                    } else if (center > viewportH - 120) {
+                                                        scope.launch { listState.scroll { scrollBy(60f) } }
+                                                    }
+                                                }
+                                            )
+                                        }
+                                ) {
+                                    CryptoPairItem(
+                                        pair = pair,
+                                        onClick = { onNavigateToDetail(pair.symbol, pair.source) },
+                                        onDelete = { viewModel.onRemovePair(pair.symbol) }
+                                    )
+                                }
                                 Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                             }
                         }
