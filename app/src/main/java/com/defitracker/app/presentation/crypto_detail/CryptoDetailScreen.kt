@@ -48,6 +48,7 @@ import com.github.mikephil.charting.components.MarkerView
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -372,6 +373,13 @@ private fun formatPriceForChart(value: Double): String {
     }
 }
 
+private enum class ChartTouchMode {
+    UNDECIDED,
+    PAN,
+    Y_ZOOM,
+    PINCH_X_ZOOM
+}
+
 // ponytail: duracion de cada vela para el countdown al cierre
 private fun intervalDurationMs(interval: String): Long = when (interval) {
     "1m" -> 60_000L
@@ -613,6 +621,55 @@ fun PriceChart(
                 private var lastTouchYPx = -1f
                 private var downX = 0f
                 private var downY = 0f
+                private var lastGestureX = 0f
+                private var lastGestureY = 0f
+                private var zoomPivotX = 0f
+                private var zoomPivotY = 0f
+                private var lastPinchSpanX = 0f
+                private var touchMode = ChartTouchMode.UNDECIDED
+                private var gestureMoved = false
+
+                private val density: Float
+                    get() = context.resources.displayMetrics.density
+
+                private fun isOnYAxis(x: Float): Boolean =
+                    x >= width - 56f * density
+
+                private fun matrixPivotX(x: Float): Float = x - viewPortHandler.offsetLeft()
+
+                private fun matrixPivotY(y: Float): Float =
+                    -(height - y - viewPortHandler.offsetBottom())
+
+                private fun refreshTouchMatrix(matrix: Matrix) {
+                    // MPAndroidChart's refresh() clamps translation and scale
+                    // to its configured viewport limits. Touch gestures on
+                    // this chart intentionally have no such bounds.
+                    viewPortHandler.matrixTouch.set(matrix)
+                    invalidate()
+                    syncSubCharts(this, stochChartRef.value, rsiChartRef.value)
+                }
+
+                private fun applyPan(dx: Float, dy: Float) {
+                    val matrix = Matrix(viewPortHandler.matrixTouch)
+                    matrix.postTranslate(dx, dy)
+                    refreshTouchMatrix(matrix)
+                }
+
+                private fun applyYZoom(dy: Float) {
+                    // Moving down on the Y axis reduces the visible Y range;
+                    // moving up expands it.
+                    val scaleY = exp((-dy / (180f * density)).toDouble()).toFloat()
+                    val matrix = Matrix(viewPortHandler.matrixTouch)
+                    matrix.postScale(1f, scaleY, zoomPivotX, zoomPivotY)
+                    refreshTouchMatrix(matrix)
+                }
+
+                private fun applyHorizontalPinchZoom(scaleX: Float, pivotX: Float, pivotY: Float) {
+                    if (!scaleX.isFinite() || scaleX <= 0f) return
+                    val matrix = Matrix(viewPortHandler.matrixTouch)
+                    matrix.postScale(scaleX, 1f, pivotX, pivotY)
+                    refreshTouchMatrix(matrix)
+                }
 
                 private fun touchToCandleIndex(x: Float, y: Float, size: Int): Int? {
                     val contentLeft = viewPortHandler.contentLeft()
@@ -1008,37 +1065,85 @@ fun PriceChart(
                         return true
                     }
 
-                    when (event.action) {
+                    when (event.actionMasked) {
                         android.view.MotionEvent.ACTION_DOWN -> {
                             downX = event.x
                             downY = event.y
+                            lastGestureX = event.x
+                            lastGestureY = event.y
+                            zoomPivotX = matrixPivotX(event.x)
+                            zoomPivotY = matrixPivotY(event.y)
+                            touchMode = ChartTouchMode.UNDECIDED
+                            gestureMoved = false
+                            parent.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
+                        android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                            if (event.pointerCount >= 2) {
+                                val firstX = event.getX(0)
+                                val secondX = event.getX(1)
+                                lastPinchSpanX = abs(secondX - firstX).coerceAtLeast(1f)
+                                zoomPivotX = matrixPivotX((firstX + secondX) / 2f)
+                                zoomPivotY = matrixPivotY((event.getY(0) + event.getY(1)) / 2f)
+                                touchMode = ChartTouchMode.PINCH_X_ZOOM
+                                gestureMoved = true
+                                parent.requestDisallowInterceptTouchEvent(true)
+                            }
+                            return true
                         }
                         android.view.MotionEvent.ACTION_MOVE -> {
-                            val dx = abs(event.x - downX)
-                            val dy = abs(event.y - downY)
-
-                            // If highlight is shown and we move, update it and BLOCK chart panning
-                            if (event.pointerCount == 1 && (dx > 10f || dy > 10f) && highlighted != null && highlighted.isNotEmpty()) {
-                                isDragEnabled = false // Lock chart motion
-                                parent.requestDisallowInterceptTouchEvent(true)
-
-                                lastTouchYPx = event.y
-                                val h = getHighlightByTouchPoint(event.x, event.y)
-                                if (h != null) {
-                                    highlightValue(h, true)
+                            if (event.pointerCount >= 2) {
+                                val firstX = event.getX(0)
+                                val secondX = event.getX(1)
+                                val currentSpanX = abs(secondX - firstX).coerceAtLeast(1f)
+                                if (lastPinchSpanX > 0f) {
+                                    applyHorizontalPinchZoom(
+                                        currentSpanX / lastPinchSpanX,
+                                        matrixPivotX((firstX + secondX) / 2f),
+                                        matrixPivotY((event.getY(0) + event.getY(1)) / 2f)
+                                    )
                                 }
+                                lastPinchSpanX = currentSpanX
+                                gestureMoved = true
+                                touchMode = ChartTouchMode.PINCH_X_ZOOM
+                                return true
+                            }
+                            if (event.pointerCount != 1) return true
+
+                            val totalDx = event.x - downX
+                            val totalDy = event.y - downY
+                            val threshold = 4f * density
+                            if (touchMode == ChartTouchMode.UNDECIDED &&
+                                (abs(totalDx) > threshold || abs(totalDy) > threshold)
+                            ) {
+                                touchMode = when {
+                                    isOnYAxis(downX) && abs(totalDy) >= abs(totalDx) -> ChartTouchMode.Y_ZOOM
+                                    else -> ChartTouchMode.PAN
+                                }
+                            }
+
+                            if (touchMode != ChartTouchMode.UNDECIDED) {
+                                gestureMoved = true
+                                val dx = event.x - lastGestureX
+                                val dy = event.y - lastGestureY
+                                if (touchMode == ChartTouchMode.PAN) {
+                                    applyPan(dx, dy)
+                                } else if (touchMode == ChartTouchMode.Y_ZOOM) {
+                                    applyYZoom(dy)
+                                }
+                                lastGestureX = event.x
+                                lastGestureY = event.y
+                                lastTouchYPx = -1f
                                 invalidate()
-                                return true // Consume movement to prevent chart panning
+                                return true
                             }
                         }
                         android.view.MotionEvent.ACTION_UP -> {
                             val dx = abs(event.x - downX)
                             val dy = abs(event.y - downY)
 
-                            isDragEnabled = true // Restore for next potential gesture
-
                             // Detect a TAP
-                            if (dx < 10f && dy < 10f) {
+                            if (!gestureMoved && dx < 10f && dy < 10f) {
                                 performClick()
                                 if (highlighted != null && highlighted.isNotEmpty()) {
                                     // Toggle OFF
@@ -1052,11 +1157,38 @@ fun PriceChart(
                                     highlightValue(h, true)
                                 }
                                 invalidate()
+                                touchMode = ChartTouchMode.UNDECIDED
+                                lastPinchSpanX = 0f
+                                parent.requestDisallowInterceptTouchEvent(false)
                                 return true
                             }
+                            touchMode = ChartTouchMode.UNDECIDED
+                            lastPinchSpanX = 0f
+                            parent.requestDisallowInterceptTouchEvent(false)
+                            return true
+                        }
+                        android.view.MotionEvent.ACTION_POINTER_UP -> {
+                            if (event.pointerCount >= 2) {
+                                val remainingIndex = if (event.actionIndex == 0) 1 else 0
+                                downX = event.getX(remainingIndex)
+                                downY = event.getY(remainingIndex)
+                                lastGestureX = downX
+                                lastGestureY = downY
+                            }
+                            touchMode = ChartTouchMode.UNDECIDED
+                            lastPinchSpanX = 0f
+                            parent.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
+                        android.view.MotionEvent.ACTION_CANCEL -> {
+                            touchMode = ChartTouchMode.UNDECIDED
+                            gestureMoved = false
+                            lastPinchSpanX = 0f
+                            parent.requestDisallowInterceptTouchEvent(false)
+                            return true
                         }
                     }
-                    return super.onTouchEvent(event)
+                    return true
                 }
 
                 override fun performClick(): Boolean {
@@ -1308,7 +1440,7 @@ fun PriceChart(
                         )
                     }
                     val areaDs = CandleDataSet(areaEntries, "BBArea").apply {
-                        axisDependency = YAxis.AxisDependency.LEFT
+                        axisDependency = YAxis.AxisDependency.RIGHT
                         setDrawValues(false)
                         shadowWidth = 0f
                         barSpace = 0f
@@ -1326,9 +1458,9 @@ fun PriceChart(
                     candleData.addDataSet(areaDs)
                     combinedData.setData(candleData)
                     val lineData = LineData()
-                    lineData.addDataSet(createBBLineDataSet(upperEntries, "Upper", bbColor))
-                    lineData.addDataSet(createBBLineDataSet(lowerEntries, "Lower", bbColor))
-                    lineData.addDataSet(createBBLineDataSet(middleEntries, "Middle", middleColor, 1.2f))
+                    lineData.addDataSet(createBBLineDataSet(upperEntries, "Upper", bbColor, axisDependency = YAxis.AxisDependency.RIGHT))
+                    lineData.addDataSet(createBBLineDataSet(lowerEntries, "Lower", bbColor, axisDependency = YAxis.AxisDependency.RIGHT))
+                    lineData.addDataSet(createBBLineDataSet(middleEntries, "Middle", middleColor, 1.2f, axisDependency = YAxis.AxisDependency.RIGHT))
                     prefs.mas.filter { it.visible }.forEach { ma ->
                         maLineDataSet(ma, state.maLines[ma.period] ?: emptyList())?.let {
                             lineData.addDataSet(it)
@@ -1348,6 +1480,10 @@ fun PriceChart(
                     }
                 }
                 chart.data = combinedData
+                // Rebuild CombinedChart renderer buffers after replacing the
+                // CandleData/LineData objects from Compose.
+                chart.notifyDataSetChanged()
+                chart.invalidate()
                 if (isNewDataset) {
                     chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, onPositioned = {
                         syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
@@ -1726,9 +1862,6 @@ private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsi
 }
 
 private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
-    xAxis.axisMinimum = source.xAxis.axisMinimum
-    xAxis.axisMaximum = source.xAxis.axisMaximum
-
     val sourceValues = FloatArray(9)
     source.viewPortHandler.matrixTouch.getValues(sourceValues)
 
@@ -1743,7 +1876,10 @@ private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
     targetValues[Matrix.MTRANS_Y] = 0f
     targetMatrix.setValues(targetValues)
 
-    viewPortHandler.refresh(targetMatrix, this, true)
+    // Keep the indicator charts on the same X matrix without reintroducing
+    // MPAndroidChart's translation/scale clamp.
+    viewPortHandler.matrixTouch.set(targetMatrix)
+    invalidate()
 }
 
 private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart? = null) {
@@ -1807,6 +1943,8 @@ private fun BarLineChartBase<*>.setupCommonChartParams() {
     isScaleYEnabled = true
     setBackgroundColor(GraphicsColor.BLACK)
     isHighlightPerDragEnabled = true
+    // Keep the existing data-range calculation so the initial candles remain
+    // visible; manual Y gestures still operate on the viewport matrix.
     isAutoScaleMinMaxEnabled = true
     xAxis.apply {
         position = XAxis.XAxisPosition.BOTTOM
@@ -1825,6 +1963,7 @@ private fun BarLineChartBase<*>.setupCommonChartParams() {
 
 // ─── DATASET HELPERS ─────────────────────────────────────────────────────────
 private fun createCandleDataSet(entries: List<CandleEntry>) = CandleDataSet(entries, "Klines").apply {
+    axisDependency = YAxis.AxisDependency.RIGHT
     shadowColor = "#F4F4F4".toColorInt()
     // ponytail: mecha fina estilo OKX, el ancho fijo en px se ve grueso al alejar
     shadowWidth = 0.7f
@@ -1844,7 +1983,15 @@ private fun createCandleDataSet(entries: List<CandleEntry>) = CandleDataSet(entr
     enableDashedHighlightLine(10f, 5f, 0f)
 }
 
-private fun createBBLineDataSet(entries: List<Entry>, label: String, color: Int, width: Float = 1f, highlight: Boolean = false) = LineDataSet(entries, label).apply {
+private fun createBBLineDataSet(
+    entries: List<Entry>,
+    label: String,
+    color: Int,
+    width: Float = 1f,
+    highlight: Boolean = false,
+    axisDependency: YAxis.AxisDependency = YAxis.AxisDependency.LEFT
+) = LineDataSet(entries, label).apply {
+    this.axisDependency = axisDependency
     this.color = color
     setDrawCircles(false)
     lineWidth = width
@@ -1867,7 +2014,13 @@ private fun maLineDataSet(ma: MaConfig, line: List<Pair<Long, Double>>): LineDat
     line.forEach { value ->
         entries.add(Entry(value.first.toFloat(), value.second.toFloat()))
     }
-    return createBBLineDataSet(entries, "MA${ma.period}", ma.colorHex.toColorInt(), ma.width)
+    return createBBLineDataSet(
+        entries,
+        "MA${ma.period}",
+        ma.colorHex.toColorInt(),
+        ma.width,
+        axisDependency = YAxis.AxisDependency.RIGHT
+    )
 }
 
 // ponytail: tick en vivo actualiza el ultimo punto de cada MA sin reconstruir
