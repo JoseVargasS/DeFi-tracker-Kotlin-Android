@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.defitracker.app.ui.theme.PlexMono
-import com.defitracker.app.ui.theme.Rajdhani
+import com.defitracker.app.ui.theme.Lato
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -293,8 +293,8 @@ fun WalletScreen(
                         text = "$${String.format("%,.2f", totalWorth)}",
                         color = Color.White,
                         fontSize = 36.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = Rajdhani
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = Lato
                     )
                     AnimatedVisibility(visible = state.isLoading) {
                         LinearProgressIndicator(
@@ -412,8 +412,8 @@ fun ChainCard(chainName: String, assets: List<com.defitracker.app.data.remote.dt
                     text = "Total $chainName: $${String.format("%,.2f", chainTotal)}",
                     color = Color.White,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = Rajdhani
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = Lato
                 )
             }
 

@@ -6,10 +6,12 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,12 +29,14 @@ data class IndicatorPrefs(
     val volumeVisible: Boolean = true,
     val stochVisible: Boolean = true,
     val rsiVisible: Boolean = true,
-    val mas: List<MaConfig> = defaultMas()
+    val mas: List<MaConfig> = defaultMas(),
+    val fib: FibConfig = FibConfig()
 ) {
     // ponytail: cambia si cambia cualquier ajuste -> el chart reconstruye sin resetear zoom
     fun prefsKey(): String = buildString {
         append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible)
         mas.forEach { append(it.period).append(it.visible).append(it.colorHex).append(it.width) }
+        append(fib.colorHex).append(fib.width).append(fib.hidden).append(fib.enabledLevels.sorted().joinToString(","))
     }
 
     companion object {
@@ -77,8 +81,60 @@ class IndicatorPrefsRepository @Inject constructor(
                     width = p[floatPreferencesKey("ma_${period}_width")] ?: d.width,
                     visible = p[booleanPreferencesKey("ma_${period}_visible")] ?: d.visible
                 )
-            }
+            },
+            // ponytail: config visual del fibo, el dibujo va aparte por simbolo
+            fib = FibConfig(
+                colorHex = p[stringPreferencesKey("fib_color")] ?: "#FFFFFF",
+                width = p[floatPreferencesKey("fib_width")] ?: 1f,
+                enabledLevels = p[stringPreferencesKey("fib_levels")]
+                    ?.split(",").orEmpty()
+                    .mapNotNull { it.toFloatOrNull() }
+                    .filter { it in ALL_FIB_LEVELS }
+                    .toSet()
+                    .ifEmpty { DEFAULT_FIB_LEVELS.toSet() },
+                hidden = p[booleanPreferencesKey("fib_hidden")] ?: false
+            )
         )
+    }
+
+    // ponytail: lista de fibos por simbolo, cada uno con su estilo+estado propio
+    fun fibOverlaysFlow(symbol: String): Flow<List<FibOverlay>> =
+        context.indicatorDataStore.data.map { p ->
+            decodeFibOverlays(p[stringPreferencesKey("fib_overlays_$symbol")])
+        }
+
+    suspend fun saveFibOverlays(symbol: String, overlays: List<FibOverlay>) {
+        context.indicatorDataStore.edit { e ->
+            e[stringPreferencesKey("fib_overlays_$symbol")] = encodeFibOverlays(overlays.take(MAX_FIBS_PER_SYMBOL))
+        }
+    }
+
+    // ponytail: migracion del fibo unico anterior a la lista, una sola vez
+    suspend fun migrateLegacyFib(symbol: String): List<FibOverlay>? {
+        val p = context.indicatorDataStore.data.first()
+        val sTime = p[longPreferencesKey("fib_${symbol}_s_time")] ?: return null
+        val sPrice = p[floatPreferencesKey("fib_${symbol}_s_price")]?.toDouble() ?: return null
+        val eTime = p[longPreferencesKey("fib_${symbol}_e_time")] ?: return null
+        val ePrice = p[floatPreferencesKey("fib_${symbol}_e_price")]?.toDouble() ?: return null
+        val overlay = FibOverlay(
+            id = java.util.UUID.randomUUID().toString(),
+            start = FibAnchor(sTime, sPrice),
+            end = FibAnchor(eTime, ePrice),
+            colorHex = p[stringPreferencesKey("fib_color")] ?: "#FFFFFF",
+            width = p[floatPreferencesKey("fib_width")] ?: 1f,
+            enabledLevels = p[stringPreferencesKey("fib_levels")]
+                ?.split(",").orEmpty().mapNotNull { it.toFloatOrNull() }
+                .filter { it in ALL_FIB_LEVELS }.toSet().ifEmpty { DEFAULT_FIB_LEVELS.toSet() },
+            hidden = p[booleanPreferencesKey("fib_hidden")] ?: false
+        )
+        context.indicatorDataStore.edit { e ->
+            e.remove(longPreferencesKey("fib_${symbol}_s_time"))
+            e.remove(floatPreferencesKey("fib_${symbol}_s_price"))
+            e.remove(longPreferencesKey("fib_${symbol}_e_time"))
+            e.remove(floatPreferencesKey("fib_${symbol}_e_price"))
+            e[stringPreferencesKey("fib_overlays_$symbol")] = encodeFibOverlays(listOf(overlay))
+        }
+        return listOf(overlay)
     }
 
     suspend fun save(prefs: IndicatorPrefs) {
@@ -93,6 +149,10 @@ class IndicatorPrefsRepository @Inject constructor(
                 e[stringPreferencesKey("ma_${ma.period}_color")] = ma.colorHex
                 e[floatPreferencesKey("ma_${ma.period}_width")] = ma.width
             }
+            e[stringPreferencesKey("fib_color")] = prefs.fib.colorHex
+            e[floatPreferencesKey("fib_width")] = prefs.fib.width
+            e[stringPreferencesKey("fib_levels")] = prefs.fib.enabledLevels.sorted().joinToString(",")
+            e[booleanPreferencesKey("fib_hidden")] = prefs.fib.hidden
         }
     }
 }

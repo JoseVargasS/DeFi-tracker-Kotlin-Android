@@ -29,6 +29,13 @@ val Rajdhani = FontFamily(
     Font(R.font.rajdhani_bold, FontWeight.Bold)
 )
 
+// ponytail: titulos, precios y numeros, ancha y legible sin abuso de bold
+val Lato = FontFamily(
+    Font(R.font.lato_regular, FontWeight.Normal),
+    Font(R.font.lato_semibold, FontWeight.SemiBold),
+    Font(R.font.lato_bold, FontWeight.Bold)
+)
+
 private val base = Typography()
 val AppTypography = Typography(
     displayLarge = base.displayLarge.copy(fontFamily = SpaceGrotesk),

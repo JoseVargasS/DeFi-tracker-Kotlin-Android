@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.defitracker.app.domain.model.CryptoPair
-import com.defitracker.app.ui.theme.Rajdhani
+import com.defitracker.app.ui.theme.Lato
 
 @Composable
 fun CryptoPairItem(
@@ -117,9 +117,9 @@ fun CryptoPairItem(
                 Text(
                     text = pair.price,
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     color = Color.White,
-                    fontFamily = Rajdhani
+                    fontFamily = Lato
                 )
                 
                 Surface(
@@ -130,9 +130,9 @@ fun CryptoPairItem(
                     Text(
                         text = "${if (pair.isPositive) "+" else ""}${pair.priceChangePercent}%",
                         color = changeColor,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 12.sp,
-                        fontFamily = Rajdhani,
+                        fontFamily = Lato,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }

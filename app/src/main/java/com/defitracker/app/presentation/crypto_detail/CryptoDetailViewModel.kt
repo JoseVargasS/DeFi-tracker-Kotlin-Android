@@ -37,6 +37,12 @@ class CryptoDetailViewModel @Inject constructor(
     private val _prefs = mutableStateOf(IndicatorPrefs.DEFAULT)
     val prefs: State<IndicatorPrefs> = _prefs
 
+    // ponytail: varios fibos por simbolo, cada uno con su estilo+estado propio
+    private val _fibOverlays = mutableStateOf<List<FibOverlay>>(emptyList())
+    val fibOverlays: State<List<FibOverlay>> = _fibOverlays
+    private val _selectedFibId = mutableStateOf<String?>(null)
+    val selectedFibId: State<String?> = _selectedFibId
+
     private val symbol: String = checkNotNull(savedStateHandle["symbol"])
     private val source: String = checkNotNull(savedStateHandle["source"])
 
@@ -48,6 +54,16 @@ class CryptoDetailViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _prefs.value = prefsRepo.prefsFlow.first()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+            // ponytail: carga los fibos guardados de este simbolo sin bloquear el chart
+            try {
+                val stored = prefsRepo.fibOverlaysFlow(symbol).first()
+                _fibOverlays.value = stored.ifEmpty {
+                    prefsRepo.migrateLegacyFib(symbol) ?: emptyList()
+                }
+                _selectedFibId.value = _fibOverlays.value.lastOrNull()?.id
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
@@ -83,6 +99,76 @@ class CryptoDetailViewModel @Inject constructor(
     fun setMAWidth(period: Int, width: Float) = updatePrefs {
         it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(width = width) else ma })
     }
+
+    // ─── FIBO (multi-overlay) ───
+    private fun persistFibs() {
+        val snapshot = _fibOverlays.value
+        viewModelScope.launch {
+            try {
+                prefsRepo.saveFibOverlays(symbol, snapshot)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    // ponytail: preview durante el drag sin spamear DataStore, se persiste al soltar
+    fun setFibLive(id: String, overlay: FibOverlay) {
+        _fibOverlays.value = _fibOverlays.value.map { if (it.id == id) overlay else it }
+    }
+
+    fun commitFib(id: String) {
+        persistFibs()
+    }
+
+    fun addFib(start: FibAnchor, end: FibAnchor): FibOverlay? {
+        if (_fibOverlays.value.size >= MAX_FIBS_PER_SYMBOL) return null
+        val overlay = FibOverlay(
+            id = java.util.UUID.randomUUID().toString(),
+            start = start,
+            end = end
+        )
+        _fibOverlays.value = _fibOverlays.value + overlay
+        _selectedFibId.value = overlay.id
+        persistFibs()
+        return overlay
+    }
+
+    fun deleteFib(id: String) {
+        _fibOverlays.value = _fibOverlays.value.filterNot { it.id == id }
+        if (_selectedFibId.value == id) _selectedFibId.value = _fibOverlays.value.lastOrNull()?.id
+        persistFibs()
+    }
+
+    fun selectFib(id: String?) {
+        _selectedFibId.value = id
+    }
+
+    fun selectedFib(): FibOverlay? = _fibOverlays.value.firstOrNull { it.id == _selectedFibId.value }
+
+    private fun updateFib(id: String, transform: (FibOverlay) -> FibOverlay, persist: Boolean = true) {
+        _fibOverlays.value = _fibOverlays.value.map { if (it.id == id) transform(it) else it }
+        if (persist) persistFibs()
+    }
+
+    fun moveFibAnchor(id: String, isStart: Boolean, anchor: FibAnchor, persist: Boolean = true) {
+        updateFib(id, { if (isStart) it.copy(start = anchor) else it.copy(end = anchor) }, persist)
+    }
+
+    fun moveFibWhole(id: String, start: FibAnchor, end: FibAnchor, persist: Boolean = true) {
+        updateFib(id, { it.copy(start = start, end = end) }, persist)
+    }
+
+    fun setFibColor(id: String, hex: String) = updateFib(id, { it.copy(colorHex = hex) })
+    fun setFibWidth(id: String, w: Float) = updateFib(id, { it.copy(width = w.coerceIn(0.5f, 3f)) })
+    fun toggleFibLevel(id: String, ratio: Float) = updateFib(id, {
+        val next = it.enabledLevels.toMutableSet()
+        if (ratio in next) next.remove(ratio) else next.add(ratio)
+        // ponytail: nunca dejes el fibo sin niveles, vuelve al default
+        it.copy(enabledLevels = next.ifEmpty { DEFAULT_FIB_LEVELS.toSet() })
+    })
+    fun toggleFibHidden(id: String) = updateFib(id, { it.copy(hidden = !it.hidden) })
+    fun toggleFibLocked(id: String) = updateFib(id, { it.copy(locked = !it.locked) })
 
     private fun loadDetail() {
         viewModelScope.launch {
