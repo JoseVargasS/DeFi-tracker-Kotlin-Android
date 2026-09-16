@@ -170,6 +170,14 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleFibHidden(id: String) = updateFib(id, { it.copy(hidden = !it.hidden) })
     fun toggleFibLocked(id: String) = updateFib(id, { it.copy(locked = !it.locked) })
 
+    // ─── SMC ───
+    fun toggleSmcStructure() = updatePrefs { it.copy(smcStructure = !it.smcStructure) }
+    fun toggleSmcOrderBlocks() = updatePrefs { it.copy(smcOrderBlocks = !it.smcOrderBlocks) }
+    fun toggleSmcFvg() = updatePrefs { it.copy(smcFvg = !it.smcFvg) }
+    fun toggleSmcPremium() = updatePrefs { it.copy(smcPremium = !it.smcPremium) }
+    fun toggleSmcEqhl() = updatePrefs { it.copy(smcEqhl = !it.smcEqhl) }
+    fun toggleSmcLiquidity() = updatePrefs { it.copy(smcLiquidity = !it.smcLiquidity) }
+
     private fun loadDetail() {
         viewModelScope.launch {
             _state.value = state.value.copy(isLoading = true)
@@ -204,7 +212,7 @@ class CryptoDetailViewModel @Inject constructor(
                         }
 
                         val chartData = withContext(Dispatchers.Default) {
-                            updatedCandles.toChartComputation()
+                            updatedCandles.toChartComputation(_state.value.selectedInterval)
                         }
                         
                         _state.value = _state.value.copy(
@@ -216,7 +224,8 @@ class CryptoDetailViewModel @Inject constructor(
                             stochK = chartData.stochK,
                             stochD = chartData.stochD,
                             maLines = chartData.maLines,
-                            rsi = chartData.rsi
+                            rsi = chartData.rsi,
+                            smc = chartData.smc
                         )
                     }
                 } catch (e: CancellationException) {
@@ -249,7 +258,7 @@ class CryptoDetailViewModel @Inject constructor(
                         return@withContext ChartComputation()
                     }
 
-                    candles.toChartComputation()
+                    candles.toChartComputation(normalizedInterval)
                 }
 
                 _state.value = state.value.copy(
@@ -261,6 +270,7 @@ class CryptoDetailViewModel @Inject constructor(
                     stochD = chartData.stochD,
                     maLines = chartData.maLines,
                     rsi = chartData.rsi,
+                    smc = chartData.smc,
                     isLoading = false
                 )
             } catch (e: CancellationException) {
@@ -309,7 +319,7 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
-    private fun List<CandleData>.toChartComputation(): ChartComputation {
+    private fun List<CandleData>.toChartComputation(interval: String = ""): ChartComputation {
         if (isEmpty()) return ChartComputation()
 
         val period = 20
@@ -398,7 +408,9 @@ class CryptoDetailViewModel @Inject constructor(
             stochK = stochK,
             stochD = stochD,
             maLines = maLines,
-            rsi = rsi
+            rsi = rsi,
+            // ponytail: SMC derivado de las velas, se recalcula solo al cambiar TF
+            smc = computeSmc(this, interval)
         )
     }
 
@@ -527,6 +539,7 @@ data class CryptoDetailState(
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
+    val smc: SmcData = SmcData(),
     val selectedInterval: String = "15m",
     val isLoading: Boolean = false,
     val error: String = ""
@@ -551,5 +564,6 @@ private data class ChartComputation(
     val stochK: List<Pair<Long, Double>> = emptyList(),
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
-    val rsi: List<Pair<Long, Double>> = emptyList()
+    val rsi: List<Pair<Long, Double>> = emptyList(),
+    val smc: SmcData = SmcData()
 )

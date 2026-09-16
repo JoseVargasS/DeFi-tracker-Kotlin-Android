@@ -275,7 +275,13 @@ fun CryptoDetailScreen(
                         onToggleStoch = { viewModel.toggleStochSub() },
                         onToggleRsi = { viewModel.toggleRsiSub() },
                         onToggleMA = { viewModel.toggleMA(it) },
-                        onConfigureMA = { maSheetPeriod.value = it }
+                        onConfigureMA = { maSheetPeriod.value = it },
+                        onToggleSmcStructure = { viewModel.toggleSmcStructure() },
+                        onToggleSmcOB = { viewModel.toggleSmcOrderBlocks() },
+                        onToggleSmcFvg = { viewModel.toggleSmcFvg() },
+                        onToggleSmcPremium = { viewModel.toggleSmcPremium() },
+                        onToggleSmcEqhl = { viewModel.toggleSmcEqhl() },
+                        onToggleSmcLiq = { viewModel.toggleSmcLiquidity() }
                     )
                 }
             }
@@ -659,6 +665,148 @@ fun PriceChart(
                     color = GraphicsColor.parseColor("#2196F3")
                     strokeWidth = 3f
                     style = Paint.Style.STROKE
+                }
+                // ponytail: SMC tenue, las velas mandan (alfas bajos, labels chicos)
+                val smcObBullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(42, 38, 166, 154)
+                    style = Paint.Style.FILL
+                }
+                val smcObBearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(42, 239, 83, 80)
+                    style = Paint.Style.FILL
+                }
+                val smcObMitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(16, 173, 177, 184)
+                    style = Paint.Style.FILL
+                }
+                val smcFvgBullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(32, 38, 166, 154)
+                    style = Paint.Style.FILL
+                }
+                val smcFvgBearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(32, 239, 83, 80)
+                    style = Paint.Style.FILL
+                }
+                // ponytail: bordes punteados del color del lado para leer las cajas
+                val smcObBullEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(120, 38, 166, 154)
+                    strokeWidth = 1.4f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcObBearEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(120, 239, 83, 80)
+                    strokeWidth = 1.4f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(190, 38, 166, 154)
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(190, 239, 83, 80)
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcBullLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(235, 38, 166, 154)
+                    textSize = 24f
+                    textAlign = Paint.Align.LEFT
+                }
+                val smcBearLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(235, 239, 83, 80)
+                    textSize = 24f
+                    textAlign = Paint.Align.LEFT
+                }
+                val smcFvgTagPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(170, 173, 177, 184)
+                    textSize = 18f
+                    textAlign = Paint.Align.LEFT
+                }
+                val smcChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(215, 20, 21, 24)
+                    style = Paint.Style.FILL
+                }
+                val smcEqPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(170, 255, 193, 7)
+                    strokeWidth = 1.8f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcEqLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(210, 255, 193, 7)
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
+                }
+                val smcPremPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(12, 239, 83, 80)
+                    style = Paint.Style.FILL
+                }
+                val smcDiscPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(12, 38, 166, 154)
+                    style = Paint.Style.FILL
+                }
+                val smcEqLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(110, 173, 177, 184)
+                    strokeWidth = 1.2f
+                    style = Paint.Style.STROKE
+                    pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
+                }
+                // ponytail: gris donde el FVG de otro TF pisa tu zona
+                val smcConfluencePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(60, 158, 158, 158)
+                    style = Paint.Style.FILL
+                }
+                val smcConfluenceTagPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(200, 189, 189, 189)
+                    textSize = 20f
+                    textAlign = Paint.Align.LEFT
+                }
+                // ponytail: liquidez tenue, punteada como el resto del SMC
+                val smcBslPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(150, 33, 150, 243)
+                    strokeWidth = 1.6f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcSslPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(150, 255, 152, 0)
+                    strokeWidth = 1.6f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcSweptPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(70, 158, 158, 158)
+                    strokeWidth = 1.4f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                }
+                val smcBslLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(200, 33, 150, 243)
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
+                }
+                val smcSslLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(200, 255, 152, 0)
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
+                }
+                val smcSweepLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(190, 158, 158, 158)
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
                 }
 
                 val tagTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1394,6 +1542,251 @@ fun PriceChart(
                     canvas.drawText(label, ll + 9f, lt + lh2 - 8f, selectionTextPaint)
                 }
 
+                // ─── SMC ───
+                // ponytail: fondo tenue detras de las velas (premium/discount)
+                private fun drawSmcBackground(
+                    canvas: Canvas,
+                    candles: List<CandleData>,
+                    visibleStart: Int,
+                    visibleEnd: Int
+                ) {
+                    if (!prefsRef.value.smcPremium) return
+                    val range = stateRef.value.smc.premium ?: return
+                    if (candles.isEmpty()) return
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val x0 = floatArrayOf(visibleStart.toFloat(), 0f)
+                    trans.pointValuesToPixel(x0)
+                    val x1 = floatArrayOf(visibleEnd.toFloat(), 0f)
+                    trans.pointValuesToPixel(x1)
+                    val leftX = min(x0[0], x1[0]).coerceIn(contentLeft, contentRight)
+                    val rightX = max(x0[0], x1[0]).coerceIn(contentLeft, contentRight)
+                    val hi = floatArrayOf(0f, range.high.toFloat())
+                    trans.pointValuesToPixel(hi)
+                    val eq = floatArrayOf(0f, range.equilibrium.toFloat())
+                    trans.pointValuesToPixel(eq)
+                    val lo = floatArrayOf(0f, range.low.toFloat())
+                    trans.pointValuesToPixel(lo)
+                    yTagRect.set(leftX, min(hi[1], eq[1]), rightX, max(hi[1], eq[1]))
+                    canvas.drawRect(yTagRect, smcPremPaint)
+                    yTagRect.set(leftX, min(eq[1], lo[1]), rightX, max(eq[1], lo[1]))
+                    canvas.drawRect(yTagRect, smcDiscPaint)
+                    canvas.drawLine(leftX, eq[1], rightX, eq[1], smcEqLinePaint)
+                }
+
+                // ponytail: cajas y estructura sobre el chart pero tenues, las velas mandan
+                private fun drawSmcForeground(
+                    canvas: Canvas,
+                    candles: List<CandleData>,
+                    visibleStart: Int,
+                    visibleEnd: Int
+                ) {
+                    val smc = stateRef.value.smc
+                    if (candles.isEmpty()) return
+                    val prefs = prefsRef.value
+                    if (!prefs.smcOrderBlocks && !prefs.smcFvg && !prefs.smcStructure && !prefs.smcEqhl && !prefs.smcLiquidity) return
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+
+                    if (prefs.smcOrderBlocks || prefs.smcFvg) {
+                        smc.zones.forEach { z ->
+                            val wantOb = prefs.smcOrderBlocks && z.kind == SmcZoneKind.ORDER_BLOCK
+                            val wantFvg = prefs.smcFvg && z.kind == SmcZoneKind.FVG
+                            if (!wantOb && !wantFvg) return@forEach
+                            if (z.endIdx < visibleStart || z.startIdx > visibleEnd) return@forEach
+                            val s = max(z.startIdx, 0)
+                            val e = min(z.endIdx, candles.size - 1)
+                            if (e <= s) return@forEach
+                            val xs = floatArrayOf(s.toFloat(), 0f)
+                            trans.pointValuesToPixel(xs)
+                            val xe = floatArrayOf(e.toFloat(), 0f)
+                            trans.pointValuesToPixel(xe)
+                            val top = floatArrayOf(0f, z.top.toFloat())
+                            trans.pointValuesToPixel(top)
+                            val bot = floatArrayOf(0f, z.bottom.toFloat())
+                            trans.pointValuesToPixel(bot)
+                            yTagRect.set(
+                                min(xs[0], xe[0]).coerceIn(contentLeft, contentRight),
+                                min(top[1], bot[1]),
+                                max(xs[0], xe[0]).coerceIn(contentLeft, contentRight),
+                                max(top[1], bot[1])
+                            )
+                            val paint = when {
+                                z.mitigated -> smcObMitPaint
+                                z.kind == SmcZoneKind.ORDER_BLOCK && z.bullish -> smcObBullPaint
+                                z.kind == SmcZoneKind.ORDER_BLOCK -> smcObBearPaint
+                                z.bullish -> smcFvgBullPaint
+                                else -> smcFvgBearPaint
+                            }
+                            canvas.drawRect(yTagRect, paint)
+                            // ponytail: borde punteado del lado + tag FVG solo si sigue vigente
+                            if (!z.mitigated) {
+                                val edge = if (z.bullish) smcObBullEdge else smcObBearEdge
+                                canvas.drawRect(yTagRect, edge)
+                                if (z.kind == SmcZoneKind.FVG) {
+                                    canvas.drawText(
+                                        "FVG·${stateRef.value.selectedInterval}",
+                                        yTagRect.left + 4f,
+                                        (yTagRect.top + 20f).coerceIn(contentTop + 16f, contentBottom),
+                                        smcFvgTagPaint
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (prefs.smcStructure) {
+                        smc.events.forEach { ev ->
+                            if (ev.breakIdx < visibleStart || ev.swingIdx > visibleEnd) return@forEach
+                            val lvl = floatArrayOf(0f, ev.levelPrice.toFloat())
+                            trans.pointValuesToPixel(lvl)
+                            val py = lvl[1].coerceIn(contentTop, contentBottom)
+                            val xs = floatArrayOf(ev.swingIdx.toFloat(), 0f)
+                            trans.pointValuesToPixel(xs)
+                            val xb = floatArrayOf(ev.breakIdx.toFloat(), 0f)
+                            trans.pointValuesToPixel(xb)
+                            val linePaint = if (ev.bullish) smcBullLinePaint else smcBearLinePaint
+                            val labelPaint = if (ev.bullish) smcBullLabelPaint else smcBearLabelPaint
+                            canvas.drawLine(
+                                xs[0].coerceIn(contentLeft, contentRight), py,
+                                xb[0].coerceIn(contentLeft, contentRight), py, linePaint
+                            )
+                            val label = if (ev.kind == SmcEventKind.BOS) "BOS" else "CHoCH"
+                            drawSmcChip(canvas, label, labelPaint, xb[0], py, ev.bullish, contentLeft, contentRight, contentTop, contentBottom)
+                        }
+                    }
+
+                    if (prefs.smcEqhl) {
+                        smc.eqLevels.forEach { eq ->
+                            if (eq.idx2 < visibleStart || eq.idx1 > visibleEnd) return@forEach
+                            val pts = floatArrayOf(0f, eq.price.toFloat())
+                            trans.pointValuesToPixel(pts)
+                            val py = pts[1].coerceIn(contentTop, contentBottom)
+                            val x1 = floatArrayOf(eq.idx1.toFloat(), 0f)
+                            trans.pointValuesToPixel(x1)
+                            val x2 = floatArrayOf(eq.idx2.toFloat(), 0f)
+                            trans.pointValuesToPixel(x2)
+                            canvas.drawLine(
+                                x1[0].coerceIn(contentLeft, contentRight), py,
+                                x2[0].coerceIn(contentLeft, contentRight), py, smcEqPaint
+                            )
+                            val label = if (eq.isHigh) "EQH" else "EQL"
+                            drawSmcChip(canvas, label, smcEqLabelPaint, x2[0], py, false, contentLeft, contentRight, contentTop, contentBottom)
+                        }
+                    }
+
+                    // ponytail: pools BSL/SSL + barridos, tags al borde derecho con stagger
+                    if (prefs.smcLiquidity) {
+                        // ponytail: SWEEP solo el mas reciente por lado, el resto linea pelada
+                        val latestSweepBuy = smc.liquidity.filter { it.isBuySide && it.swept }.maxByOrNull { it.sweepIdx ?: -1 }
+                        val latestSweepSell = smc.liquidity.filter { !it.isBuySide && it.swept }.maxByOrNull { it.sweepIdx ?: -1 }
+                        var lastTagY = Float.NEGATIVE_INFINITY
+                        smc.liquidity.sortedByDescending { it.idx }.forEach { liq ->
+                            if (liq.idx > visibleEnd) return@forEach
+                            val pts = floatArrayOf(0f, liq.price.toFloat())
+                            trans.pointValuesToPixel(pts)
+                            val py = pts[1].coerceIn(contentTop, contentBottom)
+                            val x0 = floatArrayOf(liq.idx.toFloat(), 0f)
+                            trans.pointValuesToPixel(x0)
+                            val endIdx = liq.sweepIdx ?: (candles.size - 1)
+                            if (endIdx < visibleStart) return@forEach
+                            val x1 = floatArrayOf(endIdx.toFloat(), 0f)
+                            trans.pointValuesToPixel(x1)
+                            val linePaint = when {
+                                liq.swept -> smcSweptPaint
+                                liq.isBuySide -> smcBslPaint
+                                else -> smcSslPaint
+                            }
+                            canvas.drawLine(
+                                x0[0].coerceIn(contentLeft, contentRight), py,
+                                x1[0].coerceIn(contentLeft, contentRight), py, linePaint
+                            )
+                            val showTag = !liq.swept || liq === latestSweepBuy || liq === latestSweepSell
+                            if (showTag) {
+                                val label = when {
+                                    liq.swept -> "SWEEP"
+                                    liq.isBuySide -> "BSL"
+                                    else -> "SSL"
+                                }
+                                val labelPaint = when {
+                                    liq.swept -> smcSweepLabelPaint
+                                    liq.isBuySide -> smcBslLabelPaint
+                                    else -> smcSslLabelPaint
+                                }
+                                // ponytail: tag al borde derecho, desplazado si choca con otro
+                                val w = labelPaint.measureText(label) + 14f
+                                val h = labelPaint.textSize + 8f
+                                val lx = (contentRight - w).coerceAtLeast(contentLeft)
+                                var ly = if (liq.isBuySide) {
+                                    (py - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                                } else {
+                                    (py + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                                }
+                                if (abs(ly - lastTagY) < h + 4f) {
+                                    ly = (lastTagY + h + 4f).coerceAtMost(contentBottom - h)
+                                }
+                                lastTagY = ly
+                                yTagRect.set(lx, ly, lx + w, ly + h)
+                                canvas.drawRoundRect(yTagRect, 4f, 4f, smcChipPaint)
+                                canvas.drawText(label, lx + 7f, ly + h - 6f, labelPaint)
+                            }
+                        }
+                    }
+
+                    // ponytail: bandas grises donde el FVG de otro TF pisa tu zona
+                    if (prefs.smcFvg) {
+                        smc.confluence.forEach { band ->
+                            val top = floatArrayOf(0f, band.top.toFloat())
+                            trans.pointValuesToPixel(top)
+                            val bot = floatArrayOf(0f, band.bottom.toFloat())
+                            trans.pointValuesToPixel(bot)
+                            val xs = floatArrayOf(band.startIdx.toFloat(), 0f)
+                            trans.pointValuesToPixel(xs)
+                            val xe = floatArrayOf(band.endIdx.toFloat(), 0f)
+                            trans.pointValuesToPixel(xe)
+                            if (xe[0] < contentLeft || xs[0] > contentRight) return@forEach
+                            yTagRect.set(
+                                xs[0].coerceIn(contentLeft, contentRight),
+                                min(top[1], bot[1]),
+                                xe[0].coerceIn(contentLeft, contentRight),
+                                max(top[1], bot[1])
+                            )
+                            canvas.drawRect(yTagRect, smcConfluencePaint)
+                            drawSmcChip(canvas, band.tfLabel, smcConfluenceTagPaint, xs[0], min(top[1], bot[1]), true, contentLeft, contentRight, contentTop, contentBottom)
+                        }
+                    }
+                }
+
+                // ponytail: chip oscuro para que el tag se lea sobre las velas
+                private fun drawSmcChip(
+                    canvas: Canvas,
+                    label: String,
+                    labelPaint: Paint,
+                    anchorX: Float,
+                    anchorY: Float,
+                    above: Boolean,
+                    contentLeft: Float,
+                    contentRight: Float,
+                    contentTop: Float,
+                    contentBottom: Float
+                ) {
+                    val w = labelPaint.measureText(label) + 14f
+                    val h = labelPaint.textSize + 8f
+                    val lx = (anchorX + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                    val ly = if (above) {
+                        (anchorY - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                    } else {
+                        (anchorY + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                    }
+                    yTagRect.set(lx, ly, lx + w, ly + h)
+                    canvas.drawRoundRect(yTagRect, 4f, 4f, smcChipPaint)
+                    canvas.drawText(label, lx + 7f, ly + h - 6f, labelPaint)
+                }
+
                 private fun trimRatio(r: Float): String {
                     val s = String.format(Locale.US, "%.3f", r).trimEnd('0').trimEnd('.')
                     return if (s.isEmpty()) "0" else s
@@ -1778,6 +2171,7 @@ fun PriceChart(
                         drawFixedRangeVolumeProfile(canvas, entries, visibleStart, visibleEnd)
                     }
                     drawVolumeOverlay(canvas, entries, visibleStart, visibleEnd)
+                    drawSmcBackground(canvas, entries, visibleStart, visibleEnd)
                     super.onDraw(canvas)
                     drawTakerLegend(canvas, entries)
                     
@@ -1832,6 +2226,7 @@ fun PriceChart(
 
                     drawPriceRangeSelection(canvas, entries)
                     drawFibOverlays(canvas, entries)
+                    drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
                     drawLastPriceTag(canvas, entries)
 
                     // --- Draw Crosshair Lines Manually (Exact Y, Snapped X) ---
@@ -1905,6 +2300,14 @@ fun PriceChart(
                         takerTotalPaint.typeface = tf
                         takerBuyTextPaint.typeface = tf
                         takerSellTextPaint.typeface = tf
+                        smcBullLabelPaint.typeface = tf
+                        smcBearLabelPaint.typeface = tf
+                        smcEqLabelPaint.typeface = tf
+                        smcFvgTagPaint.typeface = tf
+                        smcConfluenceTagPaint.typeface = tf
+                        smcBslLabelPaint.typeface = tf
+                        smcSslLabelPaint.typeface = tf
+                        smcSweepLabelPaint.typeface = tf
                     }
                 } catch (_: Exception) {}
                 
@@ -2980,7 +3383,13 @@ fun IndicatorsSheet(
     onToggleStoch: () -> Unit,
     onToggleRsi: () -> Unit,
     onToggleMA: (Int) -> Unit,
-    onConfigureMA: (Int) -> Unit
+    onConfigureMA: (Int) -> Unit,
+    onToggleSmcStructure: () -> Unit,
+    onToggleSmcOB: () -> Unit,
+    onToggleSmcFvg: () -> Unit,
+    onToggleSmcPremium: () -> Unit,
+    onToggleSmcEqhl: () -> Unit,
+    onToggleSmcLiq: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -3075,6 +3484,19 @@ fun IndicatorsSheet(
         IndicatorSwitchRow("VOL", "Volumen", prefs.volumeVisible, onToggleVolume)
         IndicatorSwitchRow("StochRSI", "Stoch RSI", prefs.stochVisible, onToggleStoch)
         IndicatorSwitchRow("RSI", "RSI 14", prefs.rsiVisible, onToggleRsi)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Smart Money",
+            color = Color.Gray,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
+        IndicatorSwitchRow("BOS / CHoCH", "Estructura de mercado", prefs.smcStructure, onToggleSmcStructure)
+        IndicatorSwitchRow("Order Blocks", "Últimos 5 por lado", prefs.smcOrderBlocks, onToggleSmcOB)
+        IndicatorSwitchRow("FVG", "Gaps de valor justo", prefs.smcFvg, onToggleSmcFvg)
+        IndicatorSwitchRow("Premium/Discount", "Rango 120 velas + equilibrio", prefs.smcPremium, onToggleSmcPremium)
+        IndicatorSwitchRow("EQH / EQL", "Máximos/mínimos iguales", prefs.smcEqhl, onToggleSmcEqhl)
+        IndicatorSwitchRow("Liquidez BSL/SSL", "Pools + barridos", prefs.smcLiquidity, onToggleSmcLiq)
         Spacer(modifier = Modifier.height(24.dp))
     }
 }

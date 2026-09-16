@@ -30,13 +30,21 @@ data class IndicatorPrefs(
     val stochVisible: Boolean = true,
     val rsiVisible: Boolean = true,
     val mas: List<MaConfig> = defaultMas(),
-    val fib: FibConfig = FibConfig()
+    val fib: FibConfig = FibConfig(),
+    // ponytail: smart money concepts, apagados por defecto para no tapar las velas
+    val smcStructure: Boolean = false,
+    val smcOrderBlocks: Boolean = false,
+    val smcFvg: Boolean = false,
+    val smcPremium: Boolean = false,
+    val smcEqhl: Boolean = false,
+    val smcLiquidity: Boolean = false
 ) {
     // ponytail: cambia si cambia cualquier ajuste -> el chart reconstruye sin resetear zoom
     fun prefsKey(): String = buildString {
         append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible)
         mas.forEach { append(it.period).append(it.visible).append(it.colorHex).append(it.width) }
         append(fib.colorHex).append(fib.width).append(fib.hidden).append(fib.enabledLevels.sorted().joinToString(","))
+        append(smcStructure).append(smcOrderBlocks).append(smcFvg).append(smcPremium).append(smcEqhl).append(smcLiquidity)
     }
 
     companion object {
@@ -73,6 +81,12 @@ class IndicatorPrefsRepository @Inject constructor(
             volumeVisible = p[booleanPreferencesKey("volume_visible")] ?: true,
             stochVisible = p[booleanPreferencesKey("stoch_visible")] ?: true,
             rsiVisible = p[booleanPreferencesKey("rsi_visible")] ?: true,
+            smcStructure = p[booleanPreferencesKey("smc_structure")] ?: false,
+            smcOrderBlocks = p[booleanPreferencesKey("smc_ob")] ?: false,
+            smcFvg = p[booleanPreferencesKey("smc_fvg")] ?: false,
+            smcPremium = p[booleanPreferencesKey("smc_premium")] ?: false,
+            smcEqhl = p[booleanPreferencesKey("smc_eqhl")] ?: false,
+            smcLiquidity = p[booleanPreferencesKey("smc_liq")] ?: false,
             mas = IndicatorPrefs.MA_PERIODS.map { period ->
                 val d = defaults.mas.first { it.period == period }
                 MaConfig(
@@ -144,6 +158,12 @@ class IndicatorPrefsRepository @Inject constructor(
             e[booleanPreferencesKey("volume_visible")] = prefs.volumeVisible
             e[booleanPreferencesKey("stoch_visible")] = prefs.stochVisible
             e[booleanPreferencesKey("rsi_visible")] = prefs.rsiVisible
+            e[booleanPreferencesKey("smc_structure")] = prefs.smcStructure
+            e[booleanPreferencesKey("smc_ob")] = prefs.smcOrderBlocks
+            e[booleanPreferencesKey("smc_fvg")] = prefs.smcFvg
+            e[booleanPreferencesKey("smc_premium")] = prefs.smcPremium
+            e[booleanPreferencesKey("smc_eqhl")] = prefs.smcEqhl
+            e[booleanPreferencesKey("smc_liq")] = prefs.smcLiquidity
             prefs.mas.forEach { ma ->
                 e[booleanPreferencesKey("ma_${ma.period}_visible")] = ma.visible
                 e[stringPreferencesKey("ma_${ma.period}_color")] = ma.colorHex
