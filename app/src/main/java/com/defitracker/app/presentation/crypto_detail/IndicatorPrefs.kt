@@ -29,6 +29,10 @@ data class IndicatorPrefs(
     val volumeVisible: Boolean = true,
     val stochVisible: Boolean = true,
     val rsiVisible: Boolean = true,
+    // ponytail: divergencias RSI estilo TV, apagadas por defecto para no meter ruido
+    val rsiDivVisible: Boolean = false,
+    // ponytail: como el Pine (plotHiddenBull/Bear=false), las ocultas van aparte
+    val rsiDivHidden: Boolean = false,
     val mas: List<MaConfig> = defaultMas(),
     val fib: FibConfig = FibConfig(),
     // ponytail: smart money concepts, apagados por defecto para no tapar las velas
@@ -41,7 +45,7 @@ data class IndicatorPrefs(
 ) {
     // ponytail: cambia si cambia cualquier ajuste -> el chart reconstruye sin resetear zoom
     fun prefsKey(): String = buildString {
-        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible)
+        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible).append(rsiDivVisible).append(rsiDivHidden)
         mas.forEach { append(it.period).append(it.visible).append(it.colorHex).append(it.width) }
         append(fib.colorHex).append(fib.width).append(fib.hidden).append(fib.enabledLevels.sorted().joinToString(","))
         append(smcStructure).append(smcOrderBlocks).append(smcFvg).append(smcPremium).append(smcEqhl).append(smcLiquidity)
@@ -81,6 +85,8 @@ class IndicatorPrefsRepository @Inject constructor(
             volumeVisible = p[booleanPreferencesKey("volume_visible")] ?: true,
             stochVisible = p[booleanPreferencesKey("stoch_visible")] ?: true,
             rsiVisible = p[booleanPreferencesKey("rsi_visible")] ?: true,
+            rsiDivVisible = p[booleanPreferencesKey("rsi_div_visible")] ?: false,
+            rsiDivHidden = p[booleanPreferencesKey("rsi_div_hidden")] ?: false,
             smcStructure = p[booleanPreferencesKey("smc_structure")] ?: false,
             smcOrderBlocks = p[booleanPreferencesKey("smc_ob")] ?: false,
             smcFvg = p[booleanPreferencesKey("smc_fvg")] ?: false,
@@ -123,6 +129,18 @@ class IndicatorPrefsRepository @Inject constructor(
         }
     }
 
+    // ponytail: dibujos OKX por simbolo, mismo esquema que los fibos
+    fun drawOverlaysFlow(symbol: String): Flow<List<DrawOverlay>> =
+        context.indicatorDataStore.data.map { p ->
+            decodeDrawOverlays(p[stringPreferencesKey("draw_overlays_$symbol")])
+        }
+
+    suspend fun saveDrawOverlays(symbol: String, overlays: List<DrawOverlay>) {
+        context.indicatorDataStore.edit { e ->
+            e[stringPreferencesKey("draw_overlays_$symbol")] = encodeDrawOverlays(overlays.take(MAX_DRAWS_PER_SYMBOL))
+        }
+    }
+
     // ponytail: migracion del fibo unico anterior a la lista, una sola vez
     suspend fun migrateLegacyFib(symbol: String): List<FibOverlay>? {
         val p = context.indicatorDataStore.data.first()
@@ -158,6 +176,8 @@ class IndicatorPrefsRepository @Inject constructor(
             e[booleanPreferencesKey("volume_visible")] = prefs.volumeVisible
             e[booleanPreferencesKey("stoch_visible")] = prefs.stochVisible
             e[booleanPreferencesKey("rsi_visible")] = prefs.rsiVisible
+            e[booleanPreferencesKey("rsi_div_visible")] = prefs.rsiDivVisible
+            e[booleanPreferencesKey("rsi_div_hidden")] = prefs.rsiDivHidden
             e[booleanPreferencesKey("smc_structure")] = prefs.smcStructure
             e[booleanPreferencesKey("smc_ob")] = prefs.smcOrderBlocks
             e[booleanPreferencesKey("smc_fvg")] = prefs.smcFvg

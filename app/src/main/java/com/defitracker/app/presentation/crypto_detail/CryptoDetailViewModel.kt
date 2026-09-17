@@ -43,6 +43,12 @@ class CryptoDetailViewModel @Inject constructor(
     private val _selectedFibId = mutableStateOf<String?>(null)
     val selectedFibId: State<String?> = _selectedFibId
 
+    // ponytail: dibujos OKX por simbolo, mismo esquema que los fibos
+    private val _drawOverlays = mutableStateOf<List<DrawOverlay>>(emptyList())
+    val drawOverlays: State<List<DrawOverlay>> = _drawOverlays
+    private val _selectedDrawId = mutableStateOf<String?>(null)
+    val selectedDrawId: State<String?> = _selectedDrawId
+
     private val symbol: String = checkNotNull(savedStateHandle["symbol"])
     private val source: String = checkNotNull(savedStateHandle["source"])
 
@@ -71,6 +77,16 @@ class CryptoDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
+            // ponytail: dibujos del simbolo, si hay uno visible se selecciona
+            try {
+                _drawOverlays.value = prefsRepo.drawOverlaysFlow(symbol).first()
+                if (_drawOverlays.value.any { !it.hidden }) {
+                    _selectedDrawId.value = _drawOverlays.value.lastOrNull { !it.hidden }?.id
+                    _selectedFibId.value = null
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
         }
         loadDetail()
         startUpdates()
@@ -94,6 +110,8 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleVolumeSub() = updatePrefs { it.copy(volumeVisible = !it.volumeVisible) }
     fun toggleStochSub() = updatePrefs { it.copy(stochVisible = !it.stochVisible) }
     fun toggleRsiSub() = updatePrefs { it.copy(rsiVisible = !it.rsiVisible) }
+    fun toggleRsiDiv() = updatePrefs { it.copy(rsiDivVisible = !it.rsiDivVisible) }
+    fun toggleRsiDivHidden() = updatePrefs { it.copy(rsiDivHidden = !it.rsiDivHidden) }
     fun toggleMA(period: Int) = updatePrefs {
         it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(visible = !ma.visible) else ma })
     }
@@ -146,6 +164,7 @@ class CryptoDetailViewModel @Inject constructor(
 
     fun selectFib(id: String?) {
         _selectedFibId.value = id
+        if (id != null) _selectedDrawId.value = null
     }
 
     fun selectedFib(): FibOverlay? = _fibOverlays.value.firstOrNull { it.id == _selectedFibId.value }
@@ -173,6 +192,62 @@ class CryptoDetailViewModel @Inject constructor(
     })
     fun toggleFibHidden(id: String) = updateFib(id, { it.copy(hidden = !it.hidden) })
     fun toggleFibLocked(id: String) = updateFib(id, { it.copy(locked = !it.locked) })
+
+    // ─── DIBUJOS ───
+    private fun persistDraws() {
+        val snapshot = _drawOverlays.value
+        viewModelScope.launch {
+            try {
+                prefsRepo.saveDrawOverlays(symbol, snapshot)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun setDrawLive(id: String, overlay: DrawOverlay) {
+        _drawOverlays.value = _drawOverlays.value.map { if (it.id == id) overlay else it }
+    }
+
+    fun commitDraw(id: String) {
+        persistDraws()
+    }
+
+    fun addDraw(kind: DrawKind, start: FibAnchor, end: FibAnchor): DrawOverlay? {
+        if (_drawOverlays.value.size >= MAX_DRAWS_PER_SYMBOL) return null
+        val overlay = DrawOverlay(
+            id = java.util.UUID.randomUUID().toString(),
+            kind = kind,
+            start = start,
+            end = end
+        )
+        _drawOverlays.value = _drawOverlays.value + overlay
+        _selectedDrawId.value = overlay.id
+        _selectedFibId.value = null
+        persistDraws()
+        return overlay
+    }
+
+    fun deleteDraw(id: String) {
+        _drawOverlays.value = _drawOverlays.value.filterNot { it.id == id }
+        if (_selectedDrawId.value == id) _selectedDrawId.value = _drawOverlays.value.lastOrNull()?.id
+        persistDraws()
+    }
+
+    fun selectDraw(id: String?) {
+        _selectedDrawId.value = id
+        if (id != null) _selectedFibId.value = null
+    }
+
+    private fun updateDraw(id: String, transform: (DrawOverlay) -> DrawOverlay) {
+        _drawOverlays.value = _drawOverlays.value.map { if (it.id == id) transform(it) else it }
+        persistDraws()
+    }
+
+    fun setDrawColor(id: String, hex: String) = updateDraw(id, { it.copy(colorHex = hex) })
+    fun setDrawWidth(id: String, w: Float) = updateDraw(id, { it.copy(width = w.coerceIn(0.5f, 3f)) })
+    fun toggleDrawHidden(id: String) = updateDraw(id, { it.copy(hidden = !it.hidden) })
+    fun toggleDrawLocked(id: String) = updateDraw(id, { it.copy(locked = !it.locked) })
 
     // ─── SMC ───
     fun toggleSmcStructure() = updatePrefs { it.copy(smcStructure = !it.smcStructure) }
@@ -248,7 +323,8 @@ class CryptoDetailViewModel @Inject constructor(
                             stochD = chartData.stochD,
                             maLines = chartData.maLines,
                             rsi = chartData.rsi,
-                            smc = chartData.smc
+                            smc = chartData.smc,
+                            rsiDiv = chartData.rsiDiv
                         )
                     }
                 } catch (e: CancellationException) {
@@ -300,6 +376,7 @@ class CryptoDetailViewModel @Inject constructor(
                     maLines = chartData.maLines,
                     rsi = chartData.rsi,
                     smc = chartData.smc,
+                            rsiDiv = chartData.rsiDiv,
                     isLoading = false
                 )
             } catch (e: CancellationException) {
@@ -367,7 +444,8 @@ class CryptoDetailViewModel @Inject constructor(
             stochD = chartData.stochD,
             maLines = chartData.maLines,
             rsi = chartData.rsi,
-            smc = chartData.smc
+            smc = chartData.smc,
+                            rsiDiv = chartData.rsiDiv
         )
     }
 
@@ -499,7 +577,9 @@ class CryptoDetailViewModel @Inject constructor(
             maLines = maLines,
             rsi = rsi,
             // ponytail: SMC derivado de las velas, se recalcula solo al cambiar TF
-            smc = computeSmc(this, interval)
+            smc = computeSmc(this, interval),
+            // ponytail: divergencias RSI estilo TV sobre pivotes confirmados
+            rsiDiv = detectRsiDivergences(this, rsiValues)
         )
     }
 
@@ -640,6 +720,7 @@ data class CryptoDetailState(
     val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
     val smc: SmcData = SmcData(),
+    val rsiDiv: List<RsiDiv> = emptyList(),
     val selectedInterval: String = "15m",
     val isLoading: Boolean = false,
     val error: String = ""
@@ -665,5 +746,6 @@ private data class ChartComputation(
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
-    val smc: SmcData = SmcData()
+    val smc: SmcData = SmcData(),
+    val rsiDiv: List<RsiDiv> = emptyList()
 )

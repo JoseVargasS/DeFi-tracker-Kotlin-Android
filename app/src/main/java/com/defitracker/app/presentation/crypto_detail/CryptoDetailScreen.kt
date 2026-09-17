@@ -17,9 +17,23 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.ChangeHistory
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -32,7 +46,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +71,11 @@ import com.github.mikephil.charting.highlight.Highlight
 
 import com.github.mikephil.charting.listener.ChartTouchListener
 import com.github.mikephil.charting.listener.OnChartGestureListener
+import com.github.mikephil.charting.renderer.XAxisRenderer
+import com.github.mikephil.charting.utils.MPPointF
+import com.github.mikephil.charting.utils.Transformer
+import com.github.mikephil.charting.utils.Utils
+import com.github.mikephil.charting.utils.ViewPortHandler
 import com.github.mikephil.charting.components.MarkerView
 import java.text.SimpleDateFormat
 import java.util.*
@@ -215,6 +238,8 @@ fun CryptoDetailScreen(
             Spacer(modifier = Modifier.height(if (chartExpanded.value) 2.dp else 4.dp))
 
             // Stacked Charts Area (subs compactos, el protagonista es el chart)
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val areaHpx = with(LocalDensity.current) { maxHeight.toPx() }
             Column(modifier = Modifier.fillMaxSize()) {
                 when {
                     state.candles.isNotEmpty() -> {
@@ -222,8 +247,17 @@ fun CryptoDetailScreen(
                         val priceChartRef = remember { mutableStateOf<CombinedChart?>(null) }
                         val stochChartRef = remember { mutableStateOf<LineChart?>(null) }
                         val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
+                        // ponytail: altos arrastrables, subs mas altos por defecto
+                        var priceW by remember { mutableFloatStateOf(if (chartExpanded.value) 4f else 2.5f) }
+                        var stochW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
+                        var rsiW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
+                        LaunchedEffect(chartExpanded.value) {
+                            priceW = if (chartExpanded.value) 4f else 2.5f
+                            stochW = if (chartExpanded.value) 0.7f else 1f
+                            rsiW = stochW
+                        }
 
-                        Box(modifier = Modifier.weight(if (chartExpanded.value) 4f else 2.5f)) {
+                        Box(modifier = Modifier.weight(priceW)) {
                             PriceChart(
                                 state = state,
                                 prefs = prefs,
@@ -235,6 +269,28 @@ fun CryptoDetailScreen(
                                 rsiChartRef = rsiChartRef
                             )
                         }
+                        if (prefs.stochVisible || prefs.rsiVisible) {
+                            // ponytail: divisor precio/subs
+                            ChartResizeDivider { dy ->
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (priceW + stochW + rsiW)
+                                val np = priceW + d
+                                if (np < 1f) d = 1f - priceW
+                                if (np > 6f) d = 6f - priceW
+                                if (prefs.stochVisible) {
+                                    var ns = stochW - d
+                                    if (ns < 0.35f) { d = stochW - 0.35f; ns = 0.35f }
+                                    if (ns > 3f) { d = stochW - 3f; ns = 3f }
+                                    priceW += d
+                                    stochW = ns
+                                } else {
+                                    var ns = rsiW - d
+                                    if (ns < 0.35f) { d = rsiW - 0.35f; ns = 0.35f }
+                                    if (ns > 3f) { d = rsiW - 3f; ns = 3f }
+                                    priceW += d
+                                    rsiW = ns
+                                }
+                            }
+                        }
                         if (chartExpanded.value) {
                             IntervalRow(
                                 selected = state.selectedInterval,
@@ -242,13 +298,27 @@ fun CryptoDetailScreen(
                             )
                         }
                         if (prefs.stochVisible) {
-                            Box(modifier = Modifier.weight(if (chartExpanded.value) 0.55f else 0.7f)) {
-                                StochRSIChart(state, stochChartRef)
+                            Box(modifier = Modifier.weight(stochW)) {
+                                StochRSIChart(state, stochChartRef, priceChartRef)
+                            }
+                        }
+                        if (prefs.stochVisible && prefs.rsiVisible) {
+                            // ponytail: divisor stoch/rsi
+                            ChartResizeDivider { dy ->
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (stochW + rsiW)
+                                val ns = stochW + d
+                                if (ns < 0.35f) d = 0.35f - stochW
+                                if (ns > 3f) d = 3f - stochW
+                                var nr = rsiW - d
+                                if (nr < 0.35f) { d = rsiW - 0.35f; nr = 0.35f }
+                                if (nr > 3f) { d = rsiW - 3f; nr = 3f }
+                                stochW += d
+                                rsiW = nr
                             }
                         }
                         if (prefs.rsiVisible) {
-                            Box(modifier = Modifier.weight(if (chartExpanded.value) 0.55f else 0.7f)) {
-                                RsiChart(state, rsiChartRef)
+                            Box(modifier = Modifier.weight(rsiW)) {
+                                RsiChart(state, rsiChartRef, priceChartRef, prefs)
                             }
                         }
                     }
@@ -269,6 +339,7 @@ fun CryptoDetailScreen(
                     }
                 }
             }
+            }
 
             if (showIndicators.value) {
                 ModalBottomSheet(
@@ -282,6 +353,8 @@ fun CryptoDetailScreen(
                         onToggleVolume = { viewModel.toggleVolumeSub() },
                         onToggleStoch = { viewModel.toggleStochSub() },
                         onToggleRsi = { viewModel.toggleRsiSub() },
+                        onToggleRsiDiv = { viewModel.toggleRsiDiv() },
+                        onToggleRsiDivHidden = { viewModel.toggleRsiDivHidden() },
                         onToggleMA = { viewModel.toggleMA(it) },
                         onConfigureMA = { maSheetPeriod.value = it },
                         onToggleSmcStructure = { viewModel.toggleSmcStructure() },
@@ -449,6 +522,16 @@ private fun formatPriceForChart(value: Double): String {
     return s
 }
 
+// ponytail: eje/tags/fibo con los mismos decimales del precio actual, sin colas largas
+private fun formatAxisPrice(value: Double, refClose: Double): String {
+    if (value == 0.0) return "0.00"
+    if (abs(value) >= 1000.0) {
+        return String.format(Locale.US, "%,.2f", value)
+    }
+    val n = formatPriceForChart(refClose).substringAfter('.', "").length.coerceIn(2, 8)
+    return String.format(Locale.US, "%.${n}f", value)
+}
+
 private enum class ChartTouchMode {
     UNDECIDED,
     PAN,
@@ -456,11 +539,12 @@ private enum class ChartTouchMode {
     PINCH_X_ZOOM
 }
 
-// ponytail: un solo boton Dibujo, adentro se elige Medir o Fibo
+// ponytail: un solo boton Dibujo, adentro se elige Medir, Fibo o dibujo OKX
 enum class DrawingTool {
     NONE,
     MEASURE,
-    FIBO
+    FIBO,
+    DRAW
 }
 
 // ponytail: duracion de cada vela para el countdown al cierre
@@ -481,6 +565,35 @@ private fun intervalDurationMs(interval: String): Long = when (interval) {
     "2w" -> 1_209_600_000L
     "1mo" -> 2_592_000_000L
     else -> 0L
+}
+
+// ponytail: velas virtuales a la derecha para que el fibo pase la ultima vela
+private const val FIB_VIRTUAL_EXTEND = 50
+
+private fun fibStepMs(candles: List<CandleData>, interval: String): Long {
+    if (candles.size >= 2) {
+        val s = candles.last().time - candles[candles.size - 2].time
+        if (s > 0L) return s
+    }
+    return intervalDurationMs(interval)
+}
+
+private fun fibIndexToTime(candles: List<CandleData>, idx: Int, interval: String): Long {
+    if (candles.isEmpty()) return 0L
+    if (idx < candles.size) return candles[idx.coerceIn(0, candles.size - 1)].time
+    val step = fibStepMs(candles, interval)
+    if (step <= 0L) return candles.last().time
+    return candles.last().time + (idx - (candles.size - 1)) * step
+}
+
+// ponytail: tiempos futuros mapean a indice virtual, el pasado usa timeToIndex
+private fun fibTimeToIndexVirtual(candles: List<CandleData>, time: Long, interval: String): Int {
+    if (candles.isEmpty()) return 0
+    if (time <= candles.last().time) return timeToIndex(candles, time)
+    val step = fibStepMs(candles, interval)
+    if (step <= 0L) return candles.size - 1
+    val k = ((time - candles.last().time + step - 1) / step).toInt()
+    return candles.size - 1 + k.coerceIn(1, FIB_VIRTUAL_EXTEND)
 }
 
 private fun formatCandleCountdown(interval: String, candleTime: Long): String {
@@ -579,11 +692,20 @@ fun PriceChart(
     val showFibLevels = remember { mutableStateOf(false) }
     val rangeSelection = remember { mutableStateOf<MeasureZone?>(null) }
     val fibPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
+    val drawPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
     // ponytail: varios fibos, cada uno con su estilo; el seleccionado muestra su barrita
     val fibOverlays = viewModel.fibOverlays.value
     val selectedFibId = viewModel.selectedFibId.value
     val overlaysRef = remember { mutableStateOf<List<FibOverlay>>(emptyList()) }
     val selectedFibRef = remember { mutableStateOf<String?>(null) }
+    // ponytail: dibujos OKX por simbolo, mismo esquema que los fibos
+    val drawOverlays = viewModel.drawOverlays.value
+    val selectedDrawId = viewModel.selectedDrawId.value
+    val drawsRef = remember { mutableStateOf<List<DrawOverlay>>(emptyList()) }
+    val selectedDrawRef = remember { mutableStateOf<String?>(null) }
+    val drawKindRef = remember { mutableStateOf<DrawKind?>(null) }
+    val pendingDrawStartRef = remember { mutableStateOf<FibAnchor?>(null) }
+    val magnetRef = remember { mutableStateOf(false) }
     val toolRef = remember { mutableStateOf(DrawingTool.NONE) }
     val pendingStartRef = remember { mutableStateOf<FibAnchor?>(null) }
     val currentViewportKey = state.viewportKey()
@@ -593,11 +715,16 @@ fun PriceChart(
         // ponytail: los fibos NO se borran, viven por tiempo y se remapean solos
         fibPendingStart.value = null
         pendingStartRef.value = null
+        drawPendingStart.value = null
+        pendingDrawStartRef.value = null
     }
     LaunchedEffect(fibOverlays) { overlaysRef.value = fibOverlays }
     LaunchedEffect(selectedFibId) { selectedFibRef.value = selectedFibId }
+    LaunchedEffect(drawOverlays) { drawsRef.value = drawOverlays }
+    LaunchedEffect(selectedDrawId) { selectedDrawRef.value = selectedDrawId }
     LaunchedEffect(drawingTool.value) { toolRef.value = drawingTool.value }
     LaunchedEffect(fibPendingStart.value) { pendingStartRef.value = fibPendingStart.value }
+    LaunchedEffect(drawPendingStart.value) { pendingDrawStartRef.value = drawPendingStart.value }
 
     // ponytail: retickea el countdown del precio actual cada segundo
     LaunchedEffect(Unit) {
@@ -692,6 +819,38 @@ fun PriceChart(
                     strokeWidth = 3f
                     style = Paint.Style.STROKE
                 }
+                // ponytail: dibujos OKX, color por overlay
+                private val drawLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#FFD60A")
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                }
+                private val drawDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#FFD60A")
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
+                }
+                private val drawLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.WHITE
+                    textSize = 24f
+                    textAlign = Paint.Align.LEFT
+                }
+                private val drawChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(220, 26, 29, 35)
+                    style = Paint.Style.FILL
+                }
+                private val drawHandleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(60, 255, 214, 10)
+                    style = Paint.Style.FILL
+                }
+                private val drawHandleStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#FFD60A")
+                    strokeWidth = 3f
+                    style = Paint.Style.STROKE
+                }
+                private val drawTriPath = android.graphics.Path()
                 // ponytail: SMC tenue, las velas mandan (alfas bajos, labels chicos)
                 val smcObBullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(42, 38, 166, 154)
@@ -797,27 +956,27 @@ fun PriceChart(
                     textSize = 20f
                     textAlign = Paint.Align.LEFT
                 }
-                // ponytail: liquidez tenue, punteada como el resto del SMC
+                // ponytail: liquidez visible pero sin robarle a las velas
                 val smcBslPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(150, 33, 150, 243)
+                    color = GraphicsColor.argb(200, 33, 150, 243)
                     strokeWidth = 1.6f
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                    pathEffect = DashPathEffect(floatArrayOf(8f, 4f), 0f)
                 }
                 val smcSslPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(150, 255, 152, 0)
+                    color = GraphicsColor.argb(200, 255, 152, 0)
                     strokeWidth = 1.6f
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                    pathEffect = DashPathEffect(floatArrayOf(8f, 4f), 0f)
                 }
                 val smcSweptPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(70, 158, 158, 158)
-                    strokeWidth = 1.4f
+                    color = GraphicsColor.argb(120, 158, 158, 158)
+                    strokeWidth = 1.6f
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
+                    pathEffect = DashPathEffect(floatArrayOf(8f, 4f), 0f)
                 }
                 val smcBslLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(200, 33, 150, 243)
@@ -1386,17 +1545,25 @@ fun PriceChart(
                 private fun anchorFromTouch(x: Float, y: Float): FibAnchor? {
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null
-                    val index = touchToCandleIndex(x, y, candles.size) ?: return null
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+                    if (x < contentLeft || x > contentRight || y < contentTop || y > contentBottom) return null
+                    // ponytail: indice virtual para anclar mas alla de la ultima vela
+                    val rawX = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).x.roundToInt()
+                    val index = rawX.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                     val price = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).y.toDouble()
-                    return FibAnchor(candles[index].time, price)
+                    return FibAnchor(fibIndexToTime(candles, index, stateRef.value.selectedInterval), price)
                 }
 
                 private fun overlayPixels(o: FibOverlay): Pair<android.graphics.PointF?, android.graphics.PointF?> {
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null to null
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
-                    val sIdx = timeToIndex(candles, o.start.time)
-                    val eIdx = timeToIndex(candles, o.end.time)
+                    val interval = stateRef.value.selectedInterval
+                    val sIdx = fibTimeToIndexVirtual(candles, o.start.time, interval)
+                    val eIdx = fibTimeToIndexVirtual(candles, o.end.time, interval)
                     val s = floatArrayOf(sIdx.toFloat(), o.start.price.toFloat())
                     trans.pointValuesToPixel(s)
                     val e = floatArrayOf(eIdx.toFloat(), o.end.price.toFloat())
@@ -1441,7 +1608,7 @@ fun PriceChart(
                         val rightX = max(s.x, e.x)
                         var bodyDist = distToSegment(x, y, s.x, s.y, e.x, e.y)
                         o.levelsSorted().forEach { ratio ->
-                            val price = fibLevelPrice(o.start.price, o.end.price, ratio)
+                            val price = fibLevelPrice(o.end.price, o.start.price, ratio)
                             val pts = floatArrayOf(0f, price.toFloat())
                             trans.pointValuesToPixel(pts)
                             if (x >= leftX - 20f && x <= rightX + 20f && abs(y - pts[1]) <= 28f) {
@@ -1460,6 +1627,290 @@ fun PriceChart(
                     val anchor = anchorFromTouch(x, y) ?: return
                     onFibTap?.invoke(anchor)
                     invalidate()
+                }
+
+                // ─── DIBUJOS OKX ───
+                private var drawDragId: String? = null
+                private var drawDragZone: Int = 0
+                private var drawDragMoved: Boolean = false
+                private var drawOrigStart: FibAnchor? = null
+                private var drawOrigEnd: FibAnchor? = null
+                private var drawGrabIdx: Int = 0
+                private var drawGrabPrice: Double = 0.0
+                var onDrawLive: ((String, DrawOverlay) -> Unit)? = null
+                var onDrawCommit: ((String) -> Unit)? = null
+                var onDrawTap: ((FibAnchor) -> Unit)? = null
+                var onDrawSelect: ((String?) -> Unit)? = null
+
+                // ponytail: con iman pega el precio al high/low/close mas cercano
+                private fun drawAnchorFromTouch(x: Float, y: Float): FibAnchor? {
+                    val base = anchorFromTouch(x, y) ?: return null
+                    if (!magnetRef.value) return base
+                    val candles = stateRef.value.candles
+                    if (candles.isEmpty()) return base
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val rawX = trans.getValuesByTouchPoint(x, y).x.roundToInt()
+                        .coerceIn(0, candles.size - 1)
+                    val c = candles[rawX]
+                    // ponytail: pointValuesToPixel necesita pares x,y; evalua por separado
+                    var best = base.price
+                    var bestDist = 28f
+                    listOf(c.high, c.low, c.close).forEach { p ->
+                        val pts = floatArrayOf(0f, p.toFloat())
+                        trans.pointValuesToPixel(pts)
+                        val d = abs(pts[1] - y)
+                        if (d < bestDist) {
+                            bestDist = d
+                            best = p
+                        }
+                    }
+                    return base.copy(price = best)
+                }
+
+                private fun drawPixels(o: DrawOverlay): Pair<android.graphics.PointF?, android.graphics.PointF?> {
+                    val candles = stateRef.value.candles
+                    if (candles.isEmpty()) return null to null
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val interval = stateRef.value.selectedInterval
+                    val sIdx = fibTimeToIndexVirtual(candles, o.start.time, interval)
+                    val eIdx = fibTimeToIndexVirtual(candles, o.end.time, interval)
+                    val s = floatArrayOf(sIdx.toFloat(), o.start.price.toFloat())
+                    trans.pointValuesToPixel(s)
+                    val e = floatArrayOf(eIdx.toFloat(), o.end.price.toFloat())
+                    trans.pointValuesToPixel(e)
+                    return android.graphics.PointF(s[0], s[1]) to android.graphics.PointF(e[0], e[1])
+                }
+
+                // ponytail: 1 = handle inicio, 2 = handle fin, 3 = cuerpo
+                private fun drawHitTest(x: Float, y: Float): Triple<String, Int, Boolean>? {
+                    if (stateRef.value.candles.isEmpty()) return null
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    var best: Triple<String, Int, Boolean>? = null
+                    var bestDist = Float.MAX_VALUE
+                    drawsRef.value.forEach { o ->
+                        if (o.hidden) return@forEach
+                        val (s, e) = drawPixels(o)
+                        if (s == null || e == null) return@forEach
+                        val ds = kotlin.math.hypot(x - s.x, y - s.y)
+                        if (ds <= 60f && ds < bestDist) {
+                            bestDist = ds
+                            best = Triple(o.id, 1, o.locked)
+                        }
+                        val de = kotlin.math.hypot(x - e.x, y - e.y)
+                        if (de <= 60f && de < bestDist) {
+                            bestDist = de
+                            best = Triple(o.id, 2, o.locked)
+                        }
+                        if (bestDist <= 60f) return@forEach
+                        var bodyDist = Float.MAX_VALUE
+                        when (o.kind) {
+                            DrawKind.SEGMENT, DrawKind.ARROW ->
+                                bodyDist = distToSegment(x, y, s.x, s.y, e.x, e.y)
+                            DrawKind.LINE -> {
+                                val dx = e.x - s.x
+                                val dy = e.y - s.y
+                                val len = kotlin.math.hypot(dx, dy)
+                                if (len > 1f && x >= contentLeft - 20f && x <= contentRight + 20f) {
+                                    bodyDist = abs(dy * x - dx * y + e.x * s.y - e.y * s.x) / len
+                                }
+                            }
+                            DrawKind.RAY -> {
+                                val dx = e.x - s.x
+                                val dy = e.y - s.y
+                                val len2 = dx * dx + dy * dy
+                                if (len2 > 1f) {
+                                    val t = ((x - s.x) * dx + (y - s.y) * dy) / len2
+                                    if (t >= 0f) {
+                                        bodyDist = kotlin.math.hypot(x - (s.x + t * dx), y - (s.y + t * dy))
+                                    }
+                                }
+                            }
+                            DrawKind.H_SEGMENT, DrawKind.H_LINE, DrawKind.H_RAY, DrawKind.PRICE_LINE -> {
+                                val inX = when (o.kind) {
+                                    DrawKind.H_LINE, DrawKind.PRICE_LINE -> x >= contentLeft - 20f && x <= contentRight + 20f
+                                    DrawKind.H_RAY -> if (e.x >= s.x) x >= s.x - 20f else x <= s.x + 20f
+                                    else -> x >= min(s.x, e.x) - 20f && x <= max(s.x, e.x) + 20f
+                                }
+                                if (inX) bodyDist = abs(y - s.y)
+                            }
+                            DrawKind.RECT -> {
+                                val l = min(s.x, e.x)
+                                val r = max(s.x, e.x)
+                                val t = min(s.y, e.y)
+                                val b = max(s.y, e.y)
+                                bodyDist = minOf(
+                                    distToSegment(x, y, l, t, r, t),
+                                    distToSegment(x, y, r, t, r, b),
+                                    distToSegment(x, y, r, b, l, b),
+                                    distToSegment(x, y, l, b, l, t)
+                                )
+                            }
+                            DrawKind.CIRCLE -> {
+                                val cx = (s.x + e.x) / 2f
+                                val cy = (s.y + e.y) / 2f
+                                val rx = abs(e.x - s.x) / 2f
+                                val ry = abs(e.y - s.y) / 2f
+                                if (rx > 4f && ry > 4f) {
+                                    val nx = (x - cx) / rx
+                                    val ny = (y - cy) / ry
+                                    val d = kotlin.math.hypot(nx, ny)
+                                    bodyDist = abs(d - 1f) * min(rx, ry)
+                                }
+                            }
+                            DrawKind.TRIANGLE -> {
+                                val mx = (s.x + e.x) / 2f
+                                bodyDist = minOf(
+                                    distToSegment(x, y, mx, s.y, s.x, e.y),
+                                    distToSegment(x, y, s.x, e.y, e.x, e.y),
+                                    distToSegment(x, y, e.x, e.y, mx, s.y)
+                                )
+                            }
+                        }
+                        if (bodyDist <= 28f && bodyDist < bestDist) {
+                            bestDist = bodyDist
+                            best = Triple(o.id, 3, o.locked)
+                        }
+                    }
+                    return best
+                }
+
+                private fun applyDrawTap(x: Float, y: Float) {
+                    val anchor = drawAnchorFromTouch(x, y) ?: return
+                    onDrawTap?.invoke(anchor)
+                    invalidate()
+                }
+
+                private fun drawSingleDraw(canvas: Canvas, candles: List<CandleData>, o: DrawOverlay, selected: Boolean) {
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+                    val (s, e) = drawPixels(o)
+                    if (s == null || e == null) return
+                    val lineColor = try {
+                        GraphicsColor.parseColor(o.colorHex)
+                    } catch (_: Exception) {
+                        GraphicsColor.WHITE
+                    }
+                    drawLinePaint.color = lineColor
+                    drawLinePaint.strokeWidth = (o.width * context.resources.displayMetrics.density).coerceAtLeast(1f)
+                    drawLinePaint.alpha = if (selected || selectedDrawRef.value == null) 255 else 140
+                    drawDashPaint.color = lineColor
+                    drawDashPaint.strokeWidth = (o.width * context.resources.displayMetrics.density).coerceAtLeast(1f)
+                    drawLabelPaint.color = lineColor
+
+                    fun hLine(py: Float, fromX: Float, toX: Float, dashed: Boolean = false) {
+                        val p = if (dashed) drawDashPaint else drawLinePaint
+                        canvas.drawLine(fromX.coerceIn(contentLeft, contentRight), py, toX.coerceIn(contentLeft, contentRight), py, p)
+                    }
+                    fun seg(ax: Float, ay: Float, bx: Float, by: Float) {
+                        canvas.drawLine(ax, ay, bx, by, drawLinePaint)
+                    }
+                    // ponytail: infinita por dos puntos recortada a los bordes
+                    fun infinite(sx: Float, sy: Float, ex: Float, ey: Float) {
+                        val dx = ex - sx
+                        if (abs(dx) < 1f) {
+                            canvas.drawLine(sx.coerceIn(contentLeft, contentRight), contentTop, sx.coerceIn(contentLeft, contentRight), contentBottom, drawLinePaint)
+                            return
+                        }
+                        val m = (ey - sy) / dx
+                        seg(contentLeft, (sy + m * (contentLeft - sx)).coerceIn(contentTop, contentBottom), contentRight, (sy + m * (contentRight - sx)).coerceIn(contentTop, contentBottom))
+                    }
+                    // ponytail: semirrecta desde s pasando por e hasta el borde
+                    fun ray(sx: Float, sy: Float, ex: Float, ey: Float) {
+                        val edgeX = if (ex >= sx) contentRight else contentLeft
+                        val dx = ex - sx
+                        if (abs(dx) < 1f) {
+                            val edgeY = if (ey >= sy) contentBottom else contentTop
+                            seg(sx, sy, sx, edgeY)
+                            return
+                        }
+                        val m = (ey - sy) / dx
+                        seg(sx, sy, edgeX, (sy + m * (edgeX - sx)).coerceIn(contentTop, contentBottom))
+                    }
+                    // ponytail: punta de flecha en e
+                    fun arrowHead(ex: Float, ey: Float, fromX: Float, fromY: Float) {
+                        val ang = kotlin.math.atan2((ey - fromY).toDouble(), (ex - fromX).toDouble())
+                        val len = 26f
+                        listOf(ang + 2.6, ang - 2.6).forEach { a ->
+                            seg(ex, ey, (ex + len * kotlin.math.cos(a)).toFloat(), (ey + len * kotlin.math.sin(a)).toFloat())
+                        }
+                    }
+
+                    when (o.kind) {
+                        DrawKind.SEGMENT -> seg(s.x, s.y, e.x, e.y)
+                        DrawKind.LINE -> infinite(s.x, s.y, e.x, e.y)
+                        DrawKind.RAY -> ray(s.x, s.y, e.x, e.y)
+                        DrawKind.ARROW -> {
+                            seg(s.x, s.y, e.x, e.y)
+                            arrowHead(e.x, e.y, s.x, s.y)
+                        }
+                        DrawKind.H_SEGMENT -> hLine(s.y, s.x, e.x)
+                        DrawKind.H_LINE -> hLine(s.y, contentLeft, contentRight)
+                        DrawKind.H_RAY -> {
+                            if (e.x >= s.x) hLine(s.y, s.x, contentRight) else hLine(s.y, contentLeft, s.x)
+                        }
+                        DrawKind.RECT -> {
+                            yTagRect.set(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
+                            canvas.drawRect(yTagRect, drawLinePaint)
+                        }
+                        DrawKind.CIRCLE -> {
+                            yTagRect.set(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
+                            canvas.drawOval(yTagRect, drawLinePaint)
+                        }
+                        DrawKind.TRIANGLE -> {
+                            val mx = (s.x + e.x) / 2f
+                            drawTriPath.reset()
+                            drawTriPath.moveTo(mx, s.y)
+                            drawTriPath.lineTo(s.x, e.y)
+                            drawTriPath.lineTo(e.x, e.y)
+                            drawTriPath.close()
+                            canvas.drawPath(drawTriPath, drawLinePaint)
+                        }
+                        DrawKind.PRICE_LINE -> {
+                            hLine(s.y, contentLeft, contentRight, dashed = true)
+                            val label = formatAxisPrice(o.start.price, candles.lastOrNull()?.close ?: o.start.price)
+                            val w = drawLabelPaint.measureText(label) + 16f
+                            val h = drawLabelPaint.textSize + 10f
+                            val rx = (contentRight - w).coerceAtLeast(contentLeft)
+                            val ly = (s.y - h / 2f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                            yTagRect.set(rx, ly, rx + w, ly + h)
+                            canvas.drawRoundRect(yTagRect, 4f, 4f, drawChipPaint)
+                            canvas.drawText(label, rx + 8f, ly + h - 7f, drawLabelPaint)
+                        }
+                    }
+                    if (selected) {
+                        val r = 20f
+                        drawHandleStroke.color = if (o.locked) GraphicsColor.GRAY
+                        else GraphicsColor.parseColor("#FFD60A")
+                        if (o.kind != DrawKind.H_LINE && o.kind != DrawKind.PRICE_LINE) {
+                            canvas.drawCircle(s.x, s.y, r, drawHandleFill)
+                            canvas.drawCircle(s.x, s.y, r, drawHandleStroke)
+                        }
+                        canvas.drawCircle(e.x, e.y, r, drawHandleFill)
+                        canvas.drawCircle(e.x, e.y, r, drawHandleStroke)
+                    }
+                    drawLinePaint.alpha = 255
+                }
+
+                private fun drawDrawOverlays(canvas: Canvas, candles: List<CandleData>) {
+                    drawsRef.value.forEach { o ->
+                        if (!o.hidden) drawSingleDraw(canvas, candles, o, o.id == selectedDrawRef.value)
+                    }
+                    drawPendingHint(canvas, candles)
+                }
+
+                private fun drawPendingHint(canvas: Canvas, candles: List<CandleData>) {
+                    val pending = pendingDrawStartRef.value ?: return
+                    if (candles.isEmpty()) return
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val pIdx = fibTimeToIndexVirtual(candles, pending.time, stateRef.value.selectedInterval)
+                    val p = floatArrayOf(pIdx.toFloat(), pending.price.toFloat())
+                    trans.pointValuesToPixel(p)
+                    canvas.drawCircle(p[0], p[1], 9f, dotPaint)
+                    canvas.drawCircle(p[0], p[1], 9f, dotOutlinePaint)
                 }
 
                 private fun drawFibOverlays(canvas: Canvas, candles: List<CandleData>) {
@@ -1483,8 +1934,8 @@ fun PriceChart(
                     val contentTop = viewPortHandler.contentTop()
                     val contentBottom = viewPortHandler.contentBottom()
 
-                    val sIdx = timeToIndex(candles, o.start.time)
-                    val eIdx = timeToIndex(candles, o.end.time)
+                    val sIdx = fibTimeToIndexVirtual(candles, o.start.time, stateRef.value.selectedInterval)
+                    val eIdx = fibTimeToIndexVirtual(candles, o.end.time, stateRef.value.selectedInterval)
                     val sPts = floatArrayOf(sIdx.toFloat(), o.start.price.toFloat())
                     trans.pointValuesToPixel(sPts)
                     val ePts = floatArrayOf(eIdx.toFloat(), o.end.price.toFloat())
@@ -1508,7 +1959,8 @@ fun PriceChart(
                     canvas.drawLine(sPts[0], sPts[1], ePts[0], ePts[1], fibLinePaint)
 
                     levels.forEach { ratio ->
-                        val price = fibLevelPrice(o.start.price, o.end.price, ratio)
+                        // ponytail: punto inicial siempre 1, final siempre 0
+                        val price = fibLevelPrice(o.end.price, o.start.price, ratio)
                         val pts = floatArrayOf(0f, price.toFloat())
                         trans.pointValuesToPixel(pts)
                         val py = pts[1].coerceIn(contentTop, contentBottom)
@@ -1524,7 +1976,7 @@ fun PriceChart(
                             canvas.drawRoundRect(yTagRect, 4f, 4f, fibChipPaint)
                             canvas.drawText(leftLabel, lx + 8f, ly + lh - 7f, fibLabelPaint)
                             // ponytail: tag derecho al final de la linea (rango acotado)
-                            val rightLabel = formatPriceForChart(price)
+                            val rightLabel = formatAxisPrice(price, candles.lastOrNull()?.close ?: price)
                             val rw = fibLabelPaint.measureText(rightLabel) + 16f
                             val rx = (rightX - rw).coerceIn(contentLeft, (contentRight - rw).coerceAtLeast(contentLeft))
                             yTagRect.set(rx, ly, rx + rw, ly + lh)
@@ -1553,7 +2005,7 @@ fun PriceChart(
                     val contentRight = viewPortHandler.contentRight()
                     val contentTop = viewPortHandler.contentTop()
                     val contentBottom = viewPortHandler.contentBottom()
-                    val pIdx = timeToIndex(candles, pending.time)
+                    val pIdx = fibTimeToIndexVirtual(candles, pending.time, stateRef.value.selectedInterval)
                     val p = floatArrayOf(pIdx.toFloat(), pending.price.toFloat())
                     trans.pointValuesToPixel(p)
                     canvas.drawCircle(p[0], p[1], 9f, dotPaint)
@@ -1682,7 +2134,9 @@ fun PriceChart(
                                 xb[0].coerceIn(contentLeft, contentRight), py, linePaint
                             )
                             val label = if (ev.kind == SmcEventKind.BOS) "BOS" else "CHoCH"
-                            drawSmcChip(canvas, label, labelPaint, xb[0], py, ev.bullish, contentLeft, contentRight, contentTop, contentBottom)
+                            // ponytail: tag al medio del segmento, sobre la linea
+                            val midX = (xs[0] + xb[0]) / 2f
+                            drawSmcChip(canvas, label, labelPaint, midX, py, ev.bullish, contentLeft, contentRight, contentTop, contentBottom)
                         }
                     }
 
@@ -1701,7 +2155,8 @@ fun PriceChart(
                                 x2[0].coerceIn(contentLeft, contentRight), py, smcEqPaint
                             )
                             val label = if (eq.isHigh) "EQH" else "EQL"
-                            drawSmcChip(canvas, label, smcEqLabelPaint, x2[0], py, false, contentLeft, contentRight, contentTop, contentBottom)
+                            val midX = (x1[0] + x2[0]) / 2f
+                            drawSmcChip(canvas, label, smcEqLabelPaint, midX, py, false, contentLeft, contentRight, contentTop, contentBottom)
                         }
                     }
 
@@ -1743,18 +2198,12 @@ fun PriceChart(
                                     liq.isBuySide -> smcBslLabelPaint
                                     else -> smcSslLabelPaint
                                 }
-                                // ponytail: tag al borde derecho, desplazado si choca con otro
+                                // ponytail: tag al final de su linea, encima, desplazado si choca con otro
                                 val w = labelPaint.measureText(label) + 14f
                                 val h = labelPaint.textSize + 8f
-                                // ponytail: gutter del eje Y (labels INSIDE_CHART), el tag vive en el chart
-                                val axisGutter = context.resources.displayMetrics.density * 58f
-                                val rightEdge = (contentRight - axisGutter).coerceAtLeast(contentLeft)
-                                val lx = (rightEdge - w).coerceAtLeast(contentLeft)
-                                var ly = if (liq.isBuySide) {
-                                    (py - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
-                                } else {
-                                    (py + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
-                                }
+                                val lineEndX = x1[0].coerceIn(contentLeft, contentRight)
+                                val lx = (lineEndX - w - 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                                var ly = (py - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
                                 if (abs(ly - lastTagY) < h + 4f) {
                                     ly = (lastTagY + h + 4f).coerceAtMost(contentBottom - h)
                                 }
@@ -1806,11 +2255,8 @@ fun PriceChart(
                     val w = labelPaint.measureText(label) + 14f
                     val h = labelPaint.textSize + 8f
                     val lx = (anchorX + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
-                    val ly = if (above) {
-                        (anchorY - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
-                    } else {
-                        (anchorY + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
-                    }
+                    // ponytail: chip centrado sobre su linea estilo OKX, no tapa velas
+                    val ly = (anchorY - h / 2f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
                     yTagRect.set(lx, ly, lx + w, ly + h)
                     canvas.drawRoundRect(yTagRect, 4f, 4f, smcChipPaint)
                     canvas.drawText(label, lx + 7f, ly + h - 6f, labelPaint)
@@ -1828,13 +2274,40 @@ fun PriceChart(
                     when (event.action) {
                         android.view.MotionEvent.ACTION_DOWN -> {
                             if (toolRef.value == DrawingTool.MEASURE) {
-                                // ponytail: en Medir manda la cinta, el fibo no intercepta
+                                // ponytail: en Medir manda la cinta, los overlays no interceptan
                             } else {
+                                val dh = drawHitTest(event.x, event.y)
+                                if (dh != null) {
+                                    val (did, dzone, dlocked) = dh
+                                    onDrawSelect?.invoke(did)
+                                    selectedDrawRef.value = did
+                                    selectedFibRef.value = null
+                                    downX = event.x
+                                    downY = event.y
+                                    drawDragMoved = false
+                                    if (!dlocked) {
+                                        drawDragId = did
+                                        drawDragZone = dzone
+                                        if (dzone == 3) {
+                                            val o = drawsRef.value.firstOrNull { it.id == did }
+                                            val candles = stateRef.value.candles
+                                            drawOrigStart = o?.start
+                                            drawOrigEnd = o?.end
+                                            drawGrabIdx = touchToCandleIndex(event.x, event.y, candles.size)
+                                                ?: o?.let { fibTimeToIndexVirtual(candles, it.start.time, stateRef.value.selectedInterval) } ?: 0
+                                            drawGrabPrice = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).y.toDouble()
+                                        }
+                                    }
+                                    parent.requestDisallowInterceptTouchEvent(true)
+                                    return true
+                                }
                                 val hit = fibHitTest(event.x, event.y)
                             if (hit != null) {
                                 val (id, zone, locked) = hit
                                 onFibSelect?.invoke(id)
                                 selectedFibRef.value = id
+                                selectedDrawRef.value = null
                                 downX = event.x
                                 downY = event.y
                                 fibDragMoved = false
@@ -1847,7 +2320,7 @@ fun PriceChart(
                                         fibOrigStart = o?.start
                                         fibOrigEnd = o?.end
                                         fibGrabIdx = touchToCandleIndex(event.x, event.y, candles.size)
-                                            ?: o?.let { timeToIndex(candles, it.start.time) } ?: 0
+                                            ?: o?.let { fibTimeToIndexVirtual(candles, it.start.time, stateRef.value.selectedInterval) } ?: 0
                                         fibGrabPrice = getTransformer(YAxis.AxisDependency.LEFT)
                                             .getValuesByTouchPoint(event.x, event.y).y.toDouble()
                                     }
@@ -1869,19 +2342,22 @@ fun PriceChart(
                                         if (fibDragZone == 3) {
                                             // ponytail: mover cuerpo conserva tamaño (delta indice+precio)
                                             val candles = stateRef.value.candles
-                                            val newIdx = touchToCandleIndex(event.x, event.y, candles.size)
+                                            val rawMoveX = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).x.roundToInt()
+                                            val newIdx = rawMoveX.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                                             val newPrice = getTransformer(YAxis.AxisDependency.LEFT)
                                                 .getValuesByTouchPoint(event.x, event.y).y.toDouble()
-                                            if (newIdx != null && fibOrigStart != null && fibOrigEnd != null) {
+                                            if (fibOrigStart != null && fibOrigEnd != null) {
                                                 val dIdx = newIdx - fibGrabIdx
                                                 val dPrice = newPrice - fibGrabPrice
-                                                val s0 = timeToIndex(candles, fibOrigStart!!.time)
-                                                val e0 = timeToIndex(candles, fibOrigEnd!!.time)
-                                                val s1 = (s0 + dIdx).coerceIn(0, candles.size - 1)
-                                                val e1 = (e0 + dIdx).coerceIn(0, candles.size - 1)
+                                                val interval = stateRef.value.selectedInterval
+                                                val s0 = fibTimeToIndexVirtual(candles, fibOrigStart!!.time, interval)
+                                                val e0 = fibTimeToIndexVirtual(candles, fibOrigEnd!!.time, interval)
+                                                val s1 = (s0 + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                                val e1 = (e0 + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                                                 val next = cur.copy(
-                                                    start = FibAnchor(candles[s1].time, fibOrigStart!!.price + dPrice),
-                                                    end = FibAnchor(candles[e1].time, fibOrigEnd!!.price + dPrice)
+                                                    start = FibAnchor(fibIndexToTime(candles, s1, interval), fibOrigStart!!.price + dPrice),
+                                                    end = FibAnchor(fibIndexToTime(candles, e1, interval), fibOrigEnd!!.price + dPrice)
                                                 )
                                                 overlaysRef.value = overlaysRef.value.map { if (it.id == id) next else it }
                                                 onFibLive?.invoke(id, next)
@@ -1900,6 +2376,51 @@ fun PriceChart(
                                 }
                                 return true
                             }
+                            if (drawDragId != null) {
+                                val dx = abs(event.x - downX)
+                                val dy = abs(event.y - downY)
+                                if (dx > 10f || dy > 10f) drawDragMoved = true
+                                if (drawDragMoved) {
+                                    val id = drawDragId!!
+                                    val cur = drawsRef.value.firstOrNull { it.id == id }
+                                    if (cur != null) {
+                                        if (drawDragZone == 3) {
+                                            // ponytail: mover cuerpo conserva tamaño (delta indice+precio)
+                                            val candles = stateRef.value.candles
+                                            val rawMoveX = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).x.roundToInt()
+                                            val newIdx = rawMoveX.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                            val newPrice = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).y.toDouble()
+                                            if (drawOrigStart != null && drawOrigEnd != null) {
+                                                val dIdx = newIdx - drawGrabIdx
+                                                val dPrice = newPrice - drawGrabPrice
+                                                val interval = stateRef.value.selectedInterval
+                                                val s0 = fibTimeToIndexVirtual(candles, drawOrigStart!!.time, interval)
+                                                val e0 = fibTimeToIndexVirtual(candles, drawOrigEnd!!.time, interval)
+                                                val s1 = (s0 + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                                val e1 = (e0 + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                                val next = cur.copy(
+                                                    start = FibAnchor(fibIndexToTime(candles, s1, interval), drawOrigStart!!.price + dPrice),
+                                                    end = FibAnchor(fibIndexToTime(candles, e1, interval), drawOrigEnd!!.price + dPrice)
+                                                )
+                                                drawsRef.value = drawsRef.value.map { if (it.id == id) next else it }
+                                                onDrawLive?.invoke(id, next)
+                                                invalidate()
+                                            }
+                                        } else {
+                                            drawAnchorFromTouch(event.x, event.y)?.let { anchor ->
+                                                val next = if (drawDragZone == 1) cur.copy(start = anchor)
+                                                else cur.copy(end = anchor)
+                                                drawsRef.value = drawsRef.value.map { if (it.id == id) next else it }
+                                                onDrawLive?.invoke(id, next)
+                                                invalidate()
+                                            }
+                                        }
+                                    }
+                                }
+                                return true
+                            }
                         }
                         android.view.MotionEvent.ACTION_UP -> {
                             if (fibDragId != null) {
@@ -1909,10 +2430,19 @@ fun PriceChart(
                                 fibDragZone = 0
                                 return true
                             }
+                            if (drawDragId != null) {
+                                if (drawDragMoved) onDrawCommit?.invoke(drawDragId!!)
+                                else invalidate()
+                                drawDragId = null
+                                drawDragZone = 0
+                                return true
+                            }
                         }
                         android.view.MotionEvent.ACTION_CANCEL -> {
                             fibDragId = null
                             fibDragZone = 0
+                            drawDragId = null
+                            drawDragZone = 0
                         }
                     }
 
@@ -1994,7 +2524,7 @@ fun PriceChart(
                     }
 
                     // ponytail: modo colocacion, el tap crea puntos; arrastrar = pan para no atascarse
-                    if (toolRef.value == DrawingTool.FIBO) {
+                    if (toolRef.value == DrawingTool.FIBO || toolRef.value == DrawingTool.DRAW) {
                         parent.requestDisallowInterceptTouchEvent(true)
                         when (event.action) {
                             android.view.MotionEvent.ACTION_DOWN -> {
@@ -2021,7 +2551,8 @@ fun PriceChart(
                                 val dy = abs(event.y - downY)
                                 if (dx < 14f && dy < 14f) {
                                     performClick()
-                                    applyFibTap(event.x, event.y)
+                                    if (toolRef.value == DrawingTool.FIBO) applyFibTap(event.x, event.y)
+                                    else applyDrawTap(event.x, event.y)
                                 }
                                 return true
                             }
@@ -2255,6 +2786,7 @@ fun PriceChart(
 
                     drawPriceRangeSelection(canvas, entries)
                     drawFibOverlays(canvas, entries)
+                    drawDrawOverlays(canvas, entries)
                     drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
                     drawLastPriceTag(canvas, entries)
 
@@ -2280,8 +2812,10 @@ fun PriceChart(
                     val priceAtTouch = trans.getValuesByTouchPoint(0f, py).y
                     val currentPrice = stateRef.value.detail?.price?.toDoubleOrNull() ?: entries.lastOrNull()?.close ?: 0.0
                     val pctFromCurrent = if (currentPrice != 0.0) (priceAtTouch - currentPrice) / currentPrice * 100 else 0.0
-                    
-                    val priceText = formatPriceForChart(priceAtTouch)
+
+                    // ponytail: mismos decimales que el tag de precio actual
+                    val refClose = entries.lastOrNull()?.close ?: currentPrice
+                    val priceText = formatAxisPrice(priceAtTouch, refClose)
                     val pctText = String.format(Locale.US, "%+.2f%%", pctFromCurrent)
                     
                     val twPrice = tagTextPaint.measureText(priceText)
@@ -2306,7 +2840,7 @@ fun PriceChart(
                     canvas.drawText(pctText, yTagRect.centerX(), py + tagGap + (thY * 2) + 10f, tagTextPaint)
 
                     // X-Axis Tag (Date)
-                    val dateText = xAxis.valueFormatter.getFormattedValue(h.x)
+                    val dateText = xAxis.valueFormatter.getFormattedValue(h.x).replace("|", " ")
                     val twX = tagTextPaint.measureText(dateText)
                     xTagRect.set(px - twX/2 - 10f, contentBottom, px + twX/2 + 10f, contentBottom + thY + 16f)
                     canvas.drawRoundRect(xTagRect, 4f, 4f, tagBackgroundPaint)
@@ -2314,6 +2848,9 @@ fun PriceChart(
                 }
             }.apply {
                 setupCommonChartParams()
+                // ponytail: eje X en 2 lineas (fecha|hora) + aire abajo
+                setXAxisRenderer(TwoLineXAxisRenderer(viewPortHandler, xAxis, getTransformer(YAxis.AxisDependency.LEFT)))
+                extraBottomOffset = 18f
                 marker = OKXChartMarker(context) { stateRef.value }
                 // ponytail: etiquetas del canvas con la condensada, numeros mas definidos
                 try {
@@ -2351,7 +2888,10 @@ fun PriceChart(
                     textColor = "#ADB1B8".toColorInt()
                     valueFormatter = object : ValueFormatter() {
                         override fun getFormattedValue(value: Float): String {
-                            return formatPriceForChart(value.toDouble())
+                            return formatAxisPrice(
+                                value.toDouble(),
+                                stateRef.value.candles.lastOrNull()?.close ?: 0.0
+                            )
                         }
                     }
                 }
@@ -2407,6 +2947,44 @@ fun PriceChart(
                     viewModel.selectFib(id)
                     selectedFibRef.value = id
                 }
+                onDrawLive = { id, next ->
+                    viewModel.setDrawLive(id, next)
+                    drawsRef.value = drawsRef.value.map { if (it.id == id) next else it }
+                }
+                onDrawCommit = { id ->
+                    viewModel.commitDraw(id)
+                }
+                onDrawSelect = { id ->
+                    viewModel.selectDraw(id)
+                    selectedDrawRef.value = id
+                }
+                onDrawTap = { anchor ->
+                    val kind = drawKindRef.value ?: DrawKind.SEGMENT
+                    if (kind == DrawKind.PRICE_LINE) {
+                        viewModel.addDraw(kind, anchor, anchor)?.let { created ->
+                            drawsRef.value = viewModel.drawOverlays.value
+                            selectedDrawRef.value = created.id
+                        }
+                        drawingTool.value = DrawingTool.NONE
+                        toolRef.value = DrawingTool.NONE
+                    } else {
+                        val pending = pendingDrawStartRef.value
+                        if (pending == null) {
+                            drawPendingStart.value = anchor
+                            pendingDrawStartRef.value = anchor
+                        } else {
+                            viewModel.addDraw(kind, FibAnchor(pending.time, pending.price), anchor)?.let { created ->
+                                drawsRef.value = viewModel.drawOverlays.value
+                                selectedDrawRef.value = created.id
+                            }
+                            drawPendingStart.value = null
+                            pendingDrawStartRef.value = null
+                            drawingTool.value = DrawingTool.NONE
+                            toolRef.value = DrawingTool.NONE
+                        }
+                    }
+                    invalidate()
+                }
                 onFibTap = { anchor ->
                     val pending = pendingStartRef.value
                     if (pending == null) {
@@ -2431,6 +3009,8 @@ fun PriceChart(
             prefsRef.value = prefs
             overlaysRef.value = viewModel.fibOverlays.value
             selectedFibRef.value = viewModel.selectedFibId.value
+            drawsRef.value = viewModel.drawOverlays.value
+            selectedDrawRef.value = viewModel.selectedDrawId.value
             chart.onFibLive = { id, next ->
                 viewModel.setFibLive(id, next)
                 overlaysRef.value = overlaysRef.value.map { if (it.id == id) next else it }
@@ -2441,6 +3021,44 @@ fun PriceChart(
             chart.onFibSelect = { id ->
                 viewModel.selectFib(id)
                 selectedFibRef.value = id
+            }
+            chart.onDrawLive = { id, next ->
+                viewModel.setDrawLive(id, next)
+                drawsRef.value = drawsRef.value.map { if (it.id == id) next else it }
+            }
+            chart.onDrawCommit = { id ->
+                viewModel.commitDraw(id)
+            }
+            chart.onDrawSelect = { id ->
+                viewModel.selectDraw(id)
+                selectedDrawRef.value = id
+            }
+            chart.onDrawTap = { anchor ->
+                val kind = drawKindRef.value ?: DrawKind.SEGMENT
+                if (kind == DrawKind.PRICE_LINE) {
+                    viewModel.addDraw(kind, anchor, anchor)?.let { created ->
+                        drawsRef.value = viewModel.drawOverlays.value
+                        selectedDrawRef.value = created.id
+                    }
+                    drawingTool.value = DrawingTool.NONE
+                    toolRef.value = DrawingTool.NONE
+                } else {
+                    val pending = pendingDrawStartRef.value
+                    if (pending == null) {
+                        drawPendingStart.value = anchor
+                        pendingDrawStartRef.value = anchor
+                    } else {
+                        viewModel.addDraw(kind, FibAnchor(pending.time, pending.price), anchor)?.let { created ->
+                            drawsRef.value = viewModel.drawOverlays.value
+                            selectedDrawRef.value = created.id
+                        }
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
+                        drawingTool.value = DrawingTool.NONE
+                        toolRef.value = DrawingTool.NONE
+                    }
+                }
+                chart.invalidate()
             }
             chart.onFibTap = { anchor ->
                 val pending = pendingStartRef.value
@@ -2603,7 +3221,7 @@ fun PriceChart(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(top = 4.dp, start = 8.dp, end = 64.dp),
+                .padding(top = 4.dp, start = 8.dp, end = 8.dp),
             verticalAlignment = Alignment.Top
         ) {
             // ponytail: pill oscuro pa' que las MAs no se pierdan sobre las velas
@@ -2649,12 +3267,7 @@ fun PriceChart(
                     fontWeight = FontWeight.Bold
                 )
             }
-            // ponytail: un solo boton Dibujo, adentro se elige Medir o Fibo
-            val dibujoLabel = when (drawingTool.value) {
-                DrawingTool.MEASURE -> "Medir ON"
-                DrawingTool.FIBO -> "Fibo ON"
-                DrawingTool.NONE -> "Dibujo"
-            }
+            // ponytail: un solo boton Dibujo (pincel), adentro se elige Medir o Fibo
             val dibujoActive = drawingTool.value != DrawingTool.NONE
             Box(
                 modifier = Modifier
@@ -2666,11 +3279,11 @@ fun PriceChart(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = dibujoLabel,
-                    color = if (dibujoActive) Color.Black else Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+                Icon(
+                    imageVector = Icons.Default.Brush,
+                    contentDescription = "Dibujo",
+                    tint = if (dibujoActive) Color.Black else Color.White,
+                    modifier = Modifier.size(14.dp)
                 )
             }
             }
@@ -2679,11 +3292,15 @@ fun PriceChart(
         // ponytail: barra del fibo seleccionado, visible aunque no estes en modo dibujo
         val selectedFib = fibOverlays.firstOrNull { it.id == selectedFibId }
         if (selectedFib != null) {
-            FibEditBar(
+            OverlayEditBar(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 44.dp),
-                fib = selectedFib,
+                colorHex = selectedFib.colorHex,
+                width = selectedFib.width,
+                hidden = selectedFib.hidden,
+                locked = selectedFib.locked,
+                showLevels = true,
                 onColor = { viewModel.setFibColor(selectedFib.id, it) },
                 onWidth = { viewModel.setFibWidth(selectedFib.id, it) },
                 onLevels = { showFibLevels.value = true },
@@ -2706,6 +3323,46 @@ fun PriceChart(
             )
         }
 
+        // ponytail: barra del dibujo seleccionado, sin niveles
+        val selectedDraw = drawOverlays.firstOrNull { it.id == selectedDrawId }
+        if (selectedDraw != null) {
+            OverlayEditBar(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 44.dp),
+                colorHex = selectedDraw.colorHex,
+                width = selectedDraw.width,
+                hidden = selectedDraw.hidden,
+                locked = selectedDraw.locked,
+                showLevels = false,
+                onColor = {
+                    viewModel.setDrawColor(selectedDraw.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onWidth = {
+                    viewModel.setDrawWidth(selectedDraw.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onLevels = {},
+                onToggleHide = {
+                    viewModel.toggleDrawHidden(selectedDraw.id)
+                    priceChartRef.value?.invalidate()
+                },
+                onToggleLock = {
+                    viewModel.toggleDrawLocked(selectedDraw.id)
+                    priceChartRef.value?.invalidate()
+                },
+                onDelete = {
+                    viewModel.deleteDraw(selectedDraw.id)
+                    drawsRef.value = viewModel.drawOverlays.value
+                    selectedDrawRef.value = viewModel.selectedDrawId.value
+                    drawPendingStart.value = null
+                    pendingDrawStartRef.value = null
+                    priceChartRef.value?.invalidate()
+                }
+            )
+        }
+
         if (showDrawingSheet.value) {
             ModalBottomSheet(
                 onDismissRequest = { showDrawingSheet.value = false },
@@ -2713,13 +3370,17 @@ fun PriceChart(
             ) {
                 DrawingToolsSheet(
                     active = drawingTool.value,
-                    fibCount = fibOverlays.size,
-                    hasFib = selectedFib != null,
+                    drawKind = drawKindRef.value,
+                    magnetOn = magnetRef.value,
+                    fibCount = fibOverlays.size + drawOverlays.size,
+                    hasFib = selectedFib != null || selectedDraw != null,
                     onPickMeasure = {
                         drawingTool.value = if (drawingTool.value == DrawingTool.MEASURE) DrawingTool.NONE else DrawingTool.MEASURE
                         rangeSelection.value = null
                         fibPendingStart.value = null
                         pendingStartRef.value = null
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
                         priceChartRef.value?.apply {
                             highlightValue(null)
                             syncHighlights(this, stochChartRef.value, rsiChartRef.value)
@@ -2735,19 +3396,37 @@ fun PriceChart(
                         showDrawingSheet.value = false
                         priceChartRef.value?.invalidate()
                     },
-                    onHideFib = {
-                        selectedFib?.let { viewModel.toggleFibHidden(it.id) }
+                    onPickDraw = { kind ->
+                        drawingTool.value = DrawingTool.DRAW
+                        drawKindRef.value = kind
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
                         showDrawingSheet.value = false
                         priceChartRef.value?.invalidate()
                     },
-                    onDeleteFib = {
-                        selectedFib?.let {
+                    onToggleMagnet = {
+                        magnetRef.value = !magnetRef.value
+                    },
+                    onHideSelected = {
+                        selectedDraw?.let { viewModel.toggleDrawHidden(it.id) }
+                            ?: selectedFib?.let { viewModel.toggleFibHidden(it.id) }
+                        showDrawingSheet.value = false
+                        priceChartRef.value?.invalidate()
+                    },
+                    onDeleteSelected = {
+                        selectedDraw?.let {
+                            viewModel.deleteDraw(it.id)
+                            drawsRef.value = viewModel.drawOverlays.value
+                            selectedDrawRef.value = viewModel.selectedDrawId.value
+                        } ?: selectedFib?.let {
                             viewModel.deleteFib(it.id)
                             overlaysRef.value = viewModel.fibOverlays.value
                             selectedFibRef.value = viewModel.selectedFibId.value
                         }
                         fibPendingStart.value = null
                         pendingStartRef.value = null
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
                         showDrawingSheet.value = false
                         priceChartRef.value?.invalidate()
                     },
@@ -2804,7 +3483,8 @@ fun PriceChart(
 @Composable
 fun StochRSIChart(
     state: CryptoDetailState,
-    chartRef: MutableState<LineChart?>
+    chartRef: MutableState<LineChart?>,
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
 ) {
     val stateRef = remember { mutableStateOf(state) }
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
@@ -2884,7 +3564,7 @@ fun StochRSIChart(
                 setPinchZoom(false)
                 axisLeft.apply {
                     axisMinimum = 0f
-                    axisMaximum = 135f
+                    axisMaximum = 100f
                     setLabelCount(3, true)
                     setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
                 }
@@ -2919,6 +3599,8 @@ fun StochRSIChart(
             chart.xAxis.setDrawLabels(false)
             chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
             if (isNewDataset) {
+                // ponytail: al montar, hereda el rango visible del principal
+                priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
         }
@@ -2928,9 +3610,12 @@ fun StochRSIChart(
 @Composable
 fun RsiChart(
     state: CryptoDetailState,
-    chartRef: MutableState<LineChart?>
+    chartRef: MutableState<LineChart?>,
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
+    prefs: IndicatorPrefs = IndicatorPrefs.DEFAULT
 ) {
     val stateRef = remember { mutableStateOf(state) }
+    val prefsRef = remember { mutableStateOf(prefs) }
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
     AndroidView(
         modifier = Modifier.fillMaxSize(),
@@ -2947,6 +3632,31 @@ fun RsiChart(
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
+                // ponytail: divergencias estilo TV, linea + chip Bull/Bear
+                private val divBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#26A69A")
+                    strokeWidth = 2f
+                }
+                private val divBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#EF5350")
+                    strokeWidth = 2f
+                }
+                private val divBullLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#26A69A")
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val divBearLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#EF5350")
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val divChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(220, 20, 21, 24)
+                }
+                private val divRect = RectF()
 
                 override fun onDraw(canvas: Canvas) {
                     super.onDraw(canvas)
@@ -2985,6 +3695,49 @@ fun RsiChart(
                             rsiPaint
                         )
                     }
+
+                    // ponytail: divergencias sobre pivotes confirmados, solo el rango visible
+                    if (prefsRef.value.rsiDivVisible) {
+                        val divs = currentState.rsiDiv
+                        if (divs.isNotEmpty()) {
+                            val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                            val contentLeft = viewPortHandler.contentLeft()
+                            val contentRight = viewPortHandler.contentRight()
+                            val contentTop = viewPortHandler.contentTop()
+                            val contentBottom = viewPortHandler.contentBottom()
+                            val visStart = lowestVisibleX.toInt()
+                            val visEnd = highestVisibleX.toInt()
+                            // ponytail: como el Pine, ocultas solo si el toggle va ON
+                            val showHidden = prefsRef.value.rsiDivHidden
+                            divs.forEach { div ->
+                                if (!showHidden && (div.kind == RsiDivKind.HID_BULL || div.kind == RsiDivKind.HID_BEAR)) return@forEach
+                                if (div.idx2 < visStart || div.idx1 > visEnd) return@forEach
+                                val p1 = floatArrayOf(div.idx1.toFloat(), div.rsi1.toFloat())
+                                trans.pointValuesToPixel(p1)
+                                val p2 = floatArrayOf(div.idx2.toFloat(), div.rsi2.toFloat())
+                                trans.pointValuesToPixel(p2)
+                                val linePaint = if (div.bullish) divBullLinePaint else divBearLinePaint
+                                val labelPaint = if (div.bullish) divBullLabelPaint else divBearLabelPaint
+                                canvas.drawLine(
+                                    p1[0].coerceIn(contentLeft, contentRight), p1[1].coerceIn(contentTop, contentBottom),
+                                    p2[0].coerceIn(contentLeft, contentRight), p2[1].coerceIn(contentTop, contentBottom),
+                                    linePaint
+                                )
+                                val label = if (div.bullish) "Bull" else "Bear"
+                                val w = labelPaint.measureText(label) + 14f
+                                val h = labelPaint.textSize + 8f
+                                val lx = (p2[0] + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                                val ly = if (div.bullish) {
+                                    (p2[1] + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                                } else {
+                                    (p2[1] - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                                }
+                                divRect.set(lx, ly, lx + w, ly + h)
+                                canvas.drawRoundRect(divRect, 4f, 4f, divChipPaint)
+                                canvas.drawText(label, lx + 7f, ly + h - 6f, labelPaint)
+                            }
+                        }
+                    }
                 }
             }.apply {
                 setupCommonChartParams()
@@ -3015,6 +3768,7 @@ fun RsiChart(
         },
         update = { chart ->
             stateRef.value = state
+            prefsRef.value = prefs
             val viewportKey = state.viewportKey()
             val isNewDataset = lastRenderedDataKey.value != viewportKey
 
@@ -3044,6 +3798,8 @@ fun RsiChart(
             chart.xAxis.setDrawLabels(false)
             chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
             if (isNewDataset) {
+                // ponytail: al montar, hereda el rango visible del principal
+                priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
         }
@@ -3127,29 +3883,28 @@ private fun XAxis.applyTimeAxis(state: CryptoDetailState) {
     valueFormatter = object : ValueFormatter() {
         private val daySdf = SimpleDateFormat("MM/dd", Locale.US)
         private val yearSdf = SimpleDateFormat("yyyy/MM", Locale.US)
-        private val hourSdf = SimpleDateFormat("MM/dd HH:mm", Locale.US)
+        private val dateSdf = SimpleDateFormat("MM/dd", Locale.US)
+        private val hourSdf = SimpleDateFormat("HH:mm", Locale.US)
 
         override fun getFormattedValue(value: Float): String {
             if (state.candles.isEmpty()) return ""
             val idx = value.toInt().coerceIn(0, state.candles.size - 1)
-            val sdf = when {
-                state.candles.spansMultipleYears() -> yearSdf
-                state.selectedInterval.isCalendarInterval() -> daySdf
-                else -> hourSdf
+            val time = state.candles[idx].time
+            return when {
+                state.candles.spansMultipleYears() -> yearSdf.format(Date(time))
+                state.selectedInterval.isCalendarInterval() -> daySdf.format(Date(time))
+                // ponytail: fecha|hora, el renderer de 2 lineas lo parte
+                else -> dateSdf.format(Date(time)) + "|" + hourSdf.format(Date(time))
             }
-            return sdf.format(Date(state.candles[idx].time))
         }
     }
 
     val spansYears = state.candles.spansMultipleYears()
     val isCalendar = state.selectedInterval.isCalendarInterval()
-    labelRotationAngle = when {
-        spansYears -> -30f
-        !isCalendar -> -18f
-        else -> 0f
-    }
+    // ponytail: siempre horizontal, intradia en 2 lineas via renderer
+    labelRotationAngle = 0f
     textSize = if (spansYears) 9f else 10f
-    yOffset = if (labelRotationAngle == 0f) 4f else 8f
+    yOffset = 8f
     setLabelCount(
         when {
             spansYears -> 3
@@ -3158,6 +3913,33 @@ private fun XAxis.applyTimeAxis(state: CryptoDetailState) {
         },
         false
     )
+}
+
+// ponytail: el XAxis de MPChart dibuja 1 linea; este parte fecha|hora en 2
+private class TwoLineXAxisRenderer(
+    viewPortHandler: ViewPortHandler,
+    xAxis: XAxis,
+    trans: Transformer
+) : XAxisRenderer(viewPortHandler, xAxis, trans) {
+    override fun drawLabel(
+        c: Canvas,
+        formattedLabel: String,
+        x: Float,
+        y: Float,
+        anchor: MPPointF,
+        angleDegrees: Float
+    ) {
+        val sep = formattedLabel.indexOf('|')
+        if (sep < 0 || angleDegrees != 0f) {
+            super.drawLabel(c, formattedLabel, x, y, anchor, angleDegrees)
+            return
+        }
+        val center = MPPointF.getInstance(0.5f, 0.5f)
+        val lh = mAxisLabelPaint.textSize * 1.25f
+        Utils.drawXAxisValue(c, formattedLabel.substring(0, sep), x, y - lh / 2f, mAxisLabelPaint, center, 0f)
+        Utils.drawXAxisValue(c, formattedLabel.substring(sep + 1), x, y + lh / 2f, mAxisLabelPaint, center, 0f)
+        MPPointF.recycleInstance(center)
+    }
 }
 
 private fun BarLineChartBase<*>.setupCommonChartParams() {
@@ -3442,6 +4224,8 @@ fun IndicatorsSheet(
     onToggleVolume: () -> Unit,
     onToggleStoch: () -> Unit,
     onToggleRsi: () -> Unit,
+    onToggleRsiDiv: () -> Unit,
+    onToggleRsiDivHidden: () -> Unit,
     onToggleMA: (Int) -> Unit,
     onConfigureMA: (Int) -> Unit,
     onToggleSmcStructure: () -> Unit,
@@ -3544,6 +4328,8 @@ fun IndicatorsSheet(
         IndicatorSwitchRow("VOL", "Volumen", prefs.volumeVisible, onToggleVolume)
         IndicatorSwitchRow("StochRSI", "Stoch RSI", prefs.stochVisible, onToggleStoch)
         IndicatorSwitchRow("RSI", "RSI 14", prefs.rsiVisible, onToggleRsi)
+        IndicatorSwitchRow("DIV", "Divergencias RSI", prefs.rsiDivVisible, onToggleRsiDiv)
+        IndicatorSwitchRow("HDIV", "Divergencias ocultas", prefs.rsiDivHidden, onToggleRsiDivHidden)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Smart Money",
@@ -3666,12 +4452,16 @@ fun MaConfigSheet(
 @Composable
 fun DrawingToolsSheet(
     active: DrawingTool,
+    drawKind: DrawKind?,
+    magnetOn: Boolean,
     hasFib: Boolean,
     fibCount: Int = 0,
     onPickMeasure: () -> Unit,
     onPickFibo: () -> Unit,
-    onHideFib: () -> Unit,
-    onDeleteFib: () -> Unit,
+    onPickDraw: (DrawKind) -> Unit,
+    onToggleMagnet: () -> Unit,
+    onHideSelected: () -> Unit,
+    onDeleteSelected: () -> Unit,
     onClose: () -> Unit
 ) {
     Column(
@@ -3683,36 +4473,54 @@ fun DrawingToolsSheet(
         Text("Herramientas de dibujo", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingTopAction("Ocultar", active != DrawingTool.NONE, onClose)
-            DrawingTopAction("Eliminar fibo", hasFib, onDeleteFib)
-            DrawingTopAction(if (hasFib && active == DrawingTool.FIBO) "Fibo ON" else "Fibo", true, onPickFibo)
+            DrawingTopAction(if (magnetOn) "Imán ON" else "Imán", true, onToggleMagnet)
+            DrawingTopAction("Ocultar", hasFib, onHideSelected)
+            DrawingTopAction("Eliminar", hasFib, onDeleteSelected)
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text("Líneas de tendencia", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingDisabledCell("Segmento", Modifier.weight(1f))
-            DrawingDisabledCell("Línea", Modifier.weight(1f))
-            DrawingDisabledCell("Recta", Modifier.weight(1f))
-            DrawingDisabledCell("Flecha", Modifier.weight(1f))
+            DrawingToolCell(Icons.Filled.Timeline, "Segmento", active == DrawingTool.DRAW && drawKind == DrawKind.SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.SEGMENT) }
+            DrawingToolCell(Icons.Filled.ShowChart, "Línea", active == DrawingTool.DRAW && drawKind == DrawKind.LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.LINE) }
+            DrawingToolCell(Icons.Filled.ArrowForward, "Recta", active == DrawingTool.DRAW && drawKind == DrawKind.RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.RAY) }
+            DrawingToolCell(Icons.Filled.TrendingUp, "Flecha", active == DrawingTool.DRAW && drawKind == DrawKind.ARROW, Modifier.weight(1f)) { onPickDraw(DrawKind.ARROW) }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Líneas horizontales", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DrawingToolCell(Icons.Filled.HorizontalRule, "Segmento H", active == DrawingTool.DRAW && drawKind == DrawKind.H_SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.H_SEGMENT) }
+            DrawingToolCell(Icons.Filled.Remove, "Línea H", active == DrawingTool.DRAW && drawKind == DrawKind.H_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.H_LINE) }
+            DrawingToolCell(Icons.Filled.ArrowForward, "Recta H", active == DrawingTool.DRAW && drawKind == DrawKind.H_RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.H_RAY) }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Figuras geométricas", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DrawingToolCell(Icons.Filled.CheckBoxOutlineBlank, "Rectángulo", active == DrawingTool.DRAW && drawKind == DrawKind.RECT, Modifier.weight(1f)) { onPickDraw(DrawKind.RECT) }
+            DrawingToolCell(Icons.Filled.RadioButtonUnchecked, "Círculo", active == DrawingTool.DRAW && drawKind == DrawKind.CIRCLE, Modifier.weight(1f)) { onPickDraw(DrawKind.CIRCLE) }
+            DrawingToolCell(Icons.Filled.ChangeHistory, "Triángulo", active == DrawingTool.DRAW && drawKind == DrawKind.TRIANGLE, Modifier.weight(1f)) { onPickDraw(DrawKind.TRIANGLE) }
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text("Más herramientas", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingPickCell(
-                label = if (active == DrawingTool.MEASURE) "Medir ON" else "Medir",
-                selected = active == DrawingTool.MEASURE,
-                modifier = Modifier.weight(1f),
+            DrawingToolCell(
+                Icons.Filled.Straighten,
+                if (active == DrawingTool.MEASURE) "Medir ON" else "Medir",
+                active == DrawingTool.MEASURE,
+                Modifier.weight(1f),
                 onClick = onPickMeasure
             )
-            DrawingPickCell(
-                label = "Retroceso de Fib",
-                selected = active == DrawingTool.FIBO,
-                modifier = Modifier.weight(1f),
+            DrawingToolCell(
+                Icons.Filled.BarChart,
+                "Retroceso de Fib",
+                active == DrawingTool.FIBO,
+                Modifier.weight(1f),
                 onClick = onPickFibo
             )
-            DrawingDisabledCell("Línea de precio", Modifier.weight(1f))
+            DrawingToolCell(Icons.Filled.DragHandle, "Línea de precio", active == DrawingTool.DRAW && drawKind == DrawKind.PRICE_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.PRICE_LINE) }
         }
         Spacer(modifier = Modifier.height(8.dp))
         // ponytail: ocultar no cierra el modo, solo esconde el trazo
@@ -3722,7 +4530,6 @@ fun DrawingToolsSheet(
                 color = Color.Gray,
                 fontSize = 12.sp
             )
-            TextButton(onClick = onHideFib) { Text("Ocultar / mostrar fibo", color = Color.Gray) }
         }
         Spacer(modifier = Modifier.height(24.dp))
     }
@@ -3742,7 +4549,36 @@ private fun DrawingTopAction(label: String, enabled: Boolean, onClick: () -> Uni
 }
 
 @Composable
-private fun DrawingPickCell(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(16.dp)
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount.y)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .width(44.dp)
+                .height(4.dp)
+                .background(Color(0xFF2A2E35), RoundedCornerShape(2.dp))
+        )
+    }
+}
+
+@Composable
+private fun DrawingToolCell(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     Box(
         modifier = modifier
             .background(
@@ -3755,29 +4591,24 @@ private fun DrawingPickCell(label: String, selected: Boolean, modifier: Modifier
                 RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
-            .padding(vertical = 14.dp),
+            .padding(vertical = 12.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
+            Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
 @Composable
-private fun DrawingDisabledCell(label: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .background(Color(0xFF1E2026).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .padding(vertical = 14.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, color = Color.Gray.copy(alpha = 0.6f), fontSize = 12.sp)
-    }
-}
-
-@Composable
-fun FibEditBar(
+fun OverlayEditBar(
     modifier: Modifier = Modifier,
-    fib: FibOverlay,
+    colorHex: String,
+    width: Float,
+    hidden: Boolean,
+    locked: Boolean,
+    showLevels: Boolean,
     onColor: (String) -> Unit,
     onWidth: (Float) -> Unit,
     onLevels: () -> Unit,
@@ -3787,23 +4618,45 @@ fun FibEditBar(
 ) {
     var showColors by remember { mutableStateOf(false) }
     var showWidths by remember { mutableStateOf(false) }
-    val fibTint = try {
-        Color(fib.colorHex.toColorInt())
+    // ponytail: pestaña para mover la barra a cualquier lado
+    var drag by remember { mutableStateOf(Offset.Zero) }
+    val tintColor = try {
+        Color(colorHex.toColorInt())
     } catch (_: Exception) {
         Color.White
     }
     Row(
         modifier = modifier
+            .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
             .background(Color(0xEE141518), RoundedCornerShape(8.dp))
             .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
+        // ponytail: pestaña de arrastre, no hace click
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        drag += dragAmount
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = "Mover",
+                tint = Color.Gray,
+                modifier = Modifier.size(22.dp)
+            )
+        }
         // ponytail: lapiz abre paleta de colores
         Box {
-            FibBarIconBtn(
+            OverlayBarIconBtn(
                 icon = Icons.Filled.Edit,
-                tint = fibTint,
+                tint = tintColor,
                 desc = "Color",
                 onClick = { showColors = true }
             )
@@ -3816,7 +4669,7 @@ fun FibEditBar(
                     IndicatorPrefs.PRESET_COLORS.chunked(4).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { hex ->
-                                val selected = hex.equals(fib.colorHex, ignoreCase = true)
+                                val selected = hex.equals(colorHex, ignoreCase = true)
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
@@ -3846,7 +4699,7 @@ fun FibEditBar(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    fibWidthLabel(fib.width),
+                    fibWidthLabel(width),
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
@@ -3873,41 +4726,43 @@ fun FibEditBar(
                                 modifier = Modifier
                                     .width(40.dp)
                                     .height(w.dp.coerceAtLeast(1.dp))
-                                    .background(fibTint, RoundedCornerShape(1.dp))
+                                    .background(tintColor, RoundedCornerShape(1.dp))
                             )
                             Text(
                                 fibWidthLabel(w),
-                                color = if (w == fib.width) Color.White else Color.Gray,
+                                color = if (w == width) Color.White else Color.Gray,
                                 fontSize = 13.sp,
-                                fontWeight = if (w == fib.width) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (w == width) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
                 }
             }
         }
-        // ponytail: tuerca = niveles y estilo del fibo seleccionado
-        FibBarIconBtn(icon = Icons.Filled.Settings, tint = Color.White, desc = "Niveles", onClick = onLevels)
+        // ponytail: tuerca = niveles (solo fibo) y estilo del seleccionado
+        if (showLevels) {
+            OverlayBarIconBtn(icon = Icons.Filled.Settings, tint = Color.White, desc = "Niveles", onClick = onLevels)
+        }
         // ponytail: ojo con raya cuando esta oculto
-        FibBarIconBtn(
-            icon = if (fib.hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+        OverlayBarIconBtn(
+            icon = if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
             tint = Color.Gray,
             desc = "Visible",
             onClick = onToggleHide
         )
         // ponytail: candado azul cerrado bloquea mover/resize
-        FibBarIconBtn(
-            icon = if (fib.locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
-            tint = if (fib.locked) Color(0xFF2196F3) else Color.Gray,
+        OverlayBarIconBtn(
+            icon = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+            tint = if (locked) Color(0xFF2196F3) else Color.Gray,
             desc = "Bloquear",
             onClick = onToggleLock
         )
-        FibBarIconBtn(icon = Icons.Filled.Delete, tint = Color.Gray, desc = "Eliminar", onClick = onDelete)
+        OverlayBarIconBtn(icon = Icons.Filled.Delete, tint = Color.Gray, desc = "Eliminar", onClick = onDelete)
     }
 }
 
 @Composable
-private fun FibBarIconBtn(
+private fun OverlayBarIconBtn(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
     desc: String,
