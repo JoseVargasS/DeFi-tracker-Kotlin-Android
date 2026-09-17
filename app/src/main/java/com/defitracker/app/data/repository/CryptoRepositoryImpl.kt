@@ -100,9 +100,17 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getKlines(symbol: String, interval: String, source: String): List<List<Any>> {
+    override suspend fun getKlines(
+        symbol: String,
+        interval: String,
+        source: String,
+        forceRefresh: Boolean
+    ): List<List<Any>> {
         val cacheKey = "$source:$symbol:$interval"
-        getFreshCachedKlines(cacheKey)?.let { return it }
+        // ponytail: el rollover no puede comer cache o la vela nueva nunca aparece
+        if (!forceRefresh) {
+            getFreshCachedKlines(cacheKey)?.let { return it }
+        }
 
         return try {
             val klines = when (source) {
@@ -118,6 +126,36 @@ class CryptoRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             logNonFatal("Klines request failed for $symbol/$interval", e)
             klineCache[cacheKey]?.rows ?: emptyList()
+        }
+    }
+
+    // ponytail: cola liviana sin cache pa' syncTail, 1 sola llamada, sin paginado
+    override suspend fun getLatestKlines(
+        symbol: String,
+        interval: String,
+        source: String,
+        sinceTimeMs: Long,
+        limit: Int
+    ): List<List<Any>> {
+        return try {
+            when (source) {
+                "MEXC" -> getMexcFuturesKlines(
+                    symbol,
+                    interval,
+                    startSec = if (sinceTimeMs > 0L) sinceTimeMs / 1000L else null,
+                    singlePage = true
+                )
+                else -> binanceApi.getKlines(
+                    symbol = symbol,
+                    interval = interval,
+                    limit = limit.coerceIn(2, 50)
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logNonFatal("Tail klines request failed for $symbol/$interval", e)
+            emptyList()
         }
     }
 
@@ -464,7 +502,12 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // ponytail: kline columnar (segundos) -> filas estilo Binance + agregacion en repo
-    private suspend fun getMexcFuturesKlines(symbol: String, interval: String): List<List<Any>> {
+    private suspend fun getMexcFuturesKlines(
+        symbol: String,
+        interval: String,
+        startSec: Long? = null,
+        singlePage: Boolean = false
+    ): List<List<Any>> {
         val (mexcInterval, factor) = mexcKlinePlan(interval)
         val allRows = mutableListOf<List<Any>>()
         var end: Long? = null
@@ -475,6 +518,7 @@ class CryptoRepositoryImpl @Inject constructor(
             val data = mexcFuturesApi.getKlines(
                 symbol = symbol,
                 interval = mexcInterval,
+                start = startSec,
                 end = end
             ).data
             val n = data.time.size
@@ -497,37 +541,47 @@ class CryptoRepositoryImpl @Inject constructor(
             end = data.time.firstOrNull()?.minus(1) ?: break
             pagesFetched++
 
-            if (n < MEXC_KLINE_PAGE_SIZE) break
+            if (singlePage || n < MEXC_KLINE_PAGE_SIZE) break
         }
 
         if (factor <= 1) return allRows
-        return aggregateRows(allRows, factor)
+        return aggregateRows(allRows, factor, mexcInterval)
     }
 
-    private fun aggregateRows(rows: List<List<Any>>, factor: Int): List<List<Any>> {
+    private fun aggregateRows(rows: List<List<Any>>, factor: Int, mexcInterval: String): List<List<Any>> {
         if (factor <= 1 || rows.isEmpty()) return rows
-        val out = ArrayList<List<Any>>((rows.size + factor - 1) / factor)
-        var index = 0
-        while (index < rows.size) {
-            val endExclusive = (index + factor).coerceAtMost(rows.size)
+        val chunkDurMs = mexcBaseDurMs(mexcInterval) * factor
+        if (chunkDurMs <= 0L) return rows
+        // ponytail: buckets anclados a calendario, no al indice; si no los bordes bailan cada fetch
+        val weekAnchored = mexcInterval == "Week1"
+        val buckets = LinkedHashMap<Long, MutableList<List<Any>>>()
+        for (row in rows) {
+            val t = row.toLongAt(0)
+            val key = if (weekAnchored) {
+                t - ((t - WEEK_ANCHOR_MS) % chunkDurMs)
+            } else {
+                t - (t % chunkDurMs)
+            }
+            buckets.getOrPut(key) { mutableListOf() }.add(row)
+        }
+        val out = ArrayList<List<Any>>(buckets.size)
+        for ((key, bucket) in buckets) {
             var high = Double.NEGATIVE_INFINITY
             var low = Double.POSITIVE_INFINITY
             var volume = 0.0
-            for (j in index until endExclusive) {
-                val row = rows[j]
+            for (row in bucket) {
                 high = high.coerceAtLeast(row.toDoubleAt(2))
                 low = low.coerceAtMost(row.toDoubleAt(3))
                 volume += row.toDoubleAt(5)
             }
-            val first = rows[index]
-            val last = rows[endExclusive - 1]
+            val first = bucket.first()
+            val last = bucket.last()
             out.add(
                 listOf<Any>(
-                    first.toLongAt(0), first.toDoubleAt(1), high, low,
+                    key, first.toDoubleAt(1), high, low,
                     last.toDoubleAt(4), volume, 0L, 0.0, 0, 0.0
                 )
             )
-            index += factor
         }
         return out
     }
@@ -549,6 +603,17 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // ponytail: base MEXC mas cercana + factor para agregar en repo
+    private fun mexcBaseDurMs(mexcInterval: String): Long = when (mexcInterval) {
+        "Min1" -> 60_000L
+        "Min5" -> 300_000L
+        "Min15" -> 900_000L
+        "Min30" -> 1_800_000L
+        "Min60" -> 3_600_000L
+        "Hour4" -> 14_400_000L
+        "Day1" -> 86_400_000L
+        "Week1" -> 604_800_000L
+        else -> 0L
+    }
     private fun mexcKlinePlan(interval: String): Pair<String, Int> {
         return when (interval) {
             "1m" -> "Min1" to 1
@@ -620,6 +685,9 @@ class CryptoRepositoryImpl @Inject constructor(
         const val MEXC_KLINE_PAGE_SIZE = 2000
         const val KLINE_CACHE_MAX_ENTRIES = 24
         const val KLINE_CACHE_TTL_MS = 30_000L
+        const val TAIL_SYNC_LIMIT = 10
+        // ponytail: lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
+        const val WEEK_ANCHOR_MS = 1_578_182_400_000L
         const val TRANSACTION_MIN_DISPLAY_LIMIT = 5
         const val TRANSACTION_MAX_DISPLAY_LIMIT = 100
         const val TRANSACTION_PAGE_LIMIT = 100

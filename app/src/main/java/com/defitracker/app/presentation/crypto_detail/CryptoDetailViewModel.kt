@@ -48,6 +48,10 @@ class CryptoDetailViewModel @Inject constructor(
 
     private var refreshJob: Job? = null
     private var chartJob: Job? = null
+    // ponytail: el loop es secuencial, el flag solo evita solapar tail con full load
+    private var tailSyncing = false
+    // ponytail: si el tail no trae vela nueva 3 cierres seguidos, full load de respaldo
+    private var noNewCandleStreak = 0
 
     init {
         _state.value = state.value.copy(symbol = symbol, source = source)
@@ -198,8 +202,24 @@ class CryptoDetailViewModel @Inject constructor(
                 try {
                     val detail = repository.getPairDetail(symbol, source)
                     val currentPrice = detail.price.toDoubleOrNull() ?: 0.0
+
+                    // ponytail: al cerrar la vela se mergea la cola fresca, nunca full reload
+                    val candlesNow = _state.value.candles
+                    val lastNow = candlesNow.lastOrNull()
+                    val nowMs = System.currentTimeMillis()
+                    val durMs = candleDurationMs(_state.value.selectedInterval)
+                    val closed = lastNow != null && durMs > 0L && nowMs >= lastNow.time + durMs
+                    if (closed && !tailSyncing) {
+                        tailSyncing = true
+                        try {
+                            syncTail()
+                        } finally {
+                            tailSyncing = false
+                        }
+                    }
                     
                     if (currentPrice > 0.0) {
+                        val tickInterval = _state.value.selectedInterval
                         val updatedCandles = _state.value.candles.toMutableList()
                         if (updatedCandles.isNotEmpty()) {
                             val lastCandle = updatedCandles.last()
@@ -214,7 +234,10 @@ class CryptoDetailViewModel @Inject constructor(
                         val chartData = withContext(Dispatchers.Default) {
                             updatedCandles.toChartComputation(_state.value.selectedInterval)
                         }
-                        
+
+                        // ponytail: si cambiaste de TF a mitad del calculo, este tick ya no sirve
+                        if (_state.value.selectedInterval != tickInterval) continue
+
                         _state.value = _state.value.copy(
                             detail = detail,
                             candles = chartData.candles,
@@ -230,14 +253,18 @@ class CryptoDetailViewModel @Inject constructor(
                     }
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    // ponytail: nunca mas silencioso, el loop del chart fallaba sin dejar rastro
+                    logNonFatal("Detail refresh tick failed for $symbol", e)
+                }
             }
         }
     }
 
-    fun loadChartData(interval: String) {
+    fun loadChartData(interval: String, force: Boolean = false) {
         val normalizedInterval = interval.trim()
-        if (normalizedInterval == state.value.selectedInterval && state.value.candles.isNotEmpty()) return
+        if (!force && normalizedInterval == state.value.selectedInterval && state.value.candles.isNotEmpty()) return
+        noNewCandleStreak = 0
 
         chartJob?.cancel()
         chartJob = viewModelScope.launch {
@@ -247,7 +274,9 @@ class CryptoDetailViewModel @Inject constructor(
                     symbol,
                     // ponytail: MEXC mapea+agrega en repo, Binance usa su formato
                     if (source == "MEXC") normalizedInterval else normalizedInterval.toBinanceInterval(),
-                    source
+                    source,
+                    // ponytail: carga completa siempre fresca, si no el cambio de TF muestra velas viejas
+                    forceRefresh = true
                 )
                 val chartData = withContext(Dispatchers.Default) {
                     val candles = rawKlines.toCandles().let {
@@ -280,6 +309,66 @@ class CryptoDetailViewModel @Inject constructor(
                 _state.value = state.value.copy(isLoading = false, error = e.message ?: "Error")
             }
         }
+    }
+
+    // ponytail: cola fresca mergeada por time; la historia vieja no se toca y el viewport no se mueve
+    private suspend fun syncTail() {
+        val current = _state.value
+        val interval = current.selectedInterval
+        if (current.candles.isEmpty()) {
+            loadChartData(interval, force = true)
+            return
+        }
+        val sinceMs = current.candles.lastOrNull()?.time ?: 0L
+        val rows = repository.getLatestKlines(
+            symbol,
+            if (source == "MEXC") interval else interval.toBinanceInterval(),
+            source,
+            sinceTimeMs = sinceMs
+        )
+        if (rows.isEmpty()) return
+        // ponytail: si cambiaste de TF mientras viajaba la red, esa cola ya no sirve
+        if (_state.value.selectedInterval != interval) return
+        val fresh = withContext(Dispatchers.Default) {
+            rows.toCandles().let {
+                if (source == "MEXC") it else it.aggregateForInterval(interval)
+            }
+        }
+        if (fresh.isEmpty()) return
+        if (_state.value.selectedInterval != interval) return
+        val oldLast = current.candles.lastOrNull()?.time ?: 0L
+        val freshByTime = fresh.associateBy { it.time }
+        val merged = ArrayList<CandleData>(current.candles.size + fresh.size)
+        for (c in current.candles) {
+            merged.add(freshByTime[c.time] ?: c)
+        }
+        for (c in fresh) {
+            if (c.time > oldLast) merged.add(c)
+        }
+        if (merged.size == current.candles.size && merged.lastOrNull()?.time == oldLast) {
+            // ponytail: el exchange aun no publica la vela; al tercer cierre, full load
+            noNewCandleStreak++
+            if (noNewCandleStreak >= 3) {
+                noNewCandleStreak = 0
+                loadChartData(interval, force = true)
+            }
+            return
+        }
+        noNewCandleStreak = 0
+        val chartData = withContext(Dispatchers.Default) {
+            merged.toChartComputation(interval)
+        }
+        _state.value = _state.value.copy(
+            candles = chartData.candles,
+            bbUpper = chartData.bbUpper,
+            bbMiddle = chartData.bbMiddle,
+            bbLower = chartData.bbLower,
+            stochK = chartData.stochK,
+            stochD = chartData.stochD,
+            maLines = chartData.maLines,
+            rsi = chartData.rsi,
+            smc = chartData.smc
+        )
     }
 
     private fun List<List<Any>>.toCandles(): List<CandleData> {
@@ -475,47 +564,36 @@ class CryptoDetailViewModel @Inject constructor(
     }
 
     private fun List<CandleData>.aggregateForInterval(interval: String): List<CandleData> {
-        val chunkSize = when (interval) {
-            "5d" -> 5
-            "2w" -> 2
+        val chunkDurMs = when (interval) {
+            "5d" -> 5 * 86_400_000L
+            "2w" -> 14 * 86_400_000L
             else -> return this
         }
-
-        val aggregated = ArrayList<CandleData>((size + chunkSize - 1) / chunkSize)
-        var index = 0
-        while (index < size) {
-            val first = this[index]
-            var last = first
-            var high = first.high
-            var low = first.low
-            var volume = 0.0
-            var takerBuy = 0.0
-            val endExclusive = (index + chunkSize).coerceAtMost(size)
-
-            for (itemIndex in index until endExclusive) {
-                val item = this[itemIndex]
-                last = item
-                high = high.coerceAtLeast(item.high)
-                low = low.coerceAtMost(item.low)
-                volume += item.volume
-                takerBuy += item.takerBuyVol
+        if (isEmpty()) return this
+        // ponytail: buckets anclados a calendario, no al indice; si no los times bailan cada fetch
+        val weekAnchored = interval == "2w"
+        val buckets = LinkedHashMap<Long, MutableList<CandleData>>()
+        for (c in this) {
+            val key = if (weekAnchored) {
+                c.time - ((c.time - WEEK_ANCHOR_MS) % chunkDurMs)
+            } else {
+                c.time - (c.time % chunkDurMs)
             }
-
-            aggregated.add(
-                CandleData(
-                    time = first.time,
-                    open = first.open,
-                    high = high,
-                    low = low,
-                    close = last.close,
-                    volume = volume,
-                    takerBuyVol = takerBuy
-                )
-            )
-            index += chunkSize
+            buckets.getOrPut(key) { mutableListOf() }.add(c)
         }
-
-        return aggregated
+        return buckets.map { (key, bucket) ->
+            val first = bucket.first()
+            val last = bucket.last()
+            CandleData(
+                time = key,
+                open = first.open,
+                high = bucket.maxOf { it.high },
+                low = bucket.minOf { it.low },
+                close = last.close,
+                volume = bucket.sumOf { it.volume },
+                takerBuyVol = bucket.sumOf { it.takerBuyVol }
+            )
+        }
     }
 
     private companion object {
@@ -524,6 +602,28 @@ class CryptoDetailViewModel @Inject constructor(
         const val DEFAULT_CHART_INTERVAL = "15m"
         const val STOCH_RSI_PERIOD = 14
         const val STOCH_SMOOTH_PERIOD = 3
+        // ponytail: lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
+        const val WEEK_ANCHOR_MS = 1_578_182_400_000L
+    }
+
+    // ponytail: espejo de intervalDurationMs del chart pa' detectar el cierre sin acoplar
+    private fun candleDurationMs(interval: String): Long = when (interval.trim()) {
+        "1m" -> 60_000L
+        "5m" -> 300_000L
+        "15m" -> 900_000L
+        "30m" -> 1_800_000L
+        "1h" -> 3_600_000L
+        "2h" -> 7_200_000L
+        "4h" -> 14_400_000L
+        "6h" -> 21_600_000L
+        "12h" -> 43_200_000L
+        "1d" -> 86_400_000L
+        "3d" -> 259_200_000L
+        "5d" -> 432_000_000L
+        "1w" -> 604_800_000L
+        "2w" -> 1_209_600_000L
+        "1mo" -> 2_592_000_000L
+        else -> 0L
     }
 }
 

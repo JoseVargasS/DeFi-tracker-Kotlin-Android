@@ -320,20 +320,24 @@ fun CryptoListScreen(
                                                     dragOffsetY.value += dragAmount.y
                                                     val current = localOrder.value?.toMutableList()
                                                         ?: return@detectDragGesturesAfterLongPress
-                                                    val from = current.indexOfFirst { "${it.symbol}-${it.source}" == dragKey.value }
+                                                    val dragId = dragKey.value ?: return@detectDragGesturesAfterLongPress
+                                                    val from = current.indexOfFirst { "${it.symbol}-${it.source}" == dragId }
                                                     if (from < 0) return@detectDragGesturesAfterLongPress
+                                                    // ponytail: por key, el indice de Lazy cambia con cada reorder
                                                     val itemH = listState.layoutInfo.visibleItemsInfo
-                                                        .find { it.index == from }?.size ?: 180
+                                                        .find { it.key == dragId }?.size ?: 180
                                                     val target = (from + (dragOffsetY.value / itemH).roundToInt())
                                                         .coerceIn(0, current.size - 1)
                                                     if (target != from) {
                                                         val item = current.removeAt(from)
                                                         current.add(target, item)
                                                         localOrder.value = current
+                                                        // ponytail: descuenta lo ya movido o el offset acumulado salta de mas
+                                                        dragOffsetY.value -= (target - from) * itemH
                                                     }
                                                     // ponytail: autoscroll en bordes
                                                     val info = listState.layoutInfo
-                                                    val vi = info.visibleItemsInfo.find { it.index == from }
+                                                    val vi = info.visibleItemsInfo.find { it.key == dragId }
                                                     val center = (vi?.offset ?: 0) + dragOffsetY.value + (vi?.size ?: 0) / 2
                                                     val viewportH = info.viewportEndOffset - info.viewportStartOffset
                                                     if (center < 120) {

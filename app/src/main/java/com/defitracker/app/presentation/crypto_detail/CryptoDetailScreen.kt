@@ -138,13 +138,14 @@ fun CryptoDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .background(Color(0xFF000000))
+                            .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = detail.price,
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                            fontSize = 22.sp,
+                            fontSize = 19.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = Lato
                         )
@@ -152,8 +153,15 @@ fun CryptoDetailScreen(
                         Text(
                             text = "${if (detail.isPositive) "+" else ""}${detail.priceChangePercent}%",
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
+                            fontFamily = Lato
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "H ${formatDecimal(detail.highPrice)}  L ${formatDecimal(detail.lowPrice)}",
+                            color = Color.Gray,
+                            fontSize = 11.sp,
                             fontFamily = Lato
                         )
                     }
@@ -161,26 +169,26 @@ fun CryptoDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top
                 ) {
                     Column(modifier = Modifier.weight(1.2f)) {
-                        Text(text = "Last price", color = Color.Gray, fontSize = 14.sp)
+                        Text(text = "Last price", color = Color.Gray, fontSize = 11.sp)
                         Text(
                             text = detail.price,
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                            fontSize = 38.sp,
+                            fontSize = 28.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = Lato
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = detailPair.displayName, color = Color.Gray, fontSize = 14.sp)
+                            Text(text = detailPair.displayName, color = Color.Gray, fontSize = 12.sp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "${if (detail.isPositive) "+" else ""}${detail.priceChangePercent}%",
                                 color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                                fontSize = 14.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = Lato
                             )
@@ -204,7 +212,7 @@ fun CryptoDetailScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (chartExpanded.value) 2.dp else 4.dp))
 
             // Stacked Charts Area (subs compactos, el protagonista es el chart)
             Column(modifier = Modifier.fillMaxSize()) {
@@ -339,14 +347,14 @@ fun IntervalRow(selected: String, onPick: (String) -> Unit) {
             Box(
                 modifier = Modifier
                     .width(42.dp)
-                    .height(36.dp)
+                    .height(28.dp)
                     .clickable { onPick(interval.second) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = interval.first,
                     color = if (isSelected) Color.White else Color.Gray,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
                 if (isSelected) {
@@ -427,11 +435,18 @@ private fun formatDecimal(value: String): String {
 }
 
 private fun formatPriceForChart(value: Double): String {
-    return if (abs(value) < 1.0) {
-        String.format(Locale.US, "%.4f", value)
-    } else {
-        String.format(Locale.US, "%.2f", value)
+    if (value == 0.0) return "0.00"
+    if (abs(value) >= 1000.0) {
+        return String.format(Locale.US, "%,.2f", value)
     }
+    // ponytail: hasta 8 decimales recortando ceros, pa' seguir precios chicos sin ruido
+    var s = String.format(Locale.US, "%.8f", value)
+    s = s.trimEnd('0').trimEnd('.')
+    val frac = s.substringAfter('.', "")
+    if (frac.length < 2) {
+        s = String.format(Locale.US, "%.2f", value)
+    }
+    return s
 }
 
 private enum class ChartTouchMode {
@@ -471,7 +486,15 @@ private fun intervalDurationMs(interval: String): Long = when (interval) {
 private fun formatCandleCountdown(interval: String, candleTime: Long): String {
     val dur = intervalDurationMs(interval)
     if (dur <= 0L) return "--:--"
-    val totalSec = ((candleTime + dur - System.currentTimeMillis()).coerceAtLeast(0L)) / 1000L
+    val now = System.currentTimeMillis()
+    // ponytail: al cerrar la vela se rola al siguiente borde, nunca se clava en 00:00
+    val elapsed = now - candleTime
+    val remainingMs = if (elapsed < 0L) {
+        candleTime + dur - now
+    } else {
+        dur - (elapsed % dur)
+    }
+    val totalSec = (remainingMs.coerceAtLeast(0L)) / 1000L
     return when {
         totalSec >= 86_400L -> String.format(
             Locale.US,
@@ -548,6 +571,9 @@ fun PriceChart(
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
     // ponytail: cambio de ajustes reconstruye datos sin resetear el zoom
     val lastPrefsKey = remember { mutableStateOf<String?>(null) }
+    // ponytail: pa' saber si es primera carga o cambio de TF (lo unico que recentra)
+    val lastCandleCount = remember { mutableStateOf(0) }
+    val lastCandleInterval = remember { mutableStateOf("") }
     val drawingTool = remember { mutableStateOf(DrawingTool.NONE) }
     val showDrawingSheet = remember { mutableStateOf(false) }
     val showFibLevels = remember { mutableStateOf(false) }
@@ -1720,7 +1746,10 @@ fun PriceChart(
                                 // ponytail: tag al borde derecho, desplazado si choca con otro
                                 val w = labelPaint.measureText(label) + 14f
                                 val h = labelPaint.textSize + 8f
-                                val lx = (contentRight - w).coerceAtLeast(contentLeft)
+                                // ponytail: gutter del eje Y (labels INSIDE_CHART), el tag vive en el chart
+                                val axisGutter = context.resources.displayMetrics.density * 58f
+                                val rightEdge = (contentRight - axisGutter).coerceAtLeast(contentLeft)
+                                val lx = (rightEdge - w).coerceAtLeast(contentLeft)
                                 var ly = if (liq.isBuySide) {
                                     (py - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
                                 } else {
@@ -2526,10 +2555,32 @@ fun PriceChart(
                 chart.data = combinedData
                 // Rebuild CombinedChart renderer buffers after replacing the
                 // CandleData/LineData objects from Compose.
+                // ponytail: tu zoom/posicion mandan; solo TF nuevo o primera carga recentran
+                val keepZoom = lastCandleCount.value > 0 &&
+                    state.selectedInterval == lastCandleInterval.value
+                val delta = state.candles.size - lastCandleCount.value
+                val savedMatrix = if (keepZoom) Matrix(chart.viewPortHandler.matrixTouch) else null
+                val wasAtRight = keepZoom && delta > 0 &&
+                    chart.highestVisibleX >= (lastCandleCount.value - 1f) - 1f
                 chart.notifyDataSetChanged()
                 chart.invalidate()
-                if (isNewDataset) {
-                    chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, onPositioned = {
+                if (keepZoom && savedMatrix != null) {
+                    if (wasAtRight) {
+                        // ponytail: siguiendo el vivo, corre a la izquierda las que entraron
+                        val vals = FloatArray(9)
+                        savedMatrix.getValues(vals)
+                        vals[Matrix.MTRANS_X] = vals[Matrix.MTRANS_X] - delta * vals[Matrix.MSCALE_X]
+                        val shifted = Matrix()
+                        shifted.setValues(vals)
+                        chart.viewPortHandler.matrixTouch.set(shifted)
+                    } else {
+                        chart.viewPortHandler.matrixTouch.set(savedMatrix)
+                    }
+                    chart.invalidate()
+                    syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
+                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
+                } else if (isNewDataset) {
+                    chart.applySyncAndInitialZoom(state.candles, resetViewport = true, onPositioned = {
                         syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
                     })
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
@@ -2541,6 +2592,8 @@ fun PriceChart(
             if (rebuildData) {
                 lastRenderedDataKey.value = viewportKey
                 lastPrefsKey.value = prefsKey
+                lastCandleCount.value = state.candles.size
+                lastCandleInterval.value = state.selectedInterval
             }
         }
     )
@@ -2550,13 +2603,19 @@ fun PriceChart(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(top = 8.dp, start = 8.dp, end = 64.dp),
+                .padding(top = 4.dp, start = 8.dp, end = 64.dp),
             verticalAlignment = Alignment.Top
         ) {
-            FlowRow(
+            // ponytail: pill oscuro pa' que las MAs no se pierdan sobre las velas
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp)
+                    .background(Color(0xB3000000), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+            ) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth()
             ) {
                 prefs.mas.filter { it.visible }.forEach { ma ->
                     val last = state.maLines[ma.period]?.lastOrNull()?.second
@@ -2571,6 +2630,7 @@ fun PriceChart(
                     }
                 }
             }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 modifier = Modifier
@@ -2579,13 +2639,13 @@ fun PriceChart(
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable { onOpenIndicators() }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "Indicadores",
                     color = Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -2603,13 +2663,13 @@ fun PriceChart(
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable { showDrawingSheet.value = true }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = dibujoLabel,
                     color = if (dibujoActive) Color.Black else Color.White,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
             }

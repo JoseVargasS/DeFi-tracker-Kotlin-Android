@@ -13,7 +13,15 @@ interface CryptoRepository {
     suspend fun addTrackedPair(symbol: String, baseAsset: String, quoteAsset: String, source: String)
     suspend fun removeTrackedPair(symbol: String)
     suspend fun getPairDetail(symbol: String, source: String): PairDetail
-    suspend fun getKlines(symbol: String, interval: String, source: String): List<List<Any>>
+    suspend fun getKlines(symbol: String, interval: String, source: String, forceRefresh: Boolean = false): List<List<Any>>
+    // ponytail: cola fresca sin cache pa' syncTail, 1 sola llamada
+    suspend fun getLatestKlines(
+        symbol: String,
+        interval: String,
+        source: String,
+        sinceTimeMs: Long = 0L,
+        limit: Int = 10
+    ): List<List<Any>>
     suspend fun getAvailableSymbols(source: String = "Binance"): List<AvailableCryptoPair>
 
     // Wallets
