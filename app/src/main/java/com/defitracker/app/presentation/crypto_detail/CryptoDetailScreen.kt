@@ -742,7 +742,7 @@ fun PriceChart(
             object : CombinedChart(context) {
                 val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.WHITE
-                    textSize = 28f 
+                    textSize = 28f
                     textAlign = Paint.Align.LEFT
                 }
                 private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1027,6 +1027,12 @@ fun PriceChart(
                     textAlign = Paint.Align.CENTER
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
+                // ponytail: escala Y fija a pantalla como OKX
+                private val pinnedYLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#ADB1B8")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.RIGHT
+                }
                 // ponytail: volumen taker apilado transparente detras de las velas
                 private val takerBuyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(110, 38, 166, 154)
@@ -1090,9 +1096,30 @@ fun PriceChart(
                     syncSubCharts(this, stochChartRef.value, rsiChartRef.value)
                 }
 
+                // ponytail: el resize (divisor de altos) recalcula ejes con toda la
+                // data; si el Y esta congelado se guarda y restaura para no aplanar
+                override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                    val keepY = oldw > 0 && oldh > 0 && !isAutoScaleMinMaxEnabled && data != null
+                    val savedMatrix = if (keepY) Matrix(viewPortHandler.matrixTouch) else null
+                    val lMin = if (keepY) axisLeft.axisMinimum else 0f
+                    val lMax = if (keepY) axisLeft.axisMaximum else 0f
+                    val rMin = if (keepY) axisRight.axisMinimum else 0f
+                    val rMax = if (keepY) axisRight.axisMaximum else 0f
+                    super.onSizeChanged(w, h, oldw, oldh)
+                    if (keepY && savedMatrix != null) {
+                        axisLeft.axisMinimum = lMin
+                        axisLeft.axisMaximum = lMax
+                        axisRight.axisMinimum = rMin
+                        axisRight.axisMaximum = rMax
+                        viewPortHandler.matrixTouch.set(savedMatrix)
+                    }
+                }
+
                 private fun applyPan(dx: Float, dy: Float) {
                     val matrix = Matrix(viewPortHandler.matrixTouch)
                     matrix.postTranslate(dx, dy)
+                    // ponytail: al mover libre se congela el Y, al entrar se reajusta solo
+                    isAutoScaleMinMaxEnabled = false
                     refreshTouchMatrix(matrix)
                 }
 
@@ -1145,6 +1172,28 @@ fun PriceChart(
                     syncHighlights(this, stochChartRef.value, rsiChartRef.value)
                     invalidate()
                     return true
+                }
+
+                // ponytail: escala Y fija a la pantalla, no sigue al pan como los nativos
+                private fun drawPinnedYLabels(canvas: Canvas, candles: List<CandleData>) {
+                    if (candles.isEmpty()) return
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+                    val refClose = candles.lastOrNull()?.close ?: 0.0
+                    val n = 6
+                    for (i in 0 until n) {
+                        val py = contentTop + (contentBottom - contentTop) * i / (n - 1)
+                        val v = trans.getValuesByTouchPoint(0f, py).y
+                        if (!v.isFinite()) continue
+                        canvas.drawText(
+                            formatAxisPrice(v, refClose),
+                            contentRight - 6f,
+                            py + pinnedYLabelPaint.textSize * 0.35f,
+                            pinnedYLabelPaint
+                        )
+                    }
                 }
 
                 // ponytail: linea punteada + tag con precio actual y countdown al cierre
@@ -2720,7 +2769,7 @@ fun PriceChart(
                         super.onDraw(canvas)
                         return
                     }
-                    
+
                     val visibleStart = lowestVisibleX.toInt().coerceIn(0, entries.size - 1)
                     val visibleEnd = highestVisibleX.toInt().coerceIn(0, entries.size - 1)
                     if (visibleStart >= visibleEnd) {
@@ -2734,7 +2783,7 @@ fun PriceChart(
                     drawSmcBackground(canvas, entries, visibleStart, visibleEnd)
                     super.onDraw(canvas)
                     drawTakerLegend(canvas, entries)
-                    
+
                     var maxIndex = visibleStart
                     var minIndex = visibleStart
                     for (index in visibleStart..visibleEnd) {
@@ -2788,6 +2837,7 @@ fun PriceChart(
                     drawFibOverlays(canvas, entries)
                     drawDrawOverlays(canvas, entries)
                     drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
+                    drawPinnedYLabels(canvas, entries)
                     drawLastPriceTag(canvas, entries)
 
                     // --- Draw Crosshair Lines Manually (Exact Y, Snapped X) ---
@@ -2797,9 +2847,9 @@ fun PriceChart(
                     trans.pointValuesToPixel(xPts)
                     val px = xPts[0]
                     val snappedPy = xPts[1]
-                    
+
                     val py = if (lastTouchYPx >= 0) lastTouchYPx.coerceIn(contentTop, contentBottom) else snappedPy
-                    
+
                     // Vertical Line
                     canvas.drawLine(px, contentTop, px, contentBottom, linePaint)
                     // Horizontal Line
@@ -2817,22 +2867,22 @@ fun PriceChart(
                     val refClose = entries.lastOrNull()?.close ?: currentPrice
                     val priceText = formatAxisPrice(priceAtTouch, refClose)
                     val pctText = String.format(Locale.US, "%+.2f%%", pctFromCurrent)
-                    
+
                     val twPrice = tagTextPaint.measureText(priceText)
                     val twPct = tagTextPaint.measureText(pctText)
                     val maxWidth = maxOf(twPrice, twPct)
                     val thY = tagTextPaint.textSize
-                    val lineHeight = thY + 8f 
-                    
+                    val lineHeight = thY + 8f
+
                     val tagRight = contentRight + maxWidth + 20f
                     val chartWidth = width.toFloat()
                     val offsetRight = if (tagRight > chartWidth) tagRight - chartWidth + 4f else 0f
-                    
+
                     val tagGap = 6f
                     yTagRect.set(
-                        contentRight - offsetRight, 
-                        py + tagGap, 
-                        contentRight + maxWidth + 20f - offsetRight, 
+                        contentRight - offsetRight,
+                        py + tagGap,
+                        contentRight + maxWidth + 20f - offsetRight,
                         py + tagGap + (lineHeight * 2) + 4f
                     )
                     canvas.drawRoundRect(yTagRect, 4f, 4f, tagBackgroundPaint)
@@ -2876,11 +2926,12 @@ fun PriceChart(
                         smcSweepLabelPaint.typeface = tf
                     }
                 } catch (_: Exception) {}
-                
-                // ponytail: eje a la derecha SOBRE el grafico, las velas pasan por detras
+
+                // eje a la derecha SOBRE el grafico, las velas pasan por detras
+                // labels nativos off, se dibujan fijos a pantalla (drawPinnedYLabels)
                 axisRight.apply {
                     isEnabled = true
-                    setDrawLabels(true)
+                    setDrawLabels(false)
                     setDrawGridLines(false)
                     setDrawAxisLine(false)
                     setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
@@ -3198,7 +3249,7 @@ fun PriceChart(
                     syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
                 } else if (isNewDataset) {
-                    chart.applySyncAndInitialZoom(state.candles, resetViewport = true, onPositioned = {
+                    chart.applySyncAndInitialZoom(state.candles, resetViewport = true, resetCustomY = true, onPositioned = {
                         syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
                     })
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
@@ -3514,21 +3565,21 @@ fun StochRSIChart(
                     super.onDraw(canvas)
                     val h = highlighted?.getOrNull(0)
                     val currentState = stateRef.value
-                    
+
                     val density = context.resources.displayMetrics.density
                     val textX = viewPortHandler.contentLeft() + (density * 5f)
                     val textY = viewPortHandler.contentTop() + (density * 14f)
-                    
+
                     var kVal = 0.0
                     var dVal = 0.0
                     var hasVal = false
-                    
+
                     if (h != null) {
                         val xPts = floatArrayOf(h.x, 0f)
                         getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
                         val px = xPts[0]
                         canvas.drawLine(px, viewPortHandler.contentTop(), px, viewPortHandler.contentBottom(), linePaint)
-                        
+
                         val idx = h.x.toInt()
                         val k = currentState.stochK.getValueAtCandleIndex(idx)
                         val d = currentState.stochD.getValueAtCandleIndex(idx)
@@ -3546,7 +3597,7 @@ fun StochRSIChart(
                             hasVal = true
                         }
                     }
-                    
+
                     if (hasVal) {
                         val kText = "K: ${String.format(Locale.US, "%.2f", kVal)}  "
                         canvas.drawText(kText, textX, textY, kPaint)
@@ -3641,6 +3692,15 @@ fun RsiChart(
                     color = GraphicsColor.parseColor("#EF5350")
                     strokeWidth = 2f
                 }
+                // ponytail: ocultas mas tenues para diferenciarlas, como el Pine
+                private val divHiddenBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(110, 38, 166, 154)
+                    strokeWidth = 2f
+                }
+                private val divHiddenBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(110, 239, 83, 80)
+                    strokeWidth = 2f
+                }
                 private val divBullLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#26A69A")
                     textSize = 22f
@@ -3716,14 +3776,25 @@ fun RsiChart(
                                 trans.pointValuesToPixel(p1)
                                 val p2 = floatArrayOf(div.idx2.toFloat(), div.rsi2.toFloat())
                                 trans.pointValuesToPixel(p2)
-                                val linePaint = if (div.bullish) divBullLinePaint else divBearLinePaint
+                                val linePaint = when (div.kind) {
+                                    RsiDivKind.REG_BULL -> divBullLinePaint
+                                    RsiDivKind.REG_BEAR -> divBearLinePaint
+                                    RsiDivKind.HID_BULL -> divHiddenBullLinePaint
+                                    RsiDivKind.HID_BEAR -> divHiddenBearLinePaint
+                                }
                                 val labelPaint = if (div.bullish) divBullLabelPaint else divBearLabelPaint
                                 canvas.drawLine(
                                     p1[0].coerceIn(contentLeft, contentRight), p1[1].coerceIn(contentTop, contentBottom),
                                     p2[0].coerceIn(contentLeft, contentRight), p2[1].coerceIn(contentTop, contentBottom),
                                     linePaint
                                 )
-                                val label = if (div.bullish) "Bull" else "Bear"
+                                // ponytail: ocultas llevan la H como en TV
+                                val label = when (div.kind) {
+                                    RsiDivKind.REG_BULL -> "Bull"
+                                    RsiDivKind.REG_BEAR -> "Bear"
+                                    RsiDivKind.HID_BULL -> "H Bull"
+                                    RsiDivKind.HID_BEAR -> "H Bear"
+                                }
                                 val w = labelPaint.measureText(label) + 14f
                                 val h = labelPaint.textSize + 8f
                                 val lx = (p2[0] + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
@@ -3811,6 +3882,7 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     data: List<*>,
     resetViewport: Boolean = false,
     skipPositioning: Boolean = false,
+    resetCustomY: Boolean = false,
     onPositioned: (() -> Unit)? = null
 ) {
     if (data.isEmpty()) return
@@ -3822,6 +3894,14 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
         viewPortHandler.setMaximumScaleY(1_000_000f)
         if (!skipPositioning) {
             post {
+                // ponytail: vista fresca con Y ajustado, se congela con el primer pan
+                if (resetCustomY) {
+                    axisLeft.resetAxisMinimum()
+                    axisLeft.resetAxisMaximum()
+                    axisRight.resetAxisMinimum()
+                    axisRight.resetAxisMaximum()
+                }
+                isAutoScaleMinMaxEnabled = true
                 val scaleX = data.size.toFloat() / INITIAL_VISIBLE_CANDLES
                 val lastX = (data.size - 1).toFloat().coerceAtLeast(0f)
                 val pts = floatArrayOf(lastX, 0f)
@@ -3945,7 +4025,7 @@ private class TwoLineXAxisRenderer(
 private fun BarLineChartBase<*>.setupCommonChartParams() {
     description.isEnabled = false
     legend.isEnabled = false
-    // ponytail: numeros del chart condensados estilo OKX, con fallback silencioso
+    // numeros del chart condensados estilo OKX, con fallback silencioso
     try {
         androidx.core.content.res.ResourcesCompat.getFont(
             context, com.defitracker.app.R.font.lato_semibold
@@ -3965,6 +4045,7 @@ private fun BarLineChartBase<*>.setupCommonChartParams() {
     isHighlightPerDragEnabled = true
     // Keep the existing data-range calculation so the initial candles remain
     // visible; manual Y gestures still operate on the viewport matrix.
+    // auto-escala al entrar, se congela sola con el primer pan
     isAutoScaleMinMaxEnabled = true
     xAxis.apply {
         position = XAxis.XAxisPosition.BOTTOM
@@ -4196,14 +4277,14 @@ class OKXChartMarker(
         val chart = chartView as? BarLineChartBase<*>
         val x = lastHighlight?.x ?: 0f
         val midX = if (chart != null) (chart.lowestVisibleX + chart.highestVisibleX) / 2f else 0f
-        
+
         // If selection is in right half of screen, show marker on left, else on right
         val xOffset = if (x > midX) {
             -width.toFloat() - 40f
         } else {
             40f
         }
-        
+
         return com.github.mikephil.charting.utils.MPPointF(xOffset, -height.toFloat() / 2f)
     }
 
@@ -4550,23 +4631,40 @@ private fun DrawingTopAction(label: String, enabled: Boolean, onClick: () -> Uni
 
 @Composable
 private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
+    var active by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(16.dp)
+            // ponytail: visual delgado, toque amplio en toda la linea
+            .height(18.dp)
             .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
+                detectDragGestures(
+                    onDragStart = { active = true },
+                    onDragEnd = { active = false },
+                    onDragCancel = { active = false }
+                ) { change, dragAmount ->
                     change.consume()
-                    onDrag(dragAmount.y)
+                    // ponytail: ganancia para no arrastrar tanto el dedo
+                    onDrag(dragAmount.y * 2.2f)
                 }
             },
         contentAlignment = Alignment.Center
     ) {
+        // ponytail: linea full ancho como OKX + pestaña que se ilumina al jalar
         Box(
             modifier = Modifier
-                .width(44.dp)
-                .height(4.dp)
-                .background(Color(0xFF2A2E35), RoundedCornerShape(2.dp))
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0xFF2A2E35))
+        )
+        Box(
+            modifier = Modifier
+                .width(36.dp)
+                .height(3.dp)
+                .background(
+                    if (active) Color(0xFF1ECB81) else Color(0xFF3A3F47),
+                    RoundedCornerShape(1.dp)
+                )
         )
     }
 }
