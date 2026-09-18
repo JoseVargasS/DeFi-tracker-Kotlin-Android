@@ -6,17 +6,19 @@ Android app for tracking crypto pairs, interactive price charts, multi-chain wal
 
 Octopus is organized around three main tabs:
 
-- `Pairs`: track USDT crypto pairs, search Binance symbols, view live prices, and open detail charts.
+- `Pairs`: track USDT crypto pairs (Binance spot + MEXC futures), search symbols, view live prices, open detail charts, and review RSI divergence alerts from the bell icon.
 - `Wallet`: save wallet addresses, inspect multi-chain token balances, copy/delete wallets, and refresh balances.
 - `History`: inspect wallet transactions grouped by network using CoinStats wallet transactions.
 
-The detail screen includes candlestick charts, volume, Bollinger Bands, and StochRSI indicators.
+The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI, RSI divergence marks (`Bull`/`Bear` plus early `Pre-Bull`/`Pre-Bear`), and SMC overlays.
 
 ## Current Features
 
-- Real-time pair tracking for Binance-backed symbols.
+- Real-time pair tracking for Binance-backed symbols plus MEXC perpetual futures.
 - Search and add tracked crypto pairs.
-- Pair detail screen with candlestick chart, live price updates, volume, Bollinger Bands, and StochRSI.
+- Pair detail screen with candlestick chart, live price updates, volume, Bollinger Bands, StochRSI, RSI divergences, and SMC structure/zones.
+- Push alerts for RSI divergences (`Pre-Bull`/`Pre-Bear` early signals that upgrade to `Bull`/`Bear` on confirmation) on tracked MEXC futures pairs, with a foreground monitor scanning every 60s across configurable timeframes (default `5m`, `15m`, `30m`, `1h`).
+- Alerts bottom sheet behind the bell icon: unread dot, arrow icons per direction, tap-to-open chart on the alert timeframe, and mark-all-seen action.
 - Saved wallet list backed by Room.
 - Multi-chain wallet balances through CoinStats.
 - Transaction history through CoinStats, grouped by network.
@@ -47,9 +49,15 @@ The detail screen includes candlestick charts, volume, Bollinger Bands, and Stoc
 app/src/main/java/com/defitracker/app/
 |-- core/
 |   `-- Constants.kt
+|-- alerts/
+|   |-- DivAlertNotifier.kt
+|   |-- DivMonitorPrefs.kt
+|   `-- DivScanService.kt
 |-- data/
 |   |-- local/
 |   |   |-- AppDatabase.kt
+|   |   |-- DivAlertDao.kt
+|   |   |-- DivAlertEntity.kt
 |   |   |-- TrackedPairDao.kt
 |   |   |-- TrackedPairEntity.kt
 |   |   |-- WalletDao.kt
@@ -57,6 +65,7 @@ app/src/main/java/com/defitracker/app/
 |   |-- remote/
 |   |   |-- BinanceApi.kt
 |   |   |-- CoinStatsApi.kt
+|   |   |-- MexcFuturesApi.kt
 |   |   `-- dto/
 |   `-- repository/
 |       `-- CryptoRepositoryImpl.kt
@@ -66,7 +75,12 @@ app/src/main/java/com/defitracker/app/
 |   |-- model/
 |   `-- repository/
 |-- presentation/
+|   |-- alerts/
+|   |   |-- AlertsBottomSheet.kt
+|   |   `-- AlertsViewModel.kt
 |   |-- crypto_detail/
+|   |   |-- RsiCalc.kt
+|   |   `-- RsiDiv.kt
 |   |-- crypto_list/
 |   |-- transactions/
 |   `-- wallet/
@@ -81,6 +95,7 @@ app/src/main/java/com/defitracker/app/
 The app currently has clients for several APIs:
 
 - Binance: symbol search, ticker stats, prices, and klines.
+- MEXC Futures: perpetual contract list, tickers, and klines backing futures tracking and RSI divergence scans.
 - CoinStats: wallet balances and transaction history.
 
 ### API Keys
@@ -151,10 +166,32 @@ Files:
 
 Behavior:
 
-- Loads available USDT symbols from Binance.
+- Loads available USDT symbols from Binance (spot) and MEXC (futures).
 - Adds/removes tracked pairs stored in Room.
 - Refreshes prices periodically.
 - Updates the Glance widget at a lower cadence than UI price refreshes.
+- Bell icon with unread dot opens the alerts bottom sheet (RSI divergence history, timeframe filters, monitoring toggle, mark-all-seen).
+- Tapping an alert navigates to the pair chart on the alert timeframe.
+
+### Alerts (RSI Divergences)
+
+Files:
+
+- `alerts/DivScanService.kt`
+- `alerts/DivAlertNotifier.kt`
+- `alerts/DivMonitorPrefs.kt`
+- `presentation/alerts/AlertsBottomSheet.kt`
+- `presentation/alerts/AlertsViewModel.kt`
+- `presentation/crypto_detail/RsiDiv.kt`
+- `presentation/crypto_detail/RsiCalc.kt`
+
+Behavior:
+
+- Foreground service scans tracked MEXC futures pairs every 60s, sequentially with small delays to respect rate limits. Requires `POST_NOTIFICATIONS`; the service notification channel is silent (`IMPORTANCE_MIN`, no status-bar icon).
+- Detects TradingView-style RSI divergences twice per scan: lookback 2 (early `Pre-Bull`/`Pre-Bear`, yellow) and lookback 5 (confirmed `Bull`/`Bear`, green/red). A confirmed signal upgrades the same alert row instead of duplicating it.
+- Only fresh signals notify (pivot within the last 3 closed candles); history older than 7 days is pruned.
+- Push and sheet taps deep-link to `crypto_detail/{symbol}/{source}?interval={interval}`.
+- Monitored timeframes are configurable and persisted in DataStore (default `5m`, `15m`, `30m`, `1h`).
 
 ### Crypto Detail
 
@@ -165,9 +202,10 @@ Files:
 
 Behavior:
 
-- Reads `symbol` and `source` from navigation arguments.
+- Reads `symbol`, `source`, and optional `interval` from navigation arguments (alerts open the chart directly on their timeframe).
 - Loads pair details and kline data.
 - Computes Bollinger Bands and StochRSI off the main thread.
+- Paints confirmed (`Bull`/`Bear`) and early (`Pre-Bull`/`Pre-Bear`) RSI divergence marks, plus OKX-style text-only SMC tags (BOS/CHoCH/EQ/FVG) placed off candle bodies.
 - Uses MPAndroidChart in Compose through `AndroidView`.
 
 ### Wallet Explorer
@@ -211,11 +249,13 @@ Entities:
 
 - `TrackedPairEntity`
 - `WalletEntity`
+- `DivAlertEntity` (RSI divergence alerts with `PRE`/`CONFIRMED` status)
 
 DAOs:
 
 - `TrackedPairDao`
 - `WalletDao`
+- `DivAlertDao`
 
 The database uses `fallbackToDestructiveMigration()` in `AppModule.kt`. This is convenient during early development, but production migrations should be added before real release use.
 
@@ -236,6 +276,7 @@ It provides:
 ## Known Notes And Caveats
 
 - Do not make aggressive parallel calls to CoinStats; it can hit rate limits quickly.
+- Keep divergence scans sequential with delays; parallelizing MEXC kline calls risks 429s. Android requires the monitor's foreground service notification; its channel stays silent and icon-free by design.
 - Some third-party wallet transaction feeds include spam/fake tokens. UI should display the data clearly, but future filtering may be needed.
 - `fallbackToDestructiveMigration()` can wipe local Room data after schema changes.
 - API keys should not remain hard-coded for a public release.

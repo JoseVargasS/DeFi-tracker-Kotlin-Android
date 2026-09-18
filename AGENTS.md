@@ -28,6 +28,7 @@ app
 - Keep dark trading-app visual style consistent.
 - Do not remove APIs or DTOs just because they are not currently used; several clients are kept for fallback/future work.
 - Surface API errors clearly. Do not convert auth/rate-limit errors into empty UI states.
+- Never write the word "ponytail" inside code comments in any file.
 
 ## Important Commands
 
