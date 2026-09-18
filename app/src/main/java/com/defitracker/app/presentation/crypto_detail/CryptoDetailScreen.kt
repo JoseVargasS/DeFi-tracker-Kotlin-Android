@@ -95,7 +95,7 @@ fun CryptoDetailScreen(
     val prefs = viewModel.prefs.value
     val showIndicators = remember { mutableStateOf(false) }
     val maSheetPeriod = remember { mutableStateOf<Int?>(null) }
-    // ponytail: modo expandir, el chart manda y los TFs bajan
+    // modo expandir, el chart manda y los TFs bajan
     val chartExpanded = remember { mutableStateOf(false) }
     val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
 
@@ -119,7 +119,7 @@ fun CryptoDetailScreen(
                             fontFamily = Lato
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        // ponytail: badge de fuente siempre visible
+                        // badge de fuente siempre visible
                         Box(
                             modifier = Modifier
                                 .background(
@@ -247,7 +247,7 @@ fun CryptoDetailScreen(
                         val priceChartRef = remember { mutableStateOf<CombinedChart?>(null) }
                         val stochChartRef = remember { mutableStateOf<LineChart?>(null) }
                         val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
-                        // ponytail: altos arrastrables, subs mas altos por defecto
+                        // altos arrastrables, subs mas altos por defecto
                         var priceW by remember { mutableFloatStateOf(if (chartExpanded.value) 4f else 2.5f) }
                         var stochW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
                         var rsiW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
@@ -270,7 +270,7 @@ fun CryptoDetailScreen(
                             )
                         }
                         if (prefs.stochVisible || prefs.rsiVisible) {
-                            // ponytail: divisor precio/subs
+                            // divisor precio/subs
                             ChartResizeDivider { dy ->
                                 var d = dy / areaHpx.coerceAtLeast(1f) * (priceW + stochW + rsiW)
                                 val np = priceW + d
@@ -303,7 +303,7 @@ fun CryptoDetailScreen(
                             }
                         }
                         if (prefs.stochVisible && prefs.rsiVisible) {
-                            // ponytail: divisor stoch/rsi
+                            // divisor stoch/rsi
                             ChartResizeDivider { dy ->
                                 var d = dy / areaHpx.coerceAtLeast(1f) * (stochW + rsiW)
                                 val ns = stochW + d
@@ -367,7 +367,7 @@ fun CryptoDetailScreen(
                 }
             }
 
-            // ponytail: config de una MA en su propio sheet encima del de indicadores
+            // config de una MA en su propio sheet encima del de indicadores
             maSheetPeriod.value?.let { period ->
                 prefs.mas.firstOrNull { it.period == period }?.let { ma ->
                     ModalBottomSheet(
@@ -387,7 +387,7 @@ fun CryptoDetailScreen(
     }
 }
 
-// ponytail: TFs arriba en normal, debajo del chart en expandir
+// TFs arriba en normal, debajo del chart en expandir
 @Composable
 fun IntervalRow(selected: String, onPick: (String) -> Unit) {
     Row(
@@ -397,7 +397,7 @@ fun IntervalRow(selected: String, onPick: (String) -> Unit) {
             .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // ponytail: orden ascendente estilo OKX, cortos a la izq
+        // orden ascendente estilo OKX, cortos a la izq
         val intervals = listOf(
             "1m" to "1m",
             "5m" to "5m",
@@ -469,7 +469,7 @@ private fun sourceLabel(source: String): String = when (source) {
 private fun splitTradingPair(symbol: String, source: String = "Binance"): TradingPairParts {
     if (symbol.isBlank()) return TradingPairParts("", "")
 
-    // ponytail: futuros MEXC usan BTC_USDT con guion bajo
+    // futuros MEXC usan BTC_USDT con guion bajo
     if (source == "MEXC" && "_" in symbol) {
         val base = symbol.substringBefore("_")
         val quote = symbol.substringAfter("_")
@@ -512,7 +512,7 @@ private fun formatPriceForChart(value: Double): String {
     if (abs(value) >= 1000.0) {
         return String.format(Locale.US, "%,.2f", value)
     }
-    // ponytail: hasta 8 decimales recortando ceros, pa' seguir precios chicos sin ruido
+    // hasta 8 decimales recortando ceros, pa' seguir precios chicos sin ruido
     var s = String.format(Locale.US, "%.8f", value)
     s = s.trimEnd('0').trimEnd('.')
     val frac = s.substringAfter('.', "")
@@ -522,7 +522,7 @@ private fun formatPriceForChart(value: Double): String {
     return s
 }
 
-// ponytail: eje/tags/fibo con los mismos decimales del precio actual, sin colas largas
+// eje/tags/fibo con los mismos decimales del precio actual, sin colas largas
 private fun formatAxisPrice(value: Double, refClose: Double): String {
     if (value == 0.0) return "0.00"
     if (abs(value) >= 1000.0) {
@@ -539,7 +539,7 @@ private enum class ChartTouchMode {
     PINCH_X_ZOOM
 }
 
-// ponytail: un solo boton Dibujo, adentro se elige Medir, Fibo o dibujo OKX
+// un solo boton Dibujo, adentro se elige Medir, Fibo o dibujo OKX
 enum class DrawingTool {
     NONE,
     MEASURE,
@@ -547,7 +547,7 @@ enum class DrawingTool {
     DRAW
 }
 
-// ponytail: duracion de cada vela para el countdown al cierre
+// duracion de cada vela para el countdown al cierre
 private fun intervalDurationMs(interval: String): Long = when (interval) {
     "1m" -> 60_000L
     "5m" -> 300_000L
@@ -567,7 +567,7 @@ private fun intervalDurationMs(interval: String): Long = when (interval) {
     else -> 0L
 }
 
-// ponytail: velas virtuales a la derecha para que el fibo pase la ultima vela
+// velas virtuales a la derecha para que el fibo pase la ultima vela
 private const val FIB_VIRTUAL_EXTEND = 50
 
 private fun fibStepMs(candles: List<CandleData>, interval: String): Long {
@@ -586,7 +586,7 @@ private fun fibIndexToTime(candles: List<CandleData>, idx: Int, interval: String
     return candles.last().time + (idx - (candles.size - 1)) * step
 }
 
-// ponytail: tiempos futuros mapean a indice virtual, el pasado usa timeToIndex
+// tiempos futuros mapean a indice virtual, el pasado usa timeToIndex
 private fun fibTimeToIndexVirtual(candles: List<CandleData>, time: Long, interval: String): Int {
     if (candles.isEmpty()) return 0
     if (time <= candles.last().time) return timeToIndex(candles, time)
@@ -600,7 +600,7 @@ private fun formatCandleCountdown(interval: String, candleTime: Long): String {
     val dur = intervalDurationMs(interval)
     if (dur <= 0L) return "--:--"
     val now = System.currentTimeMillis()
-    // ponytail: al cerrar la vela se rola al siguiente borde, nunca se clava en 00:00
+    // al cerrar la vela se rola al siguiente borde, nunca se clava en 00:00
     val elapsed = now - candleTime
     val remainingMs = if (elapsed < 0L) {
         candleTime + dur - now
@@ -679,12 +679,12 @@ fun PriceChart(
     rsiChartRef: MutableState<LineChart?>
 ) {
     val stateRef = remember { mutableStateOf(state) }
-    // ponytail: onDraw del chart es closure de fabrica, lee prefs via ref o queda stale
+    // onDraw del chart es closure de fabrica, lee prefs via ref o queda stale
     val prefsRef = remember { mutableStateOf(prefs) }
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
-    // ponytail: cambio de ajustes reconstruye datos sin resetear el zoom
+    // cambio de ajustes reconstruye datos sin resetear el zoom
     val lastPrefsKey = remember { mutableStateOf<String?>(null) }
-    // ponytail: pa' saber si es primera carga o cambio de TF (lo unico que recentra)
+    // pa' saber si es primera carga o cambio de TF (lo unico que recentra)
     val lastCandleCount = remember { mutableStateOf(0) }
     val lastCandleInterval = remember { mutableStateOf("") }
     val drawingTool = remember { mutableStateOf(DrawingTool.NONE) }
@@ -693,12 +693,12 @@ fun PriceChart(
     val rangeSelection = remember { mutableStateOf<MeasureZone?>(null) }
     val fibPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
     val drawPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
-    // ponytail: varios fibos, cada uno con su estilo; el seleccionado muestra su barrita
+    // varios fibos, cada uno con su estilo; el seleccionado muestra su barrita
     val fibOverlays = viewModel.fibOverlays.value
     val selectedFibId = viewModel.selectedFibId.value
     val overlaysRef = remember { mutableStateOf<List<FibOverlay>>(emptyList()) }
     val selectedFibRef = remember { mutableStateOf<String?>(null) }
-    // ponytail: dibujos OKX por simbolo, mismo esquema que los fibos
+    // dibujos OKX por simbolo, mismo esquema que los fibos
     val drawOverlays = viewModel.drawOverlays.value
     val selectedDrawId = viewModel.selectedDrawId.value
     val drawsRef = remember { mutableStateOf<List<DrawOverlay>>(emptyList()) }
@@ -712,7 +712,7 @@ fun PriceChart(
 
     LaunchedEffect(currentViewportKey) {
         rangeSelection.value = null
-        // ponytail: los fibos NO se borran, viven por tiempo y se remapean solos
+        // los fibos NO se borran, viven por tiempo y se remapean solos
         fibPendingStart.value = null
         pendingStartRef.value = null
         drawPendingStart.value = null
@@ -726,7 +726,7 @@ fun PriceChart(
     LaunchedEffect(fibPendingStart.value) { pendingStartRef.value = fibPendingStart.value }
     LaunchedEffect(drawPendingStart.value) { pendingDrawStartRef.value = drawPendingStart.value }
 
-    // ponytail: retickea el countdown del precio actual cada segundo
+    // retickea el countdown del precio actual cada segundo
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(1000L)
@@ -795,7 +795,7 @@ fun PriceChart(
                     color = GraphicsColor.argb(220, 26, 29, 35)
                     style = Paint.Style.FILL
                 }
-                // ponytail: fibo estilo OKX, color/grosor editables desde la barra flotante
+                // fibo estilo OKX, color/grosor editables desde la barra flotante
                 private val fibLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.WHITE
                     strokeWidth = 2f
@@ -819,7 +819,7 @@ fun PriceChart(
                     strokeWidth = 3f
                     style = Paint.Style.STROKE
                 }
-                // ponytail: dibujos OKX, color por overlay
+                // dibujos OKX, color por overlay
                 private val drawLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#FFD60A")
                     strokeWidth = 2f
@@ -851,7 +851,7 @@ fun PriceChart(
                     style = Paint.Style.STROKE
                 }
                 private val drawTriPath = android.graphics.Path()
-                // ponytail: SMC tenue, las velas mandan (alfas bajos, labels chicos)
+                // SMC tenue, las velas mandan (alfas bajos, labels chicos)
                 val smcObBullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(42, 38, 166, 154)
                     style = Paint.Style.FILL
@@ -872,7 +872,7 @@ fun PriceChart(
                     color = GraphicsColor.argb(32, 239, 83, 80)
                     style = Paint.Style.FILL
                 }
-                // ponytail: bordes punteados del color del lado para leer las cajas
+                // bordes punteados del color del lado para leer las cajas
                 val smcObBullEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(120, 38, 166, 154)
                     strokeWidth = 1.4f
@@ -905,11 +905,13 @@ fun PriceChart(
                     color = GraphicsColor.argb(235, 38, 166, 154)
                     textSize = 24f
                     textAlign = Paint.Align.LEFT
+                    setShadowLayer(3f, 0f, 1f, GraphicsColor.argb(220, 0, 0, 0))
                 }
                 val smcBearLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(235, 239, 83, 80)
                     textSize = 24f
                     textAlign = Paint.Align.LEFT
+                    setShadowLayer(3f, 0f, 1f, GraphicsColor.argb(220, 0, 0, 0))
                 }
                 val smcFvgTagPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(170, 173, 177, 184)
@@ -931,6 +933,7 @@ fun PriceChart(
                     color = GraphicsColor.argb(210, 255, 193, 7)
                     textSize = 22f
                     textAlign = Paint.Align.LEFT
+                    setShadowLayer(3f, 0f, 1f, GraphicsColor.argb(220, 0, 0, 0))
                 }
                 val smcPremPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(12, 239, 83, 80)
@@ -946,7 +949,7 @@ fun PriceChart(
                     style = Paint.Style.STROKE
                     pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
                 }
-                // ponytail: gris donde el FVG de otro TF pisa tu zona
+                // gris donde el FVG de otro TF pisa tu zona
                 val smcConfluencePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(60, 158, 158, 158)
                     style = Paint.Style.FILL
@@ -955,8 +958,9 @@ fun PriceChart(
                     color = GraphicsColor.argb(200, 189, 189, 189)
                     textSize = 20f
                     textAlign = Paint.Align.LEFT
+                    setShadowLayer(3f, 0f, 1f, GraphicsColor.argb(220, 0, 0, 0))
                 }
-                // ponytail: liquidez visible pero sin robarle a las velas
+                // liquidez visible pero sin robarle a las velas
                 val smcBslPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(200, 33, 150, 243)
                     strokeWidth = 1.6f
@@ -1013,7 +1017,7 @@ fun PriceChart(
                     style = Paint.Style.STROKE
                     strokeWidth = 2f
                 }
-                // ponytail: linea + tag del precio actual estilo OKX
+                // linea + tag del precio actual estilo OKX
                 private val lastPriceLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     strokeWidth = 2f
                     pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
@@ -1027,13 +1031,13 @@ fun PriceChart(
                     textAlign = Paint.Align.CENTER
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
-                // ponytail: escala Y fija a pantalla como OKX
+                // escala Y fija a pantalla como OKX
                 private val pinnedYLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#ADB1B8")
                     textSize = context.resources.displayMetrics.density * 10f
                     textAlign = Paint.Align.RIGHT
                 }
-                // ponytail: volumen taker apilado transparente detras de las velas
+                // volumen taker apilado transparente detras de las velas
                 private val takerBuyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(110, 38, 166, 154)
                     style = Paint.Style.FILL
@@ -1096,7 +1100,7 @@ fun PriceChart(
                     syncSubCharts(this, stochChartRef.value, rsiChartRef.value)
                 }
 
-                // ponytail: el resize (divisor de altos) recalcula ejes con toda la
+                // el resize (divisor de altos) recalcula ejes con toda la
                 // data; si el Y esta congelado se guarda y restaura para no aplanar
                 override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                     val keepY = oldw > 0 && oldh > 0 && !isAutoScaleMinMaxEnabled && data != null
@@ -1118,7 +1122,7 @@ fun PriceChart(
                 private fun applyPan(dx: Float, dy: Float) {
                     val matrix = Matrix(viewPortHandler.matrixTouch)
                     matrix.postTranslate(dx, dy)
-                    // ponytail: al mover libre se congela el Y, al entrar se reajusta solo
+                    // al mover libre se congela el Y, al entrar se reajusta solo
                     isAutoScaleMinMaxEnabled = false
                     refreshTouchMatrix(matrix)
                 }
@@ -1160,7 +1164,7 @@ fun PriceChart(
                 private fun applyRangeTap(x: Float, y: Float): Boolean {
                     val (index, price) = measureAnchor(x, y) ?: return false
                     val current = rangeSelection.value
-                    // ponytail: fija al completar, como el fibo; re-entrar a Medir reinicia
+                    // fija al completar, como el fibo; re-entrar a Medir reinicia
                     if (current != null && current.isComplete) return true
                     rangeSelection.value = if (current == null) {
                         MeasureZone(startIdx = index, startPrice = price)
@@ -1174,7 +1178,7 @@ fun PriceChart(
                     return true
                 }
 
-                // ponytail: escala Y fija a la pantalla, no sigue al pan como los nativos
+                // escala Y fija a la pantalla, no sigue al pan como los nativos
                 private fun drawPinnedYLabels(canvas: Canvas, candles: List<CandleData>) {
                     if (candles.isEmpty()) return
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
@@ -1196,7 +1200,7 @@ fun PriceChart(
                     }
                 }
 
-                // ponytail: linea punteada + tag con precio actual y countdown al cierre
+                // linea punteada + tag con precio actual y countdown al cierre
                 private fun drawLastPriceTag(canvas: Canvas, candles: List<CandleData>) {
                     val current = stateRef.value
                     val last = candles.lastOrNull() ?: return
@@ -1245,7 +1249,7 @@ fun PriceChart(
                     canvas.drawText(countdown, yTagRect.centerX(), tagTop + padY + textSize * 2f + 4f, lastPriceTextPaint)
                 }
 
-                // ponytail: volumen taker apilado (buy abajo, sell arriba) al fondo del chart
+                // volumen taker apilado (buy abajo, sell arriba) al fondo del chart
                 private fun drawVolumeOverlay(canvas: Canvas, candles: List<CandleData>, visibleStart: Int, visibleEnd: Int) {
                     if (!prefsRef.value.volumeVisible) return
                     if (visibleStart >= visibleEnd) return
@@ -1289,7 +1293,7 @@ fun PriceChart(
                                 canvas.drawRect(cx - barW / 2f, base - buyH - sellH, cx + barW / 2f, base - buyH, takerSellPaint)
                             }
                         } else {
-                            // ponytail: sin dato taker, barra simple del color de la vela
+                            // sin dato taker, barra simple del color de la vela
                             val h = (areaH * (c.volume / maxVol)).toFloat()
                             if (h > 0f) {
                                 val paint = if (c.close >= c.open) takerBuyPaint else takerSellPaint
@@ -1299,7 +1303,7 @@ fun PriceChart(
                     }
                 }
 
-                // ponytail: leyenda C/V tomador abajo a la izq, nunca pisa las MA
+                // leyenda C/V tomador abajo a la izq, nunca pisa las MA
                 private fun drawTakerLegend(canvas: Canvas, candles: List<CandleData>) {
                     if (!prefsRef.value.volumeVisible) return
                     if (candles.isEmpty()) return
@@ -1482,7 +1486,7 @@ fun PriceChart(
                         return
                     }
 
-                    // ponytail: esquinas de la diagonal, el precio es del toque (como el fibo)
+                    // esquinas de la diagonal, el precio es del toque (como el fibo)
                     val leftIndex = min(sIdx, eIdx)
                     val rightIndex = max(sIdx, eIdx)
                     val firstPrice = if (sIdx <= eIdx) selection.startPrice else selection.endPrice
@@ -1524,7 +1528,7 @@ fun PriceChart(
                     canvas.drawLine(leftX, contentTop, leftX, contentBottom, selectionStrokePaint)
                     canvas.drawLine(rightX, contentTop, rightX, contentBottom, selectionStrokePaint)
 
-                    // ponytail: handles en las esquinas de la diagonal solo en modo Medir
+                    // handles en las esquinas de la diagonal solo en modo Medir
                     if (toolRef.value == DrawingTool.MEASURE) {
                         val r = 22f
                         canvas.drawCircle(leftX, firstY, r, fibHandleFill)
@@ -1554,7 +1558,7 @@ fun PriceChart(
                 private var measureGrabPrice = 0.0
                 private var measureOrig: MeasureZone? = null
 
-                // ponytail: 1/2 = esquinas de la diagonal, 3 = dentro de la zona
+                // 1/2 = esquinas de la diagonal, 3 = dentro de la zona
                 private fun measureHitTest(x: Float, y: Float): Int {
                     val sel = rangeSelection.value ?: return 0
                     if (!sel.isComplete) return 0
@@ -1578,7 +1582,7 @@ fun PriceChart(
                 }
 
                 // ─── FIBO multi-overlay ───
-                // ponytail: handle=resize, cuerpo=mover, tap=seleccionar; candado bloquea gestos
+                // handle=resize, cuerpo=mover, tap=seleccionar; candado bloquea gestos
                 private var fibDragId: String? = null
                 private var fibDragZone = 0 // 1 inicio, 2 fin, 3 cuerpo
                 private var fibDragMoved = false
@@ -1599,7 +1603,7 @@ fun PriceChart(
                     val contentTop = viewPortHandler.contentTop()
                     val contentBottom = viewPortHandler.contentBottom()
                     if (x < contentLeft || x > contentRight || y < contentTop || y > contentBottom) return null
-                    // ponytail: indice virtual para anclar mas alla de la ultima vela
+                    // indice virtual para anclar mas alla de la ultima vela
                     val rawX = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).x.roundToInt()
                     val index = rawX.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                     val price = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).y.toDouble()
@@ -1629,7 +1633,7 @@ fun PriceChart(
                     return kotlin.math.hypot(px - (ax + t * dx), py - (ay + t * dy))
                 }
 
-                // ponytail: devuelve (id, zona, locked) del fibo mas cercano al toque, o null
+                // devuelve (id, zona, locked) del fibo mas cercano al toque, o null
                 private fun fibHitTest(x: Float, y: Float): Triple<String, Int, Boolean>? {
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null
@@ -1652,7 +1656,7 @@ fun PriceChart(
                             best = Triple(o.id, 2, o.locked)
                         }
                         if (bestDist <= 60f) return@forEach
-                        // ponytail: cuerpo = lineas de nivel + guia diagonal (mover)
+                        // cuerpo = lineas de nivel + guia diagonal (mover)
                         val leftX = min(s.x, e.x)
                         val rightX = max(s.x, e.x)
                         var bodyDist = distToSegment(x, y, s.x, s.y, e.x, e.y)
@@ -1691,7 +1695,7 @@ fun PriceChart(
                 var onDrawTap: ((FibAnchor) -> Unit)? = null
                 var onDrawSelect: ((String?) -> Unit)? = null
 
-                // ponytail: con iman pega el precio al high/low/close mas cercano
+                // con iman pega el precio al high/low/close mas cercano
                 private fun drawAnchorFromTouch(x: Float, y: Float): FibAnchor? {
                     val base = anchorFromTouch(x, y) ?: return null
                     if (!magnetRef.value) return base
@@ -1701,7 +1705,7 @@ fun PriceChart(
                     val rawX = trans.getValuesByTouchPoint(x, y).x.roundToInt()
                         .coerceIn(0, candles.size - 1)
                     val c = candles[rawX]
-                    // ponytail: pointValuesToPixel necesita pares x,y; evalua por separado
+                    // pointValuesToPixel necesita pares x,y; evalua por separado
                     var best = base.price
                     var bestDist = 28f
                     listOf(c.high, c.low, c.close).forEach { p ->
@@ -1730,7 +1734,7 @@ fun PriceChart(
                     return android.graphics.PointF(s[0], s[1]) to android.graphics.PointF(e[0], e[1])
                 }
 
-                // ponytail: 1 = handle inicio, 2 = handle fin, 3 = cuerpo
+                // 1 = handle inicio, 2 = handle fin, 3 = cuerpo
                 private fun drawHitTest(x: Float, y: Float): Triple<String, Int, Boolean>? {
                     if (stateRef.value.candles.isEmpty()) return null
                     val contentLeft = viewPortHandler.contentLeft()
@@ -1857,7 +1861,7 @@ fun PriceChart(
                     fun seg(ax: Float, ay: Float, bx: Float, by: Float) {
                         canvas.drawLine(ax, ay, bx, by, drawLinePaint)
                     }
-                    // ponytail: infinita por dos puntos recortada a los bordes
+                    // infinita por dos puntos recortada a los bordes
                     fun infinite(sx: Float, sy: Float, ex: Float, ey: Float) {
                         val dx = ex - sx
                         if (abs(dx) < 1f) {
@@ -1867,7 +1871,7 @@ fun PriceChart(
                         val m = (ey - sy) / dx
                         seg(contentLeft, (sy + m * (contentLeft - sx)).coerceIn(contentTop, contentBottom), contentRight, (sy + m * (contentRight - sx)).coerceIn(contentTop, contentBottom))
                     }
-                    // ponytail: semirrecta desde s pasando por e hasta el borde
+                    // semirrecta desde s pasando por e hasta el borde
                     fun ray(sx: Float, sy: Float, ex: Float, ey: Float) {
                         val edgeX = if (ex >= sx) contentRight else contentLeft
                         val dx = ex - sx
@@ -1879,7 +1883,7 @@ fun PriceChart(
                         val m = (ey - sy) / dx
                         seg(sx, sy, edgeX, (sy + m * (edgeX - sx)).coerceIn(contentTop, contentBottom))
                     }
-                    // ponytail: punta de flecha en e
+                    // punta de flecha en e
                     fun arrowHead(ex: Float, ey: Float, fromX: Float, fromY: Float) {
                         val ang = kotlin.math.atan2((ey - fromY).toDouble(), (ex - fromX).toDouble())
                         val len = 26f
@@ -1990,7 +1994,7 @@ fun PriceChart(
                     val ePts = floatArrayOf(eIdx.toFloat(), o.end.price.toFloat())
                     trans.pointValuesToPixel(ePts)
                     val leftX = min(sPts[0], ePts[0]).coerceIn(contentLeft, contentRight)
-                    // ponytail: lineas acotadas al rango inicio-fin, no hasta el borde
+                    // lineas acotadas al rango inicio-fin, no hasta el borde
                     val rightX = max(sPts[0], ePts[0]).coerceIn(contentLeft, contentRight)
 
                     val lineColor = try {
@@ -2000,21 +2004,21 @@ fun PriceChart(
                     }
                     fibLinePaint.color = lineColor
                     fibLinePaint.strokeWidth = (o.width * context.resources.displayMetrics.density).coerceAtLeast(1f)
-                    // ponytail: seleccionado a full, los demas tenues
+                    // seleccionado a full, los demas tenues
                     fibLinePaint.alpha = if (selected || selectedFibRef.value == null) 255 else 140
                     fibLabelPaint.color = lineColor
 
-                    // ponytail: linea guia entre anclas para ver la tendencia del trazo
+                    // linea guia entre anclas para ver la tendencia del trazo
                     canvas.drawLine(sPts[0], sPts[1], ePts[0], ePts[1], fibLinePaint)
 
                     levels.forEach { ratio ->
-                        // ponytail: punto inicial siempre 1, final siempre 0
+                        // punto inicial siempre 1, final siempre 0
                         val price = fibLevelPrice(o.end.price, o.start.price, ratio)
                         val pts = floatArrayOf(0f, price.toFloat())
                         trans.pointValuesToPixel(pts)
                         val py = pts[1].coerceIn(contentTop, contentBottom)
                         canvas.drawLine(leftX, py, rightX, py, fibLinePaint)
-                        // ponytail: izq solo ratio, el precio ya esta a la derecha
+                        // izq solo ratio, el precio ya esta a la derecha
                         if (selected) {
                             val leftLabel = trimRatio(ratio)
                             val lw = fibLabelPaint.measureText(leftLabel) + 16f
@@ -2024,7 +2028,7 @@ fun PriceChart(
                             yTagRect.set(lx, ly, lx + lw, ly + lh)
                             canvas.drawRoundRect(yTagRect, 4f, 4f, fibChipPaint)
                             canvas.drawText(leftLabel, lx + 8f, ly + lh - 7f, fibLabelPaint)
-                            // ponytail: tag derecho al final de la linea (rango acotado)
+                            // tag derecho al final de la linea (rango acotado)
                             val rightLabel = formatAxisPrice(price, candles.lastOrNull()?.close ?: price)
                             val rw = fibLabelPaint.measureText(rightLabel) + 16f
                             val rx = (rightX - rw).coerceIn(contentLeft, (contentRight - rw).coerceAtLeast(contentLeft))
@@ -2034,7 +2038,7 @@ fun PriceChart(
                         }
                     }
 
-                    // ponytail: handles solo en el seleccionado, grises si esta candadeado
+                    // handles solo en el seleccionado, grises si esta candadeado
                     if (selected) {
                         val r = 22f
                         fibHandleStroke.color = if (o.locked) GraphicsColor.GRAY
@@ -2070,7 +2074,7 @@ fun PriceChart(
                 }
 
                 // ─── SMC ───
-                // ponytail: fondo tenue detras de las velas (premium/discount)
+                // fondo tenue detras de las velas (premium/discount)
                 private fun drawSmcBackground(
                     canvas: Canvas,
                     candles: List<CandleData>,
@@ -2102,7 +2106,7 @@ fun PriceChart(
                     canvas.drawLine(leftX, eq[1], rightX, eq[1], smcEqLinePaint)
                 }
 
-                // ponytail: cajas y estructura sobre el chart pero tenues, las velas mandan
+                // cajas y estructura sobre el chart pero tenues, las velas mandan
                 private fun drawSmcForeground(
                     canvas: Canvas,
                     candles: List<CandleData>,
@@ -2150,7 +2154,7 @@ fun PriceChart(
                                 else -> smcFvgBearPaint
                             }
                             canvas.drawRect(yTagRect, paint)
-                            // ponytail: borde punteado del lado + tag FVG solo si sigue vigente
+                            // borde punteado del lado + tag FVG solo si sigue vigente
                             if (!z.mitigated) {
                                 val edge = if (z.bullish) smcObBullEdge else smcObBearEdge
                                 canvas.drawRect(yTagRect, edge)
@@ -2183,9 +2187,7 @@ fun PriceChart(
                                 xb[0].coerceIn(contentLeft, contentRight), py, linePaint
                             )
                             val label = if (ev.kind == SmcEventKind.BOS) "BOS" else "CHoCH"
-                            // ponytail: tag al medio del segmento, sobre la linea
-                            val midX = (xs[0] + xb[0]) / 2f
-                            drawSmcChip(canvas, label, labelPaint, midX, py, ev.bullish, contentLeft, contentRight, contentTop, contentBottom)
+                            drawSmcChip(canvas, label, labelPaint, xs[0], py, ev.bullish, contentLeft, contentRight, contentTop, contentBottom, placeLeft = true)
                         }
                     }
 
@@ -2204,14 +2206,13 @@ fun PriceChart(
                                 x2[0].coerceIn(contentLeft, contentRight), py, smcEqPaint
                             )
                             val label = if (eq.isHigh) "EQH" else "EQL"
-                            val midX = (x1[0] + x2[0]) / 2f
-                            drawSmcChip(canvas, label, smcEqLabelPaint, midX, py, false, contentLeft, contentRight, contentTop, contentBottom)
+                            drawSmcChip(canvas, label, smcEqLabelPaint, x1[0], py, eq.isHigh, contentLeft, contentRight, contentTop, contentBottom, placeLeft = true)
                         }
                     }
 
-                    // ponytail: pools BSL/SSL + barridos, tags al borde derecho con stagger
+                    // pools BSL/SSL + barridos, tags al borde derecho con stagger
                     if (prefs.smcLiquidity) {
-                        // ponytail: SWEEP solo el mas reciente por lado, el resto linea pelada
+                        // SWEEP solo el mas reciente por lado, el resto linea pelada
                         val latestSweepBuy = smc.liquidity.filter { it.isBuySide && it.swept }.maxByOrNull { it.sweepIdx ?: -1 }
                         val latestSweepSell = smc.liquidity.filter { !it.isBuySide && it.swept }.maxByOrNull { it.sweepIdx ?: -1 }
                         var lastTagY = Float.NEGATIVE_INFINITY
@@ -2247,7 +2248,7 @@ fun PriceChart(
                                     liq.isBuySide -> smcBslLabelPaint
                                     else -> smcSslLabelPaint
                                 }
-                                // ponytail: tag al final de su linea, encima, desplazado si choca con otro
+                                // tag al final de su linea, encima, desplazado si choca con otro
                                 val w = labelPaint.measureText(label) + 14f
                                 val h = labelPaint.textSize + 8f
                                 val lineEndX = x1[0].coerceIn(contentLeft, contentRight)
@@ -2264,7 +2265,7 @@ fun PriceChart(
                         }
                     }
 
-                    // ponytail: bandas grises donde el FVG de otro TF pisa tu zona
+                    // bandas grises donde el FVG de otro TF pisa tu zona
                     if (prefs.smcFvg) {
                         smc.confluence.forEach { band ->
                             val top = floatArrayOf(0f, band.top.toFloat())
@@ -2288,7 +2289,7 @@ fun PriceChart(
                     }
                 }
 
-                // ponytail: chip oscuro para que el tag se lea sobre las velas
+                // chip oscuro para que el tag se lea sobre las velas
                 private fun drawSmcChip(
                     canvas: Canvas,
                     label: String,
@@ -2299,16 +2300,22 @@ fun PriceChart(
                     contentLeft: Float,
                     contentRight: Float,
                     contentTop: Float,
-                    contentBottom: Float
+                    contentBottom: Float,
+                    placeLeft: Boolean = false
                 ) {
-                    val w = labelPaint.measureText(label) + 14f
-                    val h = labelPaint.textSize + 8f
-                    val lx = (anchorX + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
-                    // ponytail: chip centrado sobre su linea estilo OKX, no tapa velas
-                    val ly = (anchorY - h / 2f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
-                    yTagRect.set(lx, ly, lx + w, ly + h)
-                    canvas.drawRoundRect(yTagRect, 4f, 4f, smcChipPaint)
-                    canvas.drawText(label, lx + 7f, ly + h - 6f, labelPaint)
+                    val w = labelPaint.measureText(label) + 4f
+                    val h = labelPaint.textSize + 4f
+                    val lx = if (placeLeft) {
+                        (anchorX - w - 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                    } else {
+                        (anchorX + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                    }
+                    val ly = if (above) {
+                        (anchorY - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                    } else {
+                        (anchorY + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                    }
+                    canvas.drawText(label, lx, ly + h - 4f, labelPaint)
                 }
 
                 private fun trimRatio(r: Float): String {
@@ -2319,11 +2326,11 @@ fun PriceChart(
                 override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
                     if (event == null) return false
 
-                    // ponytail: fibo primero en cualquier modo (menos Medir); vacio = sigue al flujo normal
+                    // fibo primero en cualquier modo (menos Medir); vacio = sigue al flujo normal
                     when (event.action) {
                         android.view.MotionEvent.ACTION_DOWN -> {
                             if (toolRef.value == DrawingTool.MEASURE) {
-                                // ponytail: en Medir manda la cinta, los overlays no interceptan
+                                // en Medir manda la cinta, los overlays no interceptan
                             } else {
                                 val dh = drawHitTest(event.x, event.y)
                                 if (dh != null) {
@@ -2389,7 +2396,7 @@ fun PriceChart(
                                     val cur = overlaysRef.value.firstOrNull { it.id == id }
                                     if (cur != null) {
                                         if (fibDragZone == 3) {
-                                            // ponytail: mover cuerpo conserva tamaño (delta indice+precio)
+                                            // mover cuerpo conserva tamaño (delta indice+precio)
                                             val candles = stateRef.value.candles
                                             val rawMoveX = getTransformer(YAxis.AxisDependency.LEFT)
                                                 .getValuesByTouchPoint(event.x, event.y).x.roundToInt()
@@ -2434,7 +2441,7 @@ fun PriceChart(
                                     val cur = drawsRef.value.firstOrNull { it.id == id }
                                     if (cur != null) {
                                         if (drawDragZone == 3) {
-                                            // ponytail: mover cuerpo conserva tamaño (delta indice+precio)
+                                            // mover cuerpo conserva tamaño (delta indice+precio)
                                             val candles = stateRef.value.candles
                                             val rawMoveX = getTransformer(YAxis.AxisDependency.LEFT)
                                                 .getValuesByTouchPoint(event.x, event.y).x.roundToInt()
@@ -2503,7 +2510,7 @@ fun PriceChart(
                                 downY = event.y
                                 measureDragZone = 0
                                 measureDragMoved = false
-                                // ponytail: esquinas redimensionan, dentro mueve la zona
+                                // esquinas redimensionan, dentro mueve la zona
                                 val hit = measureHitTest(event.x, event.y)
                                 if (hit != 0) {
                                     measureDragZone = hit
@@ -2525,7 +2532,7 @@ fun PriceChart(
                                         val orig = measureOrig
                                         if (anchor != null && orig != null && orig.isComplete) {
                                             rangeSelection.value = if (measureDragZone == 3) {
-                                                // ponytail: mover conserva tamaño
+                                                // mover conserva tamaño
                                                 val candles = stateRef.value.candles
                                                 val dIdx = anchor.first - measureGrabIdx
                                                 val dPrice = anchor.second - measureGrabPrice
@@ -2572,7 +2579,7 @@ fun PriceChart(
                         return true
                     }
 
-                    // ponytail: modo colocacion, el tap crea puntos; arrastrar = pan para no atascarse
+                    // modo colocacion, el tap crea puntos; arrastrar = pan para no atascarse
                     if (toolRef.value == DrawingTool.FIBO || toolRef.value == DrawingTool.DRAW) {
                         parent.requestDisallowInterceptTouchEvent(true)
                         when (event.action) {
@@ -2624,7 +2631,7 @@ fun PriceChart(
                             return true
                         }
                         android.view.MotionEvent.ACTION_POINTER_DOWN -> {
-                            // ponytail: con cruz activa se ignora el segundo dedo
+                            // con cruz activa se ignora el segundo dedo
                             if (highlighted != null && highlighted.isNotEmpty()) {
                                 gestureMoved = true
                                 return true
@@ -2643,7 +2650,7 @@ fun PriceChart(
                         }
                         android.view.MotionEvent.ACTION_MOVE -> {
                             if (event.pointerCount >= 2) {
-                                // ponytail: con cruz activa todo el grafico se bloquea, ni pinch
+                                // con cruz activa todo el grafico se bloquea, ni pinch
                                 if (highlighted != null && highlighted.isNotEmpty()) {
                                     gestureMoved = true
                                     return true
@@ -2665,7 +2672,7 @@ fun PriceChart(
                             }
                             if (event.pointerCount != 1) return true
 
-                            // ponytail: cruz activa sigue al dedo, pan/zoom bloqueados
+                            // cruz activa sigue al dedo, pan/zoom bloqueados
                             if (highlighted != null && highlighted.isNotEmpty()) {
                                 gestureMoved = true
                                 lastTouchYPx = event.y
@@ -2863,7 +2870,7 @@ fun PriceChart(
                     val currentPrice = stateRef.value.detail?.price?.toDoubleOrNull() ?: entries.lastOrNull()?.close ?: 0.0
                     val pctFromCurrent = if (currentPrice != 0.0) (priceAtTouch - currentPrice) / currentPrice * 100 else 0.0
 
-                    // ponytail: mismos decimales que el tag de precio actual
+                    // mismos decimales que el tag de precio actual
                     val refClose = entries.lastOrNull()?.close ?: currentPrice
                     val priceText = formatAxisPrice(priceAtTouch, refClose)
                     val pctText = String.format(Locale.US, "%+.2f%%", pctFromCurrent)
@@ -2898,11 +2905,11 @@ fun PriceChart(
                 }
             }.apply {
                 setupCommonChartParams()
-                // ponytail: eje X en 2 lineas (fecha|hora) + aire abajo
+                // eje X en 2 lineas (fecha|hora) + aire abajo
                 setXAxisRenderer(TwoLineXAxisRenderer(viewPortHandler, xAxis, getTransformer(YAxis.AxisDependency.LEFT)))
                 extraBottomOffset = 18f
                 marker = OKXChartMarker(context) { stateRef.value }
-                // ponytail: etiquetas del canvas con la condensada, numeros mas definidos
+                // etiquetas del canvas con la condensada, numeros mas definidos
                 try {
                     androidx.core.content.res.ResourcesCompat.getFont(
                         context, com.defitracker.app.R.font.lato_semibold
@@ -2986,7 +2993,7 @@ fun PriceChart(
                 }
 
                 priceChartRef.value = this
-                // ponytail: al completar el trazo se sale del modo colocacion solo
+                // al completar el trazo se sale del modo colocacion solo
                 onFibLive = { id, next ->
                     viewModel.setFibLive(id, next)
                     overlaysRef.value = overlaysRef.value.map { if (it.id == id) next else it }
@@ -3224,7 +3231,7 @@ fun PriceChart(
                 chart.data = combinedData
                 // Rebuild CombinedChart renderer buffers after replacing the
                 // CandleData/LineData objects from Compose.
-                // ponytail: tu zoom/posicion mandan; solo TF nuevo o primera carga recentran
+                // tu zoom/posicion mandan; solo TF nuevo o primera carga recentran
                 val keepZoom = lastCandleCount.value > 0 &&
                     state.selectedInterval == lastCandleInterval.value
                 val delta = state.candles.size - lastCandleCount.value
@@ -3235,7 +3242,7 @@ fun PriceChart(
                 chart.invalidate()
                 if (keepZoom && savedMatrix != null) {
                     if (wasAtRight) {
-                        // ponytail: siguiendo el vivo, corre a la izquierda las que entraron
+                        // siguiendo el vivo, corre a la izquierda las que entraron
                         val vals = FloatArray(9)
                         savedMatrix.getValues(vals)
                         vals[Matrix.MTRANS_X] = vals[Matrix.MTRANS_X] - delta * vals[Matrix.MSCALE_X]
@@ -3267,7 +3274,7 @@ fun PriceChart(
         }
     )
 
-        // ponytail: una sola fila arriba (leyendas que envuelven + botones) sin pisar el eje
+        // una sola fila arriba (leyendas que envuelven + botones) sin pisar el eje
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -3275,7 +3282,7 @@ fun PriceChart(
                 .padding(top = 4.dp, start = 8.dp, end = 8.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // ponytail: pill oscuro pa' que las MAs no se pierdan sobre las velas
+            // pill oscuro pa' que las MAs no se pierdan sobre las velas
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -3318,7 +3325,7 @@ fun PriceChart(
                     fontWeight = FontWeight.Bold
                 )
             }
-            // ponytail: un solo boton Dibujo (pincel), adentro se elige Medir o Fibo
+            // un solo boton Dibujo (pincel), adentro se elige Medir o Fibo
             val dibujoActive = drawingTool.value != DrawingTool.NONE
             Box(
                 modifier = Modifier
@@ -3340,7 +3347,7 @@ fun PriceChart(
             }
         }
 
-        // ponytail: barra del fibo seleccionado, visible aunque no estes en modo dibujo
+        // barra del fibo seleccionado, visible aunque no estes en modo dibujo
         val selectedFib = fibOverlays.firstOrNull { it.id == selectedFibId }
         if (selectedFib != null) {
             OverlayEditBar(
@@ -3374,7 +3381,7 @@ fun PriceChart(
             )
         }
 
-        // ponytail: barra del dibujo seleccionado, sin niveles
+        // barra del dibujo seleccionado, sin niveles
         val selectedDraw = drawOverlays.firstOrNull { it.id == selectedDrawId }
         if (selectedDraw != null) {
             OverlayEditBar(
@@ -3440,7 +3447,7 @@ fun PriceChart(
                         showDrawingSheet.value = false
                     },
                     onPickFibo = {
-                        // ponytail: entrar a Fibo siempre arma uno nuevo, aunque ya existan
+                        // entrar a Fibo siempre arma uno nuevo, aunque ya existan
                         drawingTool.value = DrawingTool.FIBO
                         fibPendingStart.value = null
                         pendingStartRef.value = null
@@ -3510,7 +3517,7 @@ fun PriceChart(
             }
         }
 
-        // ponytail: expandir a lo OKX, esquina inferior izquierda del grafico
+        // expandir a lo OKX, esquina inferior izquierda del grafico
         Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -3650,7 +3657,7 @@ fun StochRSIChart(
             chart.xAxis.setDrawLabels(false)
             chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
             if (isNewDataset) {
-                // ponytail: al montar, hereda el rango visible del principal
+                // al montar, hereda el rango visible del principal
                 priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
@@ -3683,7 +3690,7 @@ fun RsiChart(
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
-                // ponytail: divergencias estilo TV, linea + chip Bull/Bear
+                // divergencias estilo TV, linea + chip Bull/Bear
                 private val divBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#26A69A")
                     strokeWidth = 2f
@@ -3692,7 +3699,7 @@ fun RsiChart(
                     color = GraphicsColor.parseColor("#EF5350")
                     strokeWidth = 2f
                 }
-                // ponytail: ocultas mas tenues para diferenciarlas, como el Pine
+                // ocultas mas tenues para diferenciarlas, como el Pine
                 private val divHiddenBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(110, 38, 166, 154)
                     strokeWidth = 2f
@@ -3756,7 +3763,7 @@ fun RsiChart(
                         )
                     }
 
-                    // ponytail: divergencias sobre pivotes confirmados, solo el rango visible
+                    // divergencias sobre pivotes confirmados, solo el rango visible
                     if (prefsRef.value.rsiDivVisible) {
                         val divs = currentState.rsiDiv
                         if (divs.isNotEmpty()) {
@@ -3767,7 +3774,7 @@ fun RsiChart(
                             val contentBottom = viewPortHandler.contentBottom()
                             val visStart = lowestVisibleX.toInt()
                             val visEnd = highestVisibleX.toInt()
-                            // ponytail: como el Pine, ocultas solo si el toggle va ON
+                            // como el Pine, ocultas solo si el toggle va ON
                             val showHidden = prefsRef.value.rsiDivHidden
                             divs.forEach { div ->
                                 if (!showHidden && (div.kind == RsiDivKind.HID_BULL || div.kind == RsiDivKind.HID_BEAR)) return@forEach
@@ -3788,13 +3795,14 @@ fun RsiChart(
                                     p2[0].coerceIn(contentLeft, contentRight), p2[1].coerceIn(contentTop, contentBottom),
                                     linePaint
                                 )
-                                // ponytail: ocultas llevan la H como en TV
-                                val label = when (div.kind) {
+                                // ocultas llevan la H como en TV
+                                val baseLabel = when (div.kind) {
                                     RsiDivKind.REG_BULL -> "Bull"
                                     RsiDivKind.REG_BEAR -> "Bear"
                                     RsiDivKind.HID_BULL -> "H Bull"
                                     RsiDivKind.HID_BEAR -> "H Bear"
                                 }
+                                val label = if (div.early) "Pre-$baseLabel" else baseLabel
                                 val w = labelPaint.measureText(label) + 14f
                                 val h = labelPaint.textSize + 8f
                                 val lx = (p2[0] + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
@@ -3869,7 +3877,7 @@ fun RsiChart(
             chart.xAxis.setDrawLabels(false)
             chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
             if (isNewDataset) {
-                // ponytail: al montar, hereda el rango visible del principal
+                // al montar, hereda el rango visible del principal
                 priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
@@ -3894,7 +3902,7 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
         viewPortHandler.setMaximumScaleY(1_000_000f)
         if (!skipPositioning) {
             post {
-                // ponytail: vista fresca con Y ajustado, se congela con el primer pan
+                // vista fresca con Y ajustado, se congela con el primer pan
                 if (resetCustomY) {
                     axisLeft.resetAxisMinimum()
                     axisLeft.resetAxisMaximum()
@@ -3973,7 +3981,7 @@ private fun XAxis.applyTimeAxis(state: CryptoDetailState) {
             return when {
                 state.candles.spansMultipleYears() -> yearSdf.format(Date(time))
                 state.selectedInterval.isCalendarInterval() -> daySdf.format(Date(time))
-                // ponytail: fecha|hora, el renderer de 2 lineas lo parte
+                // fecha|hora, el renderer de 2 lineas lo parte
                 else -> dateSdf.format(Date(time)) + "|" + hourSdf.format(Date(time))
             }
         }
@@ -3981,7 +3989,7 @@ private fun XAxis.applyTimeAxis(state: CryptoDetailState) {
 
     val spansYears = state.candles.spansMultipleYears()
     val isCalendar = state.selectedInterval.isCalendarInterval()
-    // ponytail: siempre horizontal, intradia en 2 lineas via renderer
+    // siempre horizontal, intradia en 2 lineas via renderer
     labelRotationAngle = 0f
     textSize = if (spansYears) 9f else 10f
     yOffset = 8f
@@ -3995,7 +4003,7 @@ private fun XAxis.applyTimeAxis(state: CryptoDetailState) {
     )
 }
 
-// ponytail: el XAxis de MPChart dibuja 1 linea; este parte fecha|hora en 2
+// el XAxis de MPChart dibuja 1 linea; este parte fecha|hora en 2
 private class TwoLineXAxisRenderer(
     viewPortHandler: ViewPortHandler,
     xAxis: XAxis,
@@ -4066,7 +4074,7 @@ private fun BarLineChartBase<*>.setupCommonChartParams() {
 private fun createCandleDataSet(entries: List<CandleEntry>) = CandleDataSet(entries, "Klines").apply {
     axisDependency = YAxis.AxisDependency.RIGHT
     shadowColor = "#F4F4F4".toColorInt()
-    // ponytail: mecha fina estilo OKX, el ancho fijo en px se ve grueso al alejar
+    // mecha fina estilo OKX, el ancho fijo en px se ve grueso al alejar
     shadowWidth = 0.7f
     decreasingColor = "#EF5350".toColorInt()
     increasingColor = "#26A69A".toColorInt()
@@ -4075,7 +4083,7 @@ private fun createCandleDataSet(entries: List<CandleEntry>) = CandleDataSet(entr
     increasingPaintStyle = Paint.Style.FILL
     setDrawValues(false)
     shadowColorSameAsCandle = true
-    // ponytail: cuerpos gruesos pegaditos estilo OKX, poco gap para que la mecha no domine
+    // cuerpos gruesos pegaditos estilo OKX, poco gap para que la mecha no domine
     barSpace = 0.18f
     highLightColor = "#ADB1B8".toColorInt()
     highlightLineWidth = 1f
@@ -4108,7 +4116,7 @@ private fun createBBLineDataSet(
     }
 }
 
-// ponytail: una MA = un LineDataSet con su color/grosor, etiqueta MA<periodo>
+// una MA = un LineDataSet con su color/grosor, etiqueta MA<periodo>
 private fun maLineDataSet(ma: MaConfig, line: List<Pair<Long, Double>>): LineDataSet? {
     if (line.isEmpty()) return null
     val entries = ArrayList<Entry>(line.size)
@@ -4124,7 +4132,7 @@ private fun maLineDataSet(ma: MaConfig, line: List<Pair<Long, Double>>): LineDat
     )
 }
 
-// ponytail: tick en vivo actualiza el ultimo punto de cada MA sin reconstruir
+// tick en vivo actualiza el ultimo punto de cada MA sin reconstruir
 private fun updateLastMAInPlace(chart: CombinedChart, state: CryptoDetailState) {
     val lineData = chart.data?.lineData ?: return
     for (i in 0 until lineData.dataSetCount) {
@@ -4196,7 +4204,7 @@ private fun updateLastStochInPlace(chart: LineChart, state: CryptoDetailState) {
     chart.invalidate()
 }
 
-// ponytail: tick en vivo actualiza el ultimo punto del RSI sin reconstruir
+// tick en vivo actualiza el ultimo punto del RSI sin reconstruir
 private fun updateLastRsiInPlace(chart: LineChart, state: CryptoDetailState) {
     val ld = chart.data ?: return
     val lastRsi = state.rsi.lastOrNull() ?: return
@@ -4337,7 +4345,7 @@ fun IndicatorsSheet(
         )
         IndicatorSwitchRow("BOLL", "Bandas de Bollinger", prefs.bbVisible, onToggleBB)
         IndicatorSwitchRow("Perfil", "Perfil de volumen", prefs.profileVisible, onToggleProfile)
-        // ponytail: MAs en subseccion colapsable con resumen de activas
+        // MAs en subseccion colapsable con resumen de activas
         val maExpanded = remember { mutableStateOf(false) }
         val maActive = prefs.mas.count { it.visible }
         Row(
@@ -4375,7 +4383,7 @@ fun IndicatorsSheet(
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ponytail: puntito con el color actual de la MA
+                // puntito con el color actual de la MA
                 Box(
                     modifier = Modifier
                         .size(14.dp)
@@ -4428,7 +4436,7 @@ fun IndicatorsSheet(
     }
 }
 
-// ponytail: config de una sola MA en su propio bottom sheet
+// config de una sola MA en su propio bottom sheet
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MaConfigSheet(
@@ -4503,7 +4511,7 @@ fun MaConfigSheet(
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold
         )
-        // ponytail: slider local, guarda solo al soltar para no spamear DataStore
+        // slider local, guarda solo al soltar para no spamear DataStore
         val sliderPos = remember(ma.width) { mutableStateOf(ma.width) }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -4604,7 +4612,7 @@ fun DrawingToolsSheet(
             DrawingToolCell(Icons.Filled.DragHandle, "Línea de precio", active == DrawingTool.DRAW && drawKind == DrawKind.PRICE_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.PRICE_LINE) }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        // ponytail: ocultar no cierra el modo, solo esconde el trazo
+        // ocultar no cierra el modo, solo esconde el trazo
         if (hasFib) {
             Text(
                 text = "Trazados: $fibCount — toca Fibo para agregar otro",
@@ -4635,7 +4643,7 @@ private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            // ponytail: visual delgado, toque amplio en toda la linea
+            // visual delgado, toque amplio en toda la linea
             .height(18.dp)
             .pointerInput(Unit) {
                 detectDragGestures(
@@ -4644,13 +4652,13 @@ private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
                     onDragCancel = { active = false }
                 ) { change, dragAmount ->
                     change.consume()
-                    // ponytail: ganancia para no arrastrar tanto el dedo
+                    // ganancia para no arrastrar tanto el dedo
                     onDrag(dragAmount.y * 2.2f)
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        // ponytail: linea full ancho como OKX + pestaña que se ilumina al jalar
+        // linea full ancho como OKX + pestaña que se ilumina al jalar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -4716,7 +4724,7 @@ fun OverlayEditBar(
 ) {
     var showColors by remember { mutableStateOf(false) }
     var showWidths by remember { mutableStateOf(false) }
-    // ponytail: pestaña para mover la barra a cualquier lado
+    // pestaña para mover la barra a cualquier lado
     var drag by remember { mutableStateOf(Offset.Zero) }
     val tintColor = try {
         Color(colorHex.toColorInt())
@@ -4731,7 +4739,7 @@ fun OverlayEditBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        // ponytail: pestaña de arrastre, no hace click
+        // pestaña de arrastre, no hace click
         Box(
             modifier = Modifier
                 .size(32.dp)
@@ -4750,7 +4758,7 @@ fun OverlayEditBar(
                 modifier = Modifier.size(22.dp)
             )
         }
-        // ponytail: lapiz abre paleta de colores
+        // lapiz abre paleta de colores
         Box {
             OverlayBarIconBtn(
                 icon = Icons.Filled.Edit,
@@ -4788,7 +4796,7 @@ fun OverlayEditBar(
                 }
             }
         }
-        // ponytail: 1px abre selector de grosor con preview de linea
+        // 1px abre selector de grosor con preview de linea
         Box {
             Box(
                 modifier = Modifier
@@ -4837,18 +4845,18 @@ fun OverlayEditBar(
                 }
             }
         }
-        // ponytail: tuerca = niveles (solo fibo) y estilo del seleccionado
+        // tuerca = niveles (solo fibo) y estilo del seleccionado
         if (showLevels) {
             OverlayBarIconBtn(icon = Icons.Filled.Settings, tint = Color.White, desc = "Niveles", onClick = onLevels)
         }
-        // ponytail: ojo con raya cuando esta oculto
+        // ojo con raya cuando esta oculto
         OverlayBarIconBtn(
             icon = if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
             tint = Color.Gray,
             desc = "Visible",
             onClick = onToggleHide
         )
-        // ponytail: candado azul cerrado bloquea mover/resize
+        // candado azul cerrado bloquea mover/resize
         OverlayBarIconBtn(
             icon = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
             tint = if (locked) Color(0xFF2196F3) else Color.Gray,
