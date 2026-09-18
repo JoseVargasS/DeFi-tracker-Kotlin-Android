@@ -1,5 +1,6 @@
 package com.defitracker.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -42,17 +43,64 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    // deep-link desde la noti push al grafico en ese TF
+    var pendingAlert: Triple<String, String, String>? by androidx.compose.runtime.mutableStateOf(null)
+
+    companion object {
+        const val ACTION_OPEN_ALERT = "com.defitracker.app.OPEN_ALERT"
+        const val EXTRA_ALERT_SYMBOL = "alert_symbol"
+        const val EXTRA_ALERT_SOURCE = "alert_source"
+        const val EXTRA_ALERT_INTERVAL = "alert_interval"
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeAlertIntent(intent)
+    }
+
+    private fun consumeAlertIntent(intent: Intent?) {
+        if (intent?.action == ACTION_OPEN_ALERT) {
+            val symbol = intent.getStringExtra(EXTRA_ALERT_SYMBOL).orEmpty()
+            val source = intent.getStringExtra(EXTRA_ALERT_SOURCE).orEmpty().ifEmpty { "MEXC" }
+            val interval = intent.getStringExtra(EXTRA_ALERT_INTERVAL).orEmpty()
+            if (symbol.isNotEmpty()) {
+                pendingAlert = Triple(symbol, source, interval)
+            }
+            intent.action = null
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        consumeAlertIntent(intent)
         setContent {
             DeFiTrackerTheme {
                 val navController = rememberNavController()
                 val screens = listOf(Screen.Pairs, Screen.Wallet, Screen.Transactions)
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
-                val showMainChrome = currentDestination?.route != "crypto_detail/{symbol}/{source}"
+                val showMainChrome = currentDestination?.route?.startsWith("crypto_detail/") != true
+
+                // si llego por push, abre la grafica en ese TF al toque
+                val activity = this@MainActivity
+                LaunchedEffect(pendingAlert) {
+                    val alert = pendingAlert
+                    if (alert != null) {
+                        val route = if (alert.third.isNotEmpty()) {
+                            "crypto_detail/${alert.first}/${alert.second}?interval=${alert.third}"
+                        } else {
+                            "crypto_detail/${alert.first}/${alert.second}"
+                        }
+                        try {
+                            navController.navigate(route)
+                        } catch (_: Exception) {}
+                        activity.pendingAlert = null
+                    }
+                }
 
                 Scaffold(
                     topBar = {
@@ -164,8 +212,13 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
     ) {
         composable(Screen.Pairs.route) {
             CryptoListScreen(
-                onNavigateToDetail = { symbol, source ->
-                    navController.navigate("crypto_detail/$symbol/$source")
+                onNavigateToDetail = { symbol, source, interval ->
+                    val route = if (interval.isNotEmpty()) {
+                        "crypto_detail/$symbol/$source?interval=$interval"
+                    } else {
+                        "crypto_detail/$symbol/$source"
+                    }
+                    navController.navigate(route)
                 }
             )
         }
@@ -176,10 +229,15 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
             TransactionsScreen()
         }
         composable(
-            route = "crypto_detail/{symbol}/{source}",
+            route = "crypto_detail/{symbol}/{source}?interval={interval}",
             arguments = listOf(
                 navArgument("symbol") { type = NavType.StringType },
-                navArgument("source") { type = NavType.StringType }
+                navArgument("source") { type = NavType.StringType },
+                navArgument("interval") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                    nullable = true
+                }
             )
         ) {
             CryptoDetailScreen(

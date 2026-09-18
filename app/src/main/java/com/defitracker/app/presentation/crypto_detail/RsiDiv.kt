@@ -3,6 +3,7 @@ package com.defitracker.app.presentation.crypto_detail
 // ponytail: divergencias RSI estilo TradingView, funciones puras sobre velas (testeables sin Android)
 
 const val RSI_DIV_LOOKBACK = 5
+const val RSI_DIV_EARLY_LOOKBACK = 2
 const val RSI_DIV_MIN_SEP = 5
 const val RSI_DIV_MAX_SEP = 60
 // ponytail: como TV, todas las del rango (el Pine plotea sin recorte)
@@ -14,7 +15,8 @@ data class RsiDiv(
     val idx2: Int,
     val rsi1: Double,
     val rsi2: Double,
-    val kind: RsiDivKind
+    val kind: RsiDivKind,
+    val early: Boolean = false
 ) {
     val bullish: Boolean = kind == RsiDivKind.REG_BULL || kind == RsiDivKind.HID_BULL
 }

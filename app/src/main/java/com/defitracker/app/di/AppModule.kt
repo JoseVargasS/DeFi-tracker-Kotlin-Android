@@ -77,6 +77,10 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideDivAlertDao(db: AppDatabase) = db.divAlertDao
+
+    @Provides
+    @Singleton
     fun provideIndicatorPrefsRepository(
         @ApplicationContext context: Context
     ): IndicatorPrefsRepository {

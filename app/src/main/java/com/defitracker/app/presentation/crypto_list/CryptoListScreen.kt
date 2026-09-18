@@ -13,10 +13,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -25,14 +32,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.defitracker.app.alerts.DivScanService
 import com.defitracker.app.domain.model.CryptoPair
+import com.defitracker.app.presentation.alerts.AlertsBottomSheet
+import com.defitracker.app.presentation.alerts.AlertsViewModel
 import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -40,12 +52,32 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun CryptoListScreen(
-    onNavigateToDetail: (String, String) -> Unit,
-    viewModel: CryptoListViewModel = hiltViewModel()
+    onNavigateToDetail: (String, String, String) -> Unit,
+    viewModel: CryptoListViewModel = hiltViewModel(),
+    alertsViewModel: AlertsViewModel = hiltViewModel()
 ) {
     val state = viewModel.state.value
+    val alertsState = alertsViewModel.state.value
     var isSearchMode by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var showAlerts by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // permiso de notis + arranque del monitoreo de futuros
+    val notiPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> DivScanService.start(context) }
+    LaunchedEffect(Unit) {
+        val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            notiPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            DivScanService.start(context)
+        }
+    }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -62,7 +94,7 @@ fun CryptoListScreen(
 
     val showSymbolError = state.availableSymbols.isEmpty() && state.symbolsError.isNotEmpty()
 
-    // ponytail: cada fuente ve solo sus pares, en orden manual guardado
+    // cada fuente ve solo sus pares, en orden manual guardado
     val pairOrder = viewModel.pairOrder.value
     val orderIndex = remember(pairOrder) {
         pairOrder.withIndex().associate { it.value to it.index }
@@ -73,7 +105,7 @@ fun CryptoListScreen(
     }
     val sources = listOf("Binance", "MEXC")
 
-    // ponytail: drag con long-press, vive en copia local hasta soltar
+    // drag con long-press, vive en copia local hasta soltar
     val listState = rememberLazyListState()
     val view = LocalView.current
     val scope = rememberCoroutineScope()
@@ -105,21 +137,44 @@ fun CryptoListScreen(
                         color = Color.White,
                         fontWeight = FontWeight.Bold
                     )
-                    IconButton(onClick = {
-                        isSearchMode = !isSearchMode
-                        if (isSearchMode.not()) {
-                            searchQuery = ""
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        // campana con badge, abre el bottom sheet de alertas
+                        BadgedBox(
+                            badge = {
+                                if (alertsState.unread > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFF6465D))
+                                    )
+                                }
+                            }
+                        ) {
+                            IconButton(onClick = { showAlerts = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Notifications,
+                                    contentDescription = "Alertas",
+                                    tint = Color.White
+                                )
+                            }
                         }
-                    }) {
-                        Icon(
-                            imageVector = if (isSearchMode) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = Color.White
-                        )
+                        IconButton(onClick = {
+                            isSearchMode = !isSearchMode
+                            if (isSearchMode.not()) {
+                                searchQuery = ""
+                            }
+                        }) {
+                            Icon(
+                                imageVector = if (isSearchMode) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
 
-                // ponytail: segmentado compacto centrado, solo el ancho necesario
+                // segmentado compacto centrado, solo el ancho necesario
                 Row(
                     modifier = Modifier
                         .align(androidx.compose.ui.Alignment.CenterHorizontally)
@@ -223,7 +278,7 @@ fun CryptoListScreen(
                                             ListItem(
                                                 headlineContent = {
                                                     Text(
-                                                        // ponytail: perps sin slash tambien al buscar
+                                                        // perps sin slash tambien al buscar
                                                         if (state.selectedSource == "MEXC") pair.baseAsset + pair.quoteAsset
                                                         else pair.displayName,
                                                         color = Color.White,
@@ -323,7 +378,7 @@ fun CryptoListScreen(
                                                     val dragId = dragKey.value ?: return@detectDragGesturesAfterLongPress
                                                     val from = current.indexOfFirst { "${it.symbol}-${it.source}" == dragId }
                                                     if (from < 0) return@detectDragGesturesAfterLongPress
-                                                    // ponytail: por key, el indice de Lazy cambia con cada reorder
+                                                    // por key, el indice de Lazy cambia con cada reorder
                                                     val itemH = listState.layoutInfo.visibleItemsInfo
                                                         .find { it.key == dragId }?.size ?: 180
                                                     val target = (from + (dragOffsetY.value / itemH).roundToInt())
@@ -332,10 +387,10 @@ fun CryptoListScreen(
                                                         val item = current.removeAt(from)
                                                         current.add(target, item)
                                                         localOrder.value = current
-                                                        // ponytail: descuenta lo ya movido o el offset acumulado salta de mas
+                                                        // descuenta lo ya movido o el offset acumulado salta de mas
                                                         dragOffsetY.value -= (target - from) * itemH
                                                     }
-                                                    // ponytail: autoscroll en bordes
+                                                    // autoscroll en bordes
                                                     val info = listState.layoutInfo
                                                     val vi = info.visibleItemsInfo.find { it.key == dragId }
                                                     val center = (vi?.offset ?: 0) + dragOffsetY.value + (vi?.size ?: 0) / 2
@@ -351,7 +406,7 @@ fun CryptoListScreen(
                                 ) {
                                     CryptoPairItem(
                                         pair = pair,
-                                        onClick = { onNavigateToDetail(pair.symbol, pair.source) },
+                                        onClick = { onNavigateToDetail(pair.symbol, pair.source, "") },
                                         onDelete = { viewModel.onRemovePair(pair.symbol) }
                                     )
                                 }
@@ -360,6 +415,16 @@ fun CryptoListScreen(
                         }
                     }
                 }
+            }
+            // modal bottom con las notis, tap abre la grafica en ese TF
+            if (showAlerts) {
+                AlertsBottomSheet(
+                    onDismiss = { showAlerts = false },
+                    onOpenAlert = { symbol, source, interval ->
+                        showAlerts = false
+                        onNavigateToDetail(symbol, source, interval)
+                    }
+                )
             }
         }
     }

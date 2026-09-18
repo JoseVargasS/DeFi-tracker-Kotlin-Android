@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -37,13 +38,13 @@ class CryptoDetailViewModel @Inject constructor(
     private val _prefs = mutableStateOf(IndicatorPrefs.DEFAULT)
     val prefs: State<IndicatorPrefs> = _prefs
 
-    // ponytail: varios fibos por simbolo, cada uno con su estilo+estado propio
+    // varios fibos por simbolo, cada uno con su estilo+estado propio
     private val _fibOverlays = mutableStateOf<List<FibOverlay>>(emptyList())
     val fibOverlays: State<List<FibOverlay>> = _fibOverlays
     private val _selectedFibId = mutableStateOf<String?>(null)
     val selectedFibId: State<String?> = _selectedFibId
 
-    // ponytail: dibujos OKX por simbolo, mismo esquema que los fibos
+    // dibujos OKX por simbolo, mismo esquema que los fibos
     private val _drawOverlays = mutableStateOf<List<DrawOverlay>>(emptyList())
     val drawOverlays: State<List<DrawOverlay>> = _drawOverlays
     private val _selectedDrawId = mutableStateOf<String?>(null)
@@ -51,12 +52,14 @@ class CryptoDetailViewModel @Inject constructor(
 
     private val symbol: String = checkNotNull(savedStateHandle["symbol"])
     private val source: String = checkNotNull(savedStateHandle["source"])
+    // deep-link desde noti/sheet con el TF de la alerta
+    private val initialInterval: String = savedStateHandle.get<String>("interval")?.trim().orEmpty()
 
     private var refreshJob: Job? = null
     private var chartJob: Job? = null
-    // ponytail: el loop es secuencial, el flag solo evita solapar tail con full load
+    // el loop es secuencial, el flag solo evita solapar tail con full load
     private var tailSyncing = false
-    // ponytail: si el tail no trae vela nueva 3 cierres seguidos, full load de respaldo
+    // si el tail no trae vela nueva 3 cierres seguidos, full load de respaldo
     private var noNewCandleStreak = 0
 
     init {
@@ -67,7 +70,7 @@ class CryptoDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
-            // ponytail: carga los fibos guardados de este simbolo sin bloquear el chart
+            // carga los fibos guardados de este simbolo sin bloquear el chart
             try {
                 val stored = prefsRepo.fibOverlaysFlow(symbol).first()
                 _fibOverlays.value = stored.ifEmpty {
@@ -77,7 +80,7 @@ class CryptoDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
-            // ponytail: dibujos del simbolo, si hay uno visible se selecciona
+            // dibujos del simbolo, si hay uno visible se selecciona
             try {
                 _drawOverlays.value = prefsRepo.drawOverlaysFlow(symbol).first()
                 if (_drawOverlays.value.any { !it.hidden }) {
@@ -90,7 +93,10 @@ class CryptoDetailViewModel @Inject constructor(
         }
         loadDetail()
         startUpdates()
-        loadChartData(DEFAULT_CHART_INTERVAL)
+        // si viene de una alerta, abre directo en ese TF
+        val startInterval = initialInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
+        _state.value = state.value.copy(selectedInterval = startInterval)
+        loadChartData(startInterval, force = true)
     }
 
     private fun updatePrefs(transform: (IndicatorPrefs) -> IndicatorPrefs) {
@@ -134,7 +140,7 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
-    // ponytail: preview durante el drag sin spamear DataStore, se persiste al soltar
+    // preview durante el drag sin spamear DataStore, se persiste al soltar
     fun setFibLive(id: String, overlay: FibOverlay) {
         _fibOverlays.value = _fibOverlays.value.map { if (it.id == id) overlay else it }
     }
@@ -187,7 +193,7 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleFibLevel(id: String, ratio: Float) = updateFib(id, {
         val next = it.enabledLevels.toMutableSet()
         if (ratio in next) next.remove(ratio) else next.add(ratio)
-        // ponytail: nunca dejes el fibo sin niveles, vuelve al default
+        // nunca dejes el fibo sin niveles, vuelve al default
         it.copy(enabledLevels = next.ifEmpty { DEFAULT_FIB_LEVELS.toSet() })
     })
     fun toggleFibHidden(id: String) = updateFib(id, { it.copy(hidden = !it.hidden) })
@@ -278,7 +284,7 @@ class CryptoDetailViewModel @Inject constructor(
                     val detail = repository.getPairDetail(symbol, source)
                     val currentPrice = detail.price.toDoubleOrNull() ?: 0.0
 
-                    // ponytail: al cerrar la vela se mergea la cola fresca, nunca full reload
+                    // al cerrar la vela se mergea la cola fresca, nunca full reload
                     val candlesNow = _state.value.candles
                     val lastNow = candlesNow.lastOrNull()
                     val nowMs = System.currentTimeMillis()
@@ -310,7 +316,7 @@ class CryptoDetailViewModel @Inject constructor(
                             updatedCandles.toChartComputation(_state.value.selectedInterval)
                         }
 
-                        // ponytail: si cambiaste de TF a mitad del calculo, este tick ya no sirve
+                        // si cambiaste de TF a mitad del calculo, este tick ya no sirve
                         if (_state.value.selectedInterval != tickInterval) continue
 
                         _state.value = _state.value.copy(
@@ -330,7 +336,7 @@ class CryptoDetailViewModel @Inject constructor(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // ponytail: nunca mas silencioso, el loop del chart fallaba sin dejar rastro
+                    // nunca mas silencioso, el loop del chart fallaba sin dejar rastro
                     logNonFatal("Detail refresh tick failed for $symbol", e)
                 }
             }
@@ -348,10 +354,10 @@ class CryptoDetailViewModel @Inject constructor(
             try {
                 val rawKlines = repository.getKlines(
                     symbol,
-                    // ponytail: MEXC mapea+agrega en repo, Binance usa su formato
+                    // MEXC mapea+agrega en repo, Binance usa su formato
                     if (source == "MEXC") normalizedInterval else normalizedInterval.toBinanceInterval(),
                     source,
-                    // ponytail: carga completa siempre fresca, si no el cambio de TF muestra velas viejas
+                    // carga completa siempre fresca, si no el cambio de TF muestra velas viejas
                     forceRefresh = true
                 )
                 val chartData = withContext(Dispatchers.Default) {
@@ -388,7 +394,7 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
-    // ponytail: cola fresca mergeada por time; la historia vieja no se toca y el viewport no se mueve
+    // cola fresca mergeada por time; la historia vieja no se toca y el viewport no se mueve
     private suspend fun syncTail() {
         val current = _state.value
         val interval = current.selectedInterval
@@ -404,7 +410,7 @@ class CryptoDetailViewModel @Inject constructor(
             sinceTimeMs = sinceMs
         )
         if (rows.isEmpty()) return
-        // ponytail: si cambiaste de TF mientras viajaba la red, esa cola ya no sirve
+        // si cambiaste de TF mientras viajaba la red, esa cola ya no sirve
         if (_state.value.selectedInterval != interval) return
         val fresh = withContext(Dispatchers.Default) {
             rows.toCandles().let {
@@ -423,7 +429,7 @@ class CryptoDetailViewModel @Inject constructor(
             if (c.time > oldLast) merged.add(c)
         }
         if (merged.size == current.candles.size && merged.lastOrNull()?.time == oldLast) {
-            // ponytail: el exchange aun no publica la vela; al tercer cierre, full load
+            // el exchange aun no publica la vela; al tercer cierre, full load
             noNewCandleStreak++
             if (noNewCandleStreak >= 3) {
                 noNewCandleStreak = 0
@@ -523,7 +529,7 @@ class CryptoDetailViewModel @Inject constructor(
         val stochD = mutableListOf<Pair<Long, Double>>()
         val rsiValues = calculateRSI(this)
 
-        // ponytail: SMA por periodo, una pasada O(n) cada una, fuera del hilo principal
+        // SMA por periodo, una pasada O(n) cada una, fuera del hilo principal
         val maLines = mutableMapOf<Int, List<Pair<Long, Double>>>()
         for (maPeriod in IndicatorPrefs.MA_PERIODS) {
             if (size < maPeriod) continue
@@ -564,7 +570,7 @@ class CryptoDetailViewModel @Inject constructor(
             }
         }
 
-        // ponytail: RSI(14) alineado a vela para el subpanel, reusa el calculo de arriba
+        // RSI(14) alineado a vela para el subpanel, reusa el calculo de arriba
         val rsi = rsiValues.mapIndexed { i, v -> (i + (size - rsiValues.size)).toLong() to v }
 
         return ChartComputation(
@@ -576,45 +582,27 @@ class CryptoDetailViewModel @Inject constructor(
             stochD = stochD,
             maLines = maLines,
             rsi = rsi,
-            // ponytail: SMC derivado de las velas, se recalcula solo al cambiar TF
+            // SMC derivado de las velas, se recalcula solo al cambiar TF
             smc = computeSmc(this, interval),
-            // ponytail: divergencias RSI estilo TV sobre pivotes confirmados
-            rsiDiv = detectRsiDivergences(this, rsiValues)
+            // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
+            rsiDiv = mergeConfirmedAndEarly(
+                detectRsiDivergences(this, rsiValues),
+                detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK)
+            )
         )
     }
 
-    private fun calculateRSI(candles: List<CandleData>): List<Double> {
-        val rsi = mutableListOf<Double>()
-        val period = STOCH_RSI_PERIOD
-        if (candles.size <= period) return emptyList()
-        
-        var avgGain = 0.0
-        var avgLoss = 0.0
-        
-        for (i in 1..period) {
-            val diff = candles[i].close - candles[i-1].close
-            if (diff >= 0) avgGain += diff else avgLoss -= diff
+    // tempranas marcadas y sin las que ya salieron confirmadas
+    private fun mergeConfirmedAndEarly(confirmed: List<RsiDiv>, early: List<RsiDiv>): List<RsiDiv> {
+        val fresh = early.map { it.copy(early = true) }.filter { e ->
+            confirmed.none { c -> c.kind == e.kind && abs(c.idx2 - e.idx2) <= 2 }
         }
-        avgGain /= period
-        avgLoss /= period
-        
-        rsi.add(if (avgLoss == 0.0) 100.0 else 100.0 - (100.0 / (1.0 + avgGain / avgLoss)))
-        
-        for (i in period + 1 until candles.size) {
-            val diff = candles[i].close - candles[i-1].close
-            val gain = if (diff >= 0) diff else 0.0
-            val loss = if (diff < 0) -diff else 0.0
-            
-            avgGain = (avgGain * (period - 1) + gain) / period
-            avgLoss = (avgLoss * (period - 1) + loss) / period
-            
-            rsi.add(if (avgLoss == 0.0) 100.0 else 100.0 - (100.0 / (1.0 + avgGain / avgLoss)))
-        }
-        
-        // Pad beginning with zeros to match candle indices
-        val padding = List(period) { 0.0 }
-        return padding + rsi
+        return (confirmed + fresh).sortedBy { it.idx2 }
     }
+
+    // calculo compartido con el worker de alertas (RsiCalc.kt)
+    private fun calculateRSI(candles: List<CandleData>): List<Double> =
+        calculateRsi(candles, STOCH_RSI_PERIOD)
 
     private fun calculateSMA(values: List<Double>): List<Double> {
         val period = STOCH_SMOOTH_PERIOD
@@ -650,7 +638,7 @@ class CryptoDetailViewModel @Inject constructor(
             else -> return this
         }
         if (isEmpty()) return this
-        // ponytail: buckets anclados a calendario, no al indice; si no los times bailan cada fetch
+        // buckets anclados a calendario, no al indice; si no los times bailan cada fetch
         val weekAnchored = interval == "2w"
         val buckets = LinkedHashMap<Long, MutableList<CandleData>>()
         for (c in this) {
@@ -682,11 +670,11 @@ class CryptoDetailViewModel @Inject constructor(
         const val DEFAULT_CHART_INTERVAL = "15m"
         const val STOCH_RSI_PERIOD = 14
         const val STOCH_SMOOTH_PERIOD = 3
-        // ponytail: lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
+        // lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
         const val WEEK_ANCHOR_MS = 1_578_182_400_000L
     }
 
-    // ponytail: espejo de intervalDurationMs del chart pa' detectar el cierre sin acoplar
+    // espejo de intervalDurationMs del chart pa' detectar el cierre sin acoplar
     private fun candleDurationMs(interval: String): Long = when (interval.trim()) {
         "1m" -> 60_000L
         "5m" -> 300_000L
@@ -733,7 +721,7 @@ data class CandleData(
     val low: Double,
     val close: Double,
     val volume: Double = 0.0,
-    // ponytail: taker buy base volume (indice 9 de klines Binance), sell = volume - buy
+    // taker buy base volume (indice 9 de klines Binance), sell = volume - buy
     val takerBuyVol: Double = 0.0
 )
 
