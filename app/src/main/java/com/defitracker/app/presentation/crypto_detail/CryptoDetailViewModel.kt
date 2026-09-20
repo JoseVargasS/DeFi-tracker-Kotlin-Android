@@ -135,6 +135,11 @@ class CryptoDetailViewModel @Inject constructor(
 
     init {
         _state.value = state.value.copy(symbol = symbol, source = source)
+        // si viene de una alerta, abre directo en ese TF
+        val startInterval = initialInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
+        _state.value = state.value.copy(selectedInterval = startInterval)
+        loadDetail()
+        startUpdates()
         viewModelScope.launch {
             try {
                 _prefs.value = prefsRepo.prefsFlow.first()
@@ -161,13 +166,9 @@ class CryptoDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
+            // el chart espera a los prefs: si no, el primer pintado usaria MAs default
+            loadChartData(startInterval, force = true)
         }
-        loadDetail()
-        startUpdates()
-        // si viene de una alerta, abre directo en ese TF
-        val startInterval = initialInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
-        _state.value = state.value.copy(selectedInterval = startInterval)
-        loadChartData(startInterval, force = true)
     }
 
     private fun updatePrefs(transform: (IndicatorPrefs) -> IndicatorPrefs) {
@@ -200,8 +201,12 @@ class CryptoDetailViewModel @Inject constructor(
     }
 
     // MAs por id (SMA/EMA, periodo, color, grosor, TF)
-    fun toggleMAById(id: String) = updatePrefs { cur ->
-        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(visible = !ma.visible) else ma })
+    fun toggleMAById(id: String) {
+        updatePrefs { cur ->
+            cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(visible = !ma.visible) else ma })
+        }
+        // la ganadora del dedup puede cambiar al mostrar/ocultar
+        recomputeMaLinesFromCache()
     }
     fun setMAColorById(id: String, colorHex: String) = updatePrefs { cur ->
         cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(colorHex = colorHex) else ma })
@@ -209,18 +214,24 @@ class CryptoDetailViewModel @Inject constructor(
     fun setMAWidthById(id: String, width: Float) = updatePrefs { cur ->
         cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(width = width.coerceIn(0.5f, 3f)) else ma })
     }
-    fun setMAType(id: String, type: MaType) = updatePrefs { cur ->
-        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(type = type) else ma })
+    fun setMAType(id: String, type: MaType) {
+        updatePrefs { cur ->
+            cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(type = type) else ma })
+        }
+        recomputeMaLinesFromCache()
     }
-    fun setMAPeriod(id: String, period: Int) = updatePrefs { cur ->
-        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(period = period.coerceIn(2, 500)) else ma })
+    fun setMAPeriod(id: String, period: Int) {
+        updatePrefs { cur ->
+            cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(period = period.coerceIn(2, 500)) else ma })
+        }
+        recomputeMaLinesFromCache()
     }
     fun setMATimeframe(id: String, tf: String) {
         if (tf != "chart" && tf !in IndicatorPrefs.MA_TFS) return
         updatePrefs { cur ->
             cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(timeframe = tf) else ma })
         }
-        refreshExtraMas()
+        refreshExtraMas(force = true)
     }
     fun addMA() = updatePrefs { cur ->
         if (cur.mas.size >= IndicatorPrefs.MAX_MAS) return@updatePrefs cur
@@ -243,7 +254,7 @@ class CryptoDetailViewModel @Inject constructor(
         if (source == "MEXC") tf else tf.toBinanceInterval()
 
     // trae las velas de los TFs que piden las MAs visibles, luego re-alinea sin tocar zoom
-    fun refreshExtraMas() {
+    fun refreshExtraMas(force: Boolean = false) {
         val chartInterval = _state.value.selectedInterval
         val needed = _prefs.value.mas
             .filter { it.visible && it.timeframe != "chart" && it.timeframe != chartInterval }
@@ -254,12 +265,7 @@ class CryptoDetailViewModel @Inject constructor(
                 var changed = false
                 for (tf in needed) {
                     try {
-                        val rows = repository.getKlines(symbol, intervalForSource(tf), source, forceRefresh = false)
-                        val candles = withContext(Dispatchers.Default) {
-                            rows.toCandles().let { list ->
-                                if (source == "MEXC") list else list.aggregateForInterval(tf)
-                            }
-                        }
+                        val candles = fetchExtraCandles(tf, force)
                         if (candles.isNotEmpty()) {
                             extraTfCandles[tf] = candles
                             changed = true
@@ -274,6 +280,16 @@ class CryptoDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
+        }
+    }
+
+    private suspend fun fetchExtraCandles(tf: String, force: Boolean): List<CandleData> {
+        val rows = repository.getKlines(symbol, intervalForSource(tf), source, forceRefresh = force)
+        if (rows.isEmpty()) return emptyList()
+        return withContext(Dispatchers.Default) {
+            rows.toCandles().let { list ->
+                if (source == "MEXC") list else list.aggregateForInterval(tf)
+            }
         }
     }
 
@@ -564,14 +580,36 @@ class CryptoDetailViewModel @Inject constructor(
         chartJob = viewModelScope.launch {
             _state.value = state.value.copy(selectedInterval = normalizedInterval, isLoading = true, error = "")
             try {
-                val rawKlines = repository.getKlines(
-                    symbol,
-                    // MEXC mapea+agrega en repo, Binance usa su formato
-                    if (source == "MEXC") normalizedInterval else normalizedInterval.toBinanceInterval(),
-                    source,
-                    // carga completa siempre fresca, si no el cambio de TF muestra velas viejas
-                    forceRefresh = true
-                )
+                val masSnapshot = _prefs.value.mas
+                val neededTfs = masSnapshot
+                    .filter { it.visible && it.timeframe != "chart" && it.timeframe != normalizedInterval }
+                    .map { it.timeframe }.toSet()
+                // klines + extras en paralelo: se pinta una sola vez ya con todo
+                val rawKlinesDeferred = async(Dispatchers.IO) {
+                    repository.getKlines(
+                        symbol,
+                        // MEXC mapea+agrega en repo, Binance usa su formato
+                        if (source == "MEXC") normalizedInterval else normalizedInterval.toBinanceInterval(),
+                        source,
+                        // carga completa siempre fresca, si no el cambio de TF muestra velas viejas
+                        forceRefresh = true
+                    )
+                }
+                val extrasDeferred = neededTfs.map { tf ->
+                    async(Dispatchers.IO) {
+                        tf to try {
+                            fetchExtraCandles(tf, force = false)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+                val rawKlines = rawKlinesDeferred.await()
+                extrasDeferred.awaitAll().forEach { (tf, candles) ->
+                    if (candles.isNotEmpty()) extraTfCandles[tf] = candles
+                }
                 val chartData = withContext(Dispatchers.Default) {
                     val candles = rawKlines.toCandles().let {
                         if (source == "MEXC") it else it.aggregateForInterval(normalizedInterval)
@@ -581,7 +619,7 @@ class CryptoDetailViewModel @Inject constructor(
                         return@withContext ChartComputation()
                     }
 
-                    candles.toChartComputation(normalizedInterval, _prefs.value.mas, extraTfCandles.toMap())
+                    candles.toChartComputation(normalizedInterval, masSnapshot, extraTfCandles.toMap())
                 }
 
                 _state.value = state.value.copy(
@@ -597,8 +635,7 @@ class CryptoDetailViewModel @Inject constructor(
                             rsiDiv = chartData.rsiDiv,
                     isLoading = false
                 )
-                // MAs de otro TF traen sus velas del mismo source (plan A)
-                refreshExtraMas()
+                // extras ya traidos en paralelo arriba; solo refresca analisis
                 refreshAnalysis()
             } catch (e: CancellationException) {
                 throw e
@@ -809,7 +846,17 @@ class CryptoDetailViewModel @Inject constructor(
     ): Map<String, List<Pair<Long, Double>>> {
         val out = mutableMapOf<String, List<Pair<Long, Double>>>()
         if (isEmpty()) return out
-        for (ma in mas) {
+        // duplicadas (mismo tipo, periodo y TF efectivo) se pinta solo una;
+        // gana la de TF "chart", las ocultas no bloquean a las visibles
+        val seen = mutableSetOf<Triple<MaType, Int, String>>()
+        val ordered = mas.sortedBy { if (it.timeframe == "chart") 0 else 1 }
+        for (ma in ordered) {
+            val effectiveTf = if (ma.timeframe == "chart" || ma.timeframe == interval) interval else ma.timeframe
+            if (ma.visible) {
+                val key = Triple(ma.type, ma.period, effectiveTf)
+                if (key in seen) continue
+                seen.add(key)
+            }
             val tf = ma.timeframe
             if (tf != "chart" && tf != interval) {
                 val extra = extras[tf] ?: continue

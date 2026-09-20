@@ -869,6 +869,18 @@ fun PriceChart(
                     color = GraphicsColor.argb(220, 26, 29, 35)
                     style = Paint.Style.FILL
                 }
+                // conector punteado + tag de MAs de otro TF (1h.SMA20)
+                val maTagDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.WHITE
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    pathEffect = DashPathEffect(floatArrayOf(6f, 5f), 0f)
+                }
+                val maTagTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.WHITE
+                    textSize = 22f
+                    textAlign = Paint.Align.LEFT
+                }
                 private val drawHandleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(60, 255, 214, 10)
                     style = Paint.Style.FILL
@@ -1276,6 +1288,68 @@ fun PriceChart(
                     canvas.drawRoundRect(yTagRect, 6f, 6f, lastPriceTagPaint)
                     canvas.drawText(priceText, yTagRect.centerX(), tagTop + padY + textSize, lastPriceTextPaint)
                     canvas.drawText(countdown, yTagRect.centerX(), tagTop + padY + textSize * 2f + 4f, lastPriceTextPaint)
+                }
+
+                // tags de MAs de otro TF: codo punteado 45° + etiqueta al borde (1h.SMA20)
+                private fun drawMaTfTags(canvas: Canvas, candles: List<CandleData>) {
+                    if (candles.isEmpty()) return
+                    val interval = stateRef.value.selectedInterval
+                    val mas = prefsRef.value.mas.filter { it.visible && it.timeframe != "chart" && it.timeframe != interval }
+                    if (mas.isEmpty()) return
+                    val lines = stateRef.value.maLines
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+                    data class Tag(val py: Float, val px: Float, val text: String, val color: Int)
+                    val tags = ArrayList<Tag>()
+                    mas.forEach { ma ->
+                        val line = lines[ma.id] ?: return@forEach
+                        if (line.isEmpty()) return@forEach
+                        val last = line.last()
+                        val pts = floatArrayOf(last.first.toFloat(), last.second.toFloat())
+                        trans.pointValuesToPixel(pts)
+                        val px = pts[0].coerceIn(contentLeft, contentRight)
+                        val py = pts[1].coerceIn(contentTop, contentBottom)
+                        val color = try {
+                            GraphicsColor.parseColor(ma.colorHex)
+                        } catch (_: Exception) {
+                            GraphicsColor.WHITE
+                        }
+                        val kind = if (ma.type == MaType.EMA) "EMA" else "SMA"
+                        tags.add(Tag(py, px, "${ma.timeframe}.$kind${ma.period}", color))
+                    }
+                    if (tags.isEmpty()) return
+                    tags.sortBy { it.py }
+                    val th = maTagTextPaint.textSize + 10f
+                    val minGap = th + 6f
+                    // codo 45° + horizontal a la altura del chip, apilados sin encimarse
+                    var cursor = Float.NEGATIVE_INFINITY
+                    tags.forEach { t ->
+                        // prefiere arriba del punto, abajo si no hay aire
+                        var cy = t.py - (th + minGap)
+                        if (cy < contentTop + th / 2f) cy = t.py + (th + minGap)
+                        cy = cy.coerceIn(contentTop + th / 2f, contentBottom - th / 2f)
+                        if (cy < cursor) cy = cursor
+                        cy = min(cy, contentBottom - th / 2f)
+                        cursor = cy + minGap
+                        val tw = maTagTextPaint.measureText(t.text)
+                        val tagRight = contentRight - 4f
+                        val tagLeft = (tagRight - tw - 16f).coerceAtLeast(contentLeft)
+                        // 45°: avance horizontal = subida; luego recto hasta el tag
+                        var kx = (t.px + abs(cy - t.py)).coerceIn(contentLeft, contentRight)
+                        if (kx > tagLeft - 4f) kx = (tagLeft - 4f).coerceAtLeast(contentLeft)
+                        maTagDashPaint.color = t.color
+                        canvas.drawLine(t.px, t.py, kx, cy, maTagDashPaint)
+                        canvas.drawLine(kx, cy, tagLeft, cy, maTagDashPaint)
+                        val ty = cy - th / 2f
+                        yTagRect.set(tagLeft, ty, tagRight, ty + th)
+                        canvas.drawRoundRect(yTagRect, 4f, 4f, drawChipPaint)
+                        maTagTextPaint.color = t.color
+                        canvas.drawText(t.text, tagLeft + 8f, ty + th - 7f, maTagTextPaint)
+                    }
+                    maTagTextPaint.color = GraphicsColor.WHITE
                 }
 
                 // volumen taker apilado (buy abajo, sell arriba) al fondo del chart
@@ -2830,6 +2904,7 @@ fun PriceChart(
                     drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
                     drawPinnedYLabels(canvas, entries)
                     drawLastPriceTag(canvas, entries)
+                    drawMaTfTags(canvas, entries)
 
                     // --- Draw Crosshair Lines Manually (Exact Y, Snapped X) ---
                     val h = highlighted?.getOrNull(0) ?: return
@@ -2911,6 +2986,7 @@ fun PriceChart(
                         smcBslLabelPaint.typeface = tf
                         smcSslLabelPaint.typeface = tf
                         smcSweepLabelPaint.typeface = tf
+                        maTagTextPaint.typeface = tf
                     }
                 } catch (_: Exception) {}
 
@@ -3277,7 +3353,7 @@ fun PriceChart(
                     val last = state.maLines[ma.id]?.lastOrNull()?.second
                     if (last != null) {
                         Text(
-                            text = "${maLegendLabel(ma)} ${formatPriceForChart(last)}  ",
+                            text = "${maLegendLabel(ma)} ${formatAxisPrice(last, state.candles.lastOrNull()?.close ?: last)}  ",
                             color = Color(ma.colorHex.toColorInt()),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
