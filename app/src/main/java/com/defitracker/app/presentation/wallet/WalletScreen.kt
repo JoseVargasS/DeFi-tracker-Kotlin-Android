@@ -28,8 +28,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.defitracker.app.ui.theme.PlexMono
-import com.defitracker.app.ui.theme.Lato
+import com.defitracker.app.ui.theme.AppGold
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.Geist
+import com.defitracker.app.ui.theme.GeistTnum
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,7 +111,7 @@ fun WalletScreen(
                 ) {
                     if (state.wallets.isNotEmpty()) {
                         var expanded by remember { mutableStateOf(false) }
-                        Text("Active wallet", color = Color(0xFF0ECB81), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Active wallet", color = AppGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -199,14 +202,14 @@ fun WalletScreen(
                                     enabled = state.selectedAddress.isNotBlank(),
                                     modifier = Modifier.size(36.dp)
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFE74C4C).copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AppRed.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
                         
                         Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     } else {
-                        Text("No saved wallets", color = Color(0xFF0ECB81), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("No saved wallets", color = AppGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Text("Add a public wallet address to view balances by chain.", color = Color.Gray, fontSize = 12.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -221,8 +224,8 @@ fun WalletScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            cursorColor = Color(0xFF0ECB81),
-                            focusedBorderColor = Color(0xFF0ECB81),
+                            cursorColor = AppGreen,
+                            focusedBorderColor = AppGreen,
                             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                         ),
                         singleLine = true,
@@ -243,8 +246,8 @@ fun WalletScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                cursorColor = Color(0xFF0ECB81),
-                                focusedBorderColor = Color(0xFF0ECB81),
+                                cursorColor = AppGreen,
+                                focusedBorderColor = AppGreen,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                             ),
                             singleLine = true,
@@ -260,7 +263,7 @@ fun WalletScreen(
                                     walletNameInput = ""
                                 }
                             },
-                            colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFF0ECB81)),
+                            colors = IconButtonDefaults.iconButtonColors(containerColor = AppGreen),
                             modifier = Modifier.size(48.dp)
                         ) {
                             if (state.isLoading) {
@@ -286,7 +289,7 @@ fun WalletScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Total Worth", color = Color(0xFF0ECB81), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Total Worth", color = AppGreen, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Text("${allAssets.size} assets", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
                     Text(
@@ -294,32 +297,32 @@ fun WalletScreen(
                         color = Color.White,
                         fontSize = 36.sp,
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = Lato
+                        fontFamily = Geist
                     )
                     AnimatedVisibility(visible = state.isLoading) {
                         LinearProgressIndicator(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),
-                            color = Color(0xFF0ECB81),
+                            color = AppGreen,
                             trackColor = MaterialTheme.colorScheme.background
                         )
                     }
                     AnimatedVisibility(visible = state.error != null) {
                         Text(
                             text = state.error ?: "",
-                            color = Color(0xFFE74C4C),
+                            color = AppRed,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 8.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row {
-                        Text(text = "Assets: ", color = Color(0xFFF3BA2F), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "$${String.format("%,.2f", totalWorth)}", color = Color(0xFFF3BA2F), fontSize = 14.sp)
+                        Text(text = "Assets: ", color = AppGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "$${String.format("%,.2f", totalWorth)}", color = AppGold, fontSize = 14.sp)
                         Text(text = "  |  ", color = Color.Gray, fontSize = 14.sp)
-                        Text(text = "DeFi: ", color = Color(0xFFF3BA2F), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "$0", color = Color(0xFFF3BA2F), fontSize = 14.sp)
+                        Text(text = "DeFi: ", color = AppGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "$0", color = AppGold, fontSize = 14.sp)
                     }
                 }
             }
@@ -388,7 +391,7 @@ fun ChainCard(chainName: String, assets: List<com.defitracker.app.data.remote.dt
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -413,7 +416,7 @@ fun ChainCard(chainName: String, assets: List<com.defitracker.app.data.remote.dt
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = Lato
+                    fontFamily = Geist
                 )
             }
 
@@ -471,7 +474,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
             text = String.format("%.4f", asset.amount ?: 0.0),
             color = Color.White,
             fontSize = 12.sp,
-            fontFamily = PlexMono,
+            style = GeistTnum,
             modifier = Modifier.weight(1f),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
@@ -481,7 +484,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
             text = "$${if ((asset.price ?: 0.0) < 1.0) String.format("%.4f", asset.price) else String.format("%,.2f", asset.price)}",
             color = Color.White,
             fontSize = 12.sp,
-            fontFamily = PlexMono,
+            style = GeistTnum,
             modifier = Modifier.weight(1f),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
@@ -492,7 +495,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = PlexMono,
+            style = GeistTnum,
             modifier = Modifier.weight(1f),
             textAlign = androidx.compose.ui.text.style.TextAlign.End
         )

@@ -45,6 +45,8 @@ import com.defitracker.app.alerts.DivScanService
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.alerts.AlertsBottomSheet
 import com.defitracker.app.presentation.alerts.AlertsViewModel
+import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -112,7 +114,26 @@ fun CryptoListScreen(
     val dragKey = remember { mutableStateOf<String?>(null) }
     val dragOffsetY = remember { mutableStateOf(0f) }
     val localOrder = remember { mutableStateOf<List<CryptoPair>?>(null) }
-    val displayPairs = localOrder.value ?: visiblePairs
+    val sortMode = viewModel.sortMode.value
+    val sparklines = viewModel.sparklines.value
+    val volumes = viewModel.volumes.value
+    val basePairs = localOrder.value ?: visiblePairs
+    val displayPairs = remember(basePairs, sortMode, volumes) {
+        when (sortMode) {
+            SortMode.MANUAL -> basePairs
+            SortMode.VOL_DESC -> basePairs.sortedByDescending { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
+            SortMode.VOL_ASC -> basePairs.sortedBy { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
+            SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleOrNull() ?: 0.0 }
+            SortMode.CHG_ASC -> basePairs.sortedBy { it.priceChangePercent.toDoubleOrNull() ?: 0.0 }
+        }
+    }
+    val sortLabel = when (sortMode) {
+        SortMode.MANUAL -> "Ordenar por: Manual"
+        SortMode.VOL_DESC -> "Ordenar por Volumen 24h ↓"
+        SortMode.VOL_ASC -> "Ordenar por Volumen 24h ↑"
+        SortMode.CHG_DESC -> "Ordenar por Cambio 24h ↓"
+        SortMode.CHG_ASC -> "Ordenar por Cambio 24h ↑"
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
@@ -138,25 +159,34 @@ fun CryptoListScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        // campana con badge, abre el bottom sheet de alertas
-                        BadgedBox(
-                            badge = {
-                                if (alertsState.unread > 0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFF6465D))
-                                    )
-                                }
-                            }
-                        ) {
+                        // campana con burbuja numerica montada encima del icono
+                        Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
                             IconButton(onClick = { showAlerts = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Notifications,
                                     contentDescription = "Alertas",
                                     tint = Color.White
                                 )
+                            }
+                            if (alertsState.unread > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(androidx.compose.ui.Alignment.TopEnd)
+                                        .offset(x = (-4).dp, y = 4.dp)
+                                        .sizeIn(minWidth = 22.dp, minHeight = 22.dp)
+                                        .clip(CircleShape)
+                                        .background(AppRed)
+                                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (alertsState.unread > 99) "99+" else alertsState.unread.toString(),
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        lineHeight = 12.sp
+                                    )
+                                }
                             }
                         }
                         IconButton(onClick = {
@@ -180,7 +210,7 @@ fun CryptoListScreen(
                         .align(androidx.compose.ui.Alignment.CenterHorizontally)
                         .padding(horizontal = 16.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF1A1D23))
+                        .background(CardBg)
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -255,7 +285,7 @@ fun CryptoListScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(max = 280.dp),
-                                color = Color(0xFF1A1D23),
+                                color = CardBg,
                                 shape = RoundedCornerShape(8.dp),
                                 tonalElevation = 2.dp
                             ) {
@@ -300,7 +330,7 @@ fun CryptoListScreen(
                                                     .background(Color.Transparent),
                                                 colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                                             )
-                                            Divider(color = Color.Gray.copy(alpha = 0.1f))
+                                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
                                         }
                                     }
                                 }
@@ -334,6 +364,29 @@ fun CryptoListScreen(
                             Text("Use search to add your first pair", color = Color.Gray, fontSize = 12.sp)
                         }
                     } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // header estilo exchange, tap cicla el orden
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = sortLabel,
+                                    color = Color.Gray,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable { viewModel.cycleSort() }
+                                )
+                                Text(
+                                    text = "Cambio 24h",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
@@ -349,7 +402,9 @@ fun CryptoListScreen(
                                         .graphicsLayer {
                                             translationY = if (dragging) dragOffsetY.value else 0f
                                         }
-                                        .pointerInput(key) {
+                                        .pointerInput(key, sortMode) {
+                                            // drag solo en modo manual, ordenado no se arrastra
+                                            if (sortMode == SortMode.MANUAL) {
                                             detectDragGesturesAfterLongPress(
                                                 onDragStart = {
                                                     view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
@@ -402,16 +457,19 @@ fun CryptoListScreen(
                                                     }
                                                 }
                                             )
+                                            }
                                         }
                                 ) {
                                     CryptoPairItem(
                                         pair = pair,
+                                        sparkline = sparklines[key] ?: emptyList(),
                                         onClick = { onNavigateToDetail(pair.symbol, pair.source, "") },
                                         onDelete = { viewModel.onRemovePair(pair.symbol) }
                                     )
                                 }
                                 Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                             }
+                        }
                         }
                     }
                 }

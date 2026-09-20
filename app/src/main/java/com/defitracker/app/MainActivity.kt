@@ -31,6 +31,7 @@ import com.defitracker.app.presentation.crypto_list.CryptoListScreen
 import androidx.compose.ui.res.painterResource
 import com.defitracker.app.presentation.wallet.WalletScreen
 import com.defitracker.app.presentation.transactions.TransactionsScreen
+import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.DeFiTrackerTheme
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dagger.hilt.android.AndroidEntryPoint
@@ -154,8 +155,8 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         colors = NavigationBarItemDefaults.colors(
-                                            selectedIconColor = Color(0xFF0ECB81),
-                                            selectedTextColor = Color(0xFF0ECB81),
+                                            selectedIconColor = AppGreen,
+                                            selectedTextColor = AppGreen,
                                             unselectedIconColor = Color.Gray,
                                             unselectedTextColor = Color.Gray,
                                             indicatorColor = MaterialTheme.colorScheme.surfaceVariant

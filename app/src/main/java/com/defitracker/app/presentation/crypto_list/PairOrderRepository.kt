@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// ponytail: orden manual de pares sin tocar Room (keys "symbol|source")
+// orden manual de pares sin tocar Room (keys "symbol|source")
 private val Context.pairOrderDataStore: DataStore<Preferences> by preferencesDataStore("pairs_order")
 
 @Singleton

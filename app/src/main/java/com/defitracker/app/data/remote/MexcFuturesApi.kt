@@ -4,7 +4,7 @@ import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-// ponytail: futuros perpetuos MEXC (contract.mexc.com, v1). Formato columnar, distinto a Binance.
+// futuros perpetuos MEXC (contract.mexc.com, v1). Formato columnar, distinto a Binance.
 data class MexcFuturesContractDto(
     val symbol: String = "",
     val baseCoin: String = "",

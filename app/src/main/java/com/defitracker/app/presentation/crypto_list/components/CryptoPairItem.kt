@@ -1,7 +1,12 @@
 package com.defitracker.app.presentation.crypto_list.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,33 +20,39 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.defitracker.app.domain.model.CryptoPair
-import com.defitracker.app.ui.theme.Lato
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.Geist
+import com.defitracker.app.ui.theme.GeistTnum
 
 @Composable
 fun CryptoPairItem(
     pair: CryptoPair,
+    sparkline: List<Double>,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
     val changeColor by animateColorAsState(
-        targetValue = if (pair.isPositive) Color(0xFF1ECB81) else Color(0xFFE74C4C),
+        targetValue = if (pair.isPositive) AppGreen else AppRed,
         animationSpec = tween(durationMillis = 180),
         label = "priceChangeColor"
-    )
-    val changeBackground by animateColorAsState(
-        targetValue = if (pair.isPositive) Color(0xFF132B22) else Color(0xFF2B171A),
-        animationSpec = tween(durationMillis = 180),
-        label = "priceChangeBackground"
     )
 
     Surface(
@@ -52,7 +63,7 @@ fun CryptoPairItem(
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -80,65 +91,63 @@ fun CryptoPairItem(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                // ponytail: perps sin slash (ETHUSDT), spot con slash
+                // una sola linea con ellipsis, nunca parte el simbolo en dos
                 if (pair.source == "MEXC") {
+                    // perps sin slash (ETHUSDT)
                     Text(
                         text = pair.baseAsset + pair.quoteAsset,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = pair.baseAsset,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = " /${pair.quoteAsset}",
-                            fontSize = 12.sp,
-                            color = Color(0xFF777777),
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 2.dp)
-                        )
-                    }
+                    // spot con slash chico en el mismo Text para que no salte de linea
+                    Text(
+                        text = buildAnnotatedString {
+                            append(pair.baseAsset)
+                            pushStyle(SpanStyle(fontSize = 11.sp, color = Color(0xFF777777), fontWeight = FontWeight.SemiBold))
+                            append(" /${pair.quoteAsset}")
+                        },
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 Text(
                     text = pair.symbol,
                     fontSize = 12.sp,
                     color = Color(0xFFAAAAAA),
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Column(horizontalAlignment = Alignment.End) {
+            // mini grafica 24h al medio
+            Sparkline(values = sparkline, positive = pair.isPositive)
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(min = 86.dp)) {
                 Text(
                     text = pair.price,
-                    fontSize = 16.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
-                    fontFamily = Lato
+                    style = GeistTnum
                 )
-                
-                Surface(
-                    color = changeBackground,
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier.padding(top = 2.dp)
-                ) {
-                    Text(
-                        text = "${if (pair.isPositive) "+" else ""}${pair.priceChangePercent}%",
-                        color = changeColor,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp,
-                        fontFamily = Lato,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
+                Text(
+                    text = "${if (pair.isPositive) "+" else ""}${pair.priceChangePercent}%",
+                    color = changeColor,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    fontFamily = Geist
+                )
             }
-
-            Spacer(modifier = Modifier.width(12.dp))
 
             IconButton(
                 onClick = onDelete,
@@ -152,5 +161,48 @@ fun CryptoPairItem(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun Sparkline(values: List<Double>, positive: Boolean) {
+    if (values.size < 2) {
+        // placeholder pulsante mientras cargan los cierres
+        val pulse = rememberInfiniteTransition(label = "sparkPulse").animateFloat(
+            initialValue = 0.25f,
+            targetValue = 0.55f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "sparkAlpha"
+        )
+        Box(
+            modifier = Modifier
+                .width(70.dp)
+                .height(28.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.Gray.copy(alpha = pulse.value))
+        )
+        return
+    }
+    val color = if (positive) AppGreen else AppRed
+    Canvas(modifier = Modifier.width(70.dp).height(28.dp)) {
+        val min = values.minOrNull() ?: return@Canvas
+        val max = values.maxOrNull() ?: return@Canvas
+        val range = (max - min).takeIf { it > 0 } ?: 1.0
+        val stepX = size.width / (values.size - 1)
+        val pts = values.mapIndexed { i, v ->
+            Offset(
+                i * stepX,
+                size.height - ((v - min) / range * size.height).toFloat()
+            )
+        }
+        val path = Path().apply {
+            moveTo(pts[0].x, pts[0].y)
+            for (i in 1..pts.lastIndex) lineTo(pts[i].x, pts[i].y)
+        }
+        drawPath(path, color, style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round))
+        drawCircle(color, radius = 2.dp.toPx(), center = pts.last())
     }
 }

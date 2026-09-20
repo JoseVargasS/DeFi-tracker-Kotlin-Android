@@ -55,6 +55,45 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
     private val transactionSyncTimes = mutableMapOf<String, Long>()
+    // cache chico solo pa' sparklines, 1 llamada por par
+    private val sparkCache = object : LinkedHashMap<String, CachedKlines>(
+        SPARK_CACHE_MAX_ENTRIES,
+        0.75f,
+        true
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedKlines>?): Boolean {
+            return size > SPARK_CACHE_MAX_ENTRIES
+        }
+    }
+
+    override suspend fun getSparklineCloses(symbol: String, source: String, limit: Int): List<Double> {
+        val cleanLimit = limit.coerceIn(2, 100)
+        val cacheKey = "$source:$symbol"
+        sparkCache[cacheKey]?.let { cached ->
+            if (System.currentTimeMillis() - cached.createdAtMs <= SPARK_CACHE_TTL_MS && cached.rows.isNotEmpty()) {
+                return closesOf(cached.rows, cleanLimit)
+            }
+        }
+        return try {
+            val rows = when (source) {
+                "MEXC" -> getMexcFuturesKlines(symbol, "1h", singlePage = true)
+                else -> binanceApi.getKlines(symbol = symbol, interval = "1h", limit = cleanLimit)
+            }
+            if (rows.isNotEmpty()) sparkCache[cacheKey] = CachedKlines(System.currentTimeMillis(), rows)
+            closesOf(rows, cleanLimit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logNonFatal("Sparkline request failed for $symbol", e)
+            closesOf(sparkCache[cacheKey]?.rows ?: emptyList(), cleanLimit)
+        }
+    }
+
+    private fun closesOf(rows: List<List<Any>>, limit: Int): List<Double> =
+        rows.takeLast(limit * 2).mapNotNull { row ->
+            (row.getOrNull(4) as? Number)?.toDouble()
+                ?: row.getOrNull(4)?.toString()?.toDoubleOrNull()
+        }.takeLast(limit)
 
     override fun getTrackedPairs(): Flow<List<CryptoPair>> {
         return trackedPairDao.getAllTrackedPairs().map { entities ->
@@ -107,7 +146,7 @@ class CryptoRepositoryImpl @Inject constructor(
         forceRefresh: Boolean
     ): List<List<Any>> {
         val cacheKey = "$source:$symbol:$interval"
-        // ponytail: el rollover no puede comer cache o la vela nueva nunca aparece
+        // el rollover no puede comer cache o la vela nueva nunca aparece
         if (!forceRefresh) {
             getFreshCachedKlines(cacheKey)?.let { return it }
         }
@@ -129,7 +168,7 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // ponytail: cola liviana sin cache pa' syncTail, 1 sola llamada, sin paginado
+    // cola liviana sin cache pa' syncTail, 1 sola llamada, sin paginado
     override suspend fun getLatestKlines(
         symbol: String,
         interval: String,
@@ -166,7 +205,7 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // ponytail: solo futuros USDT; la API devuelve contratos spot/coin-m/futuros mezclados
+    // solo futuros USDT; la API devuelve contratos spot/coin-m/futuros mezclados
     private suspend fun getMexcFuturesSymbols(): List<AvailableCryptoPair> {
         if (cachedMexcSymbols.isNotEmpty()) return cachedMexcSymbols
         return try {
@@ -484,7 +523,7 @@ class CryptoRepositoryImpl @Inject constructor(
         return allKlines
     }
 
-    // ponytail: riseFallRate viene en fraccion, volumen en contratos (no en monedas)
+    // riseFallRate viene en fraccion, volumen en contratos (no en monedas)
     private suspend fun getMexcFuturesPairDetail(symbol: String): PairDetail {
         val t = mexcFuturesApi.getTicker(symbol).data
         val changePct = t.riseFallRate * 100.0
@@ -501,7 +540,7 @@ class CryptoRepositoryImpl @Inject constructor(
         )
     }
 
-    // ponytail: kline columnar (segundos) -> filas estilo Binance + agregacion en repo
+    // kline columnar (segundos) -> filas estilo Binance + agregacion en repo
     private suspend fun getMexcFuturesKlines(
         symbol: String,
         interval: String,
@@ -552,7 +591,7 @@ class CryptoRepositoryImpl @Inject constructor(
         if (factor <= 1 || rows.isEmpty()) return rows
         val chunkDurMs = mexcBaseDurMs(mexcInterval) * factor
         if (chunkDurMs <= 0L) return rows
-        // ponytail: buckets anclados a calendario, no al indice; si no los bordes bailan cada fetch
+        // buckets anclados a calendario, no al indice; si no los bordes bailan cada fetch
         val weekAnchored = mexcInterval == "Week1"
         val buckets = LinkedHashMap<Long, MutableList<List<Any>>>()
         for (row in rows) {
@@ -602,7 +641,7 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // ponytail: base MEXC mas cercana + factor para agregar en repo
+    // base MEXC mas cercana + factor para agregar en repo
     private fun mexcBaseDurMs(mexcInterval: String): Long = when (mexcInterval) {
         "Min1" -> 60_000L
         "Min5" -> 300_000L
@@ -684,9 +723,11 @@ class CryptoRepositoryImpl @Inject constructor(
         const val CHART_KLINE_PAGE_SIZE = 1000
         const val MEXC_KLINE_PAGE_SIZE = 2000
         const val KLINE_CACHE_MAX_ENTRIES = 24
+        const val SPARK_CACHE_MAX_ENTRIES = 60
+        const val SPARK_CACHE_TTL_MS = 300_000L
         const val KLINE_CACHE_TTL_MS = 30_000L
         const val TAIL_SYNC_LIMIT = 10
-        // ponytail: lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
+        // lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
         const val WEEK_ANCHOR_MS = 1_578_182_400_000L
         const val TRANSACTION_MIN_DISPLAY_LIMIT = 5
         const val TRANSACTION_MAX_DISPLAY_LIMIT = 100

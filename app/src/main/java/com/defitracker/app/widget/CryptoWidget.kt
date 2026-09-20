@@ -16,6 +16,8 @@ import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.domain.repository.CryptoRepository
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -25,8 +27,8 @@ import kotlinx.coroutines.flow.first
 
 private val WidgetDarkGray = fixedColorProvider(Color(0xFF16171A))
 private val WidgetWhite = fixedColorProvider(Color(0xFFFFFFFF))
-private val WidgetGreen = fixedColorProvider(Color(0xFF0ECB81))
-private val WidgetRed = fixedColorProvider(Color(0xFFF6465D))
+private val WidgetGreen = fixedColorProvider(AppGreen)
+private val WidgetRed = fixedColorProvider(AppRed)
 
 private fun fixedColorProvider(color: Color): ColorProvider = object : ColorProvider {
     override fun getColor(context: Context): Color = context.applicationContext.let { color }

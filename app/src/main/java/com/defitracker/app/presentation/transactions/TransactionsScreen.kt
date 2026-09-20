@@ -53,7 +53,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
-import com.defitracker.app.ui.theme.PlexMono
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.CardBg
+import com.defitracker.app.ui.theme.Geist
+import com.defitracker.app.ui.theme.GeistTnum
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
@@ -113,7 +117,7 @@ fun TransactionsScreen(
                         .height(180.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFF0ECB81))
+                    CircularProgressIndicator(color = AppGreen)
                 }
             }
         } else if (state.transactions.isEmpty() && state.error == null) {
@@ -316,7 +320,7 @@ private fun NetworkSectionHeader(
 private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
     val isSent = tx.from.equals(userAddress, ignoreCase = true)
     val direction = if (isSent) "Sent" else "Received"
-    val directionColor = if (isSent) Color(0xFFF6465D) else Color(0xFF0ECB81)
+    val directionColor = if (isSent) AppRed else AppGreen
     val directionIcon = if (isSent) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward
     val amount = remember(tx.value, tx.tokenDecimal) { tx.value.toAmount(tx.tokenDecimal) }
     val timestamp = remember(tx.timeStamp) { tx.timeStamp.formatTimestamp() }
@@ -324,7 +328,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
     val counterparty = if (isSent) tx.to else tx.from
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF20232B)),
+        colors = CardDefaults.cardColors(containerColor = CardBg),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -371,7 +375,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
                         color = directionColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        fontFamily = PlexMono,
+                        style = GeistTnum,
                         textAlign = TextAlign.End
                     )
                     Text(tokenSymbol, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
