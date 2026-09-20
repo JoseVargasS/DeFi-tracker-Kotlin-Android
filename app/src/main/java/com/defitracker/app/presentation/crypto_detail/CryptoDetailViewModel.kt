@@ -354,7 +354,7 @@ class CryptoDetailViewModel @Inject constructor(
 
     fun deleteFib(id: String) {
         _fibOverlays.value = _fibOverlays.value.filterNot { it.id == id }
-        if (_selectedFibId.value == id) _selectedFibId.value = _fibOverlays.value.lastOrNull()?.id
+        if (_selectedFibId.value == id) _selectedFibId.value = null
         persistFibs()
     }
 
@@ -448,7 +448,7 @@ class CryptoDetailViewModel @Inject constructor(
 
     fun deleteDraw(id: String) {
         _drawOverlays.value = _drawOverlays.value.filterNot { it.id == id }
-        if (_selectedDrawId.value == id) _selectedDrawId.value = _drawOverlays.value.lastOrNull()?.id
+        if (_selectedDrawId.value == id) _selectedDrawId.value = null
         persistDraws()
     }
 

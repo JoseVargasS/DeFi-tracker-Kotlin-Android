@@ -9,9 +9,11 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.widget.TextView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -47,6 +49,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -2778,6 +2781,14 @@ fun PriceChart(
                             // Detect a TAP
                             if (!gestureMoved && dx < 10f && dy < 10f) {
                                 performClick()
+                                // tap al vacio quita el foco: sin seleccion no hay boton flotante
+                                if (fibHitTest(event.x, event.y) == null && drawHitTest(event.x, event.y) == null) {
+                                    onFibSelect?.invoke(null)
+                                    onDrawSelect?.invoke(null)
+                                    selectedFibRef.value = null
+                                    selectedDrawRef.value = null
+                                    invalidate()
+                                }
                                 if (highlighted != null && highlighted.isNotEmpty()) {
                                     // Toggle OFF
                                     highlightValue(null)
@@ -3312,7 +3323,8 @@ fun PriceChart(
                     syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
                 } else if (isNewDataset) {
-                    chart.applySyncAndInitialZoom(state.candles, resetViewport = true, resetCustomY = true, onPositioned = {
+                    // primera carga o TF nuevo: Y solo con velas, las MAs no mandan
+                    chart.applySyncAndInitialZoom(state.candles, resetViewport = true, resetCustomY = false, fitYToCandles = true, onPositioned = {
                         syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
                     })
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
@@ -3410,6 +3422,7 @@ fun PriceChart(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 44.dp),
+                selectionKey = selectedFib.id,
                 colorHex = selectedFib.colorHex,
                 width = selectedFib.width,
                 hidden = selectedFib.hidden,
@@ -3444,6 +3457,7 @@ fun PriceChart(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 44.dp),
+                selectionKey = selectedDraw.id,
                 colorHex = selectedDraw.colorHex,
                 width = selectedDraw.width,
                 hidden = selectedDraw.hidden,
@@ -4030,6 +4044,8 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     resetViewport: Boolean = false,
     skipPositioning: Boolean = false,
     resetCustomY: Boolean = false,
+    // encuadre inicial solo con velas: las MAs de otro TF no aplanan el chart
+    fitYToCandles: Boolean = false,
     onPositioned: (() -> Unit)? = null
 ) {
     if (data.isEmpty()) return
@@ -4039,16 +4055,30 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
         viewPortHandler.setMaximumScaleX(1_000_000f)
         viewPortHandler.setMinimumScaleY(1f)
         viewPortHandler.setMaximumScaleY(1_000_000f)
+        if (fitYToCandles) {
+            val win = data.filterIsInstance<CandleData>()
+                .takeLast(INITIAL_VISIBLE_CANDLES.toInt().coerceAtLeast(1))
+            val lo = win.minOfOrNull { it.low } ?: 0.0
+            val hi = win.maxOfOrNull { it.high } ?: 0.0
+            if (hi > lo) {
+                val pad = (hi - lo) * 0.08
+                axisLeft.axisMinimum = (lo - pad).toFloat()
+                axisLeft.axisMaximum = (hi + pad).toFloat()
+                axisRight.axisMinimum = (lo - pad).toFloat()
+                axisRight.axisMaximum = (hi + pad).toFloat()
+                isAutoScaleMinMaxEnabled = false
+            }
+        }
         if (!skipPositioning) {
             post {
                 // vista fresca con Y ajustado, se congela con el primer pan
-                if (resetCustomY) {
+                if (resetCustomY && !fitYToCandles) {
                     axisLeft.resetAxisMinimum()
                     axisLeft.resetAxisMaximum()
                     axisRight.resetAxisMinimum()
                     axisRight.resetAxisMaximum()
                 }
-                isAutoScaleMinMaxEnabled = true
+                isAutoScaleMinMaxEnabled = !fitYToCandles
                 val scaleX = data.size.toFloat() / INITIAL_VISIBLE_CANDLES
                 val lastX = (data.size - 1).toFloat().coerceAtLeast(0f)
                 val pts = floatArrayOf(lastX, 0f)
@@ -5336,9 +5366,11 @@ private fun DrawingToolCell(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OverlayEditBar(
     modifier: Modifier = Modifier,
+    selectionKey: String,
     colorHex: String,
     width: Float,
     hidden: Boolean,
@@ -5353,6 +5385,8 @@ fun OverlayEditBar(
 ) {
     var showColors by remember { mutableStateOf(false) }
     var showWidths by remember { mutableStateOf(false) }
+    // toque en la pestaña contrae/expande, arrastrar la mueve igual que antes
+    var collapsed by remember(selectionKey) { mutableStateOf(false) }
     // pestaña para mover la barra a cualquier lado
     var drag by remember { mutableStateOf(Offset.Zero) }
     val tintColor = try {
@@ -5367,10 +5401,17 @@ fun OverlayEditBar(
             .clip(RoundedCornerShape(10.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // pestaña de arrastre, no hace click
+        // pestaña de arrastre: toque contrae/expande, mover arrastra
         Box(
             modifier = Modifier
                 .size(width = 44.dp, height = 40.dp)
+                .combinedClickable(onClick = {
+                    collapsed = !collapsed
+                    if (collapsed) {
+                        showColors = false
+                        showWidths = false
+                    }
+                })
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
@@ -5380,12 +5421,13 @@ fun OverlayEditBar(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.DragHandle,
-                contentDescription = "Mover",
+                imageVector = if (collapsed) Icons.Filled.KeyboardArrowRight else Icons.Default.DragHandle,
+                contentDescription = if (collapsed) "Expandir" else "Mover",
                 tint = Color.Gray,
                 modifier = Modifier.size(20.dp)
             )
         }
+        if (!collapsed) {
         GridDivider()
         // lapiz abre el mismo picker de las medias
         Box {
@@ -5489,6 +5531,7 @@ fun OverlayEditBar(
                 tint = Color.Gray,
                 modifier = Modifier.size(22.dp)
             )
+        }
         }
     }
 }
