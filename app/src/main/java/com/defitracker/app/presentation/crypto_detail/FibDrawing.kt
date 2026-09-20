@@ -1,6 +1,6 @@
 package com.defitracker.app.presentation.crypto_detail
 
-// ponytail: un solo fibo activo por simbolo, anclado por tiempo para que sobreviva al cambio de intervalo
+// un solo fibo activo por simbolo, anclado por tiempo para que sobreviva al cambio de intervalo
 data class FibAnchor(
     val time: Long,
     val price: Double
@@ -18,7 +18,7 @@ data class FibConfig(
     val hidden: Boolean = false
 )
 
-// ponytail: cada fibo con su propio estilo+estado, un overlay = dibujo + config
+// cada fibo con su propio estilo+estado, un overlay = dibujo + config
 data class FibOverlay(
     val id: String,
     val start: FibAnchor,
@@ -38,13 +38,25 @@ const val MAX_FIBS_PER_SYMBOL = 10
 val DEFAULT_FIB_LEVELS = listOf(0f, 0.236f, 0.382f, 0.5f, 0.618f, 0.786f, 1f)
 val EXTRA_FIB_LEVELS = listOf(1.272f, 1.414f, 1.618f)
 val ALL_FIB_LEVELS = DEFAULT_FIB_LEVELS + EXTRA_FIB_LEVELS
-val FIB_WIDTH_OPTIONS = listOf(0.5f, 1f, 1.5f, 2f, 2.5f, 3f)
+val FIB_WIDTH_OPTIONS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f, 3f)
 
-// ponytail: agnostic a direccion, sirve alcista y bajista
+fun maWidthLabel(w: Float): String = when (w) {
+    0.5f -> "0.5x"
+    0.75f -> "0.75"
+    1f -> "1"
+    1.25f -> "1.25"
+    1.5f -> "1.5"
+    2f -> "2"
+    2.5f -> "2.5"
+    3f -> "3"
+    else -> w.toString().trimEnd('0').trimEnd('.')
+}
+
+// agnostic a direccion, sirve alcista y bajista
 fun fibLevelPrice(start: Double, end: Double, ratio: Float): Double =
     start + (end - start) * ratio
 
-// ponytail: timestamp -> indice mas cercano, asi el fibo se reubica solo al agregar temporalidades
+// timestamp -> indice mas cercano, asi el fibo se reubica solo al agregar temporalidades
 fun timeToIndex(candles: List<CandleData>, time: Long): Int {
     if (candles.isEmpty()) return 0
     var lo = 0
@@ -53,7 +65,7 @@ fun timeToIndex(candles: List<CandleData>, time: Long): Int {
         val mid = (lo + hi) / 2
         if (candles[mid].time < time) lo = mid + 1 else hi = mid
     }
-    // ponytail: quedate con el vecino mas cercano, no solo el techo
+    // quedate con el vecino mas cercano, no solo el techo
     if (lo > 0 && kotlin.math.abs(candles[lo].time - time) > kotlin.math.abs(candles[lo - 1].time - time)) {
         return lo - 1
     }
@@ -68,7 +80,7 @@ fun fibWidthLabel(w: Float): String {
     return "${if (s.isEmpty()) "0" else s}px"
 }
 
-// ponytail: encoding manual sin librerias: id;sTime;sPrice;eTime;ePrice;color;width;lv1+lv2;hidden;locked
+// encoding manual sin librerias: id;sTime;sPrice;eTime;ePrice;color;width;lv1+lv2;hidden;locked
 fun encodeFibOverlays(overlays: List<FibOverlay>): String = overlays.joinToString("|") { o ->
     listOf(
         o.id,

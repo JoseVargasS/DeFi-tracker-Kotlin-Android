@@ -4,7 +4,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// ponytail: SMC estilo LuxAlgo, funciones puras sobre velas (testeables sin Android)
+// SMC estilo LuxAlgo, funciones puras sobre velas (testeables sin Android)
 
 const val SMC_SWING_LOOKBACK = 5
 const val SMC_OB_LOOKBACK = 10
@@ -28,7 +28,7 @@ enum class SmcZoneKind { ORDER_BLOCK, FVG }
 
 data class SmcZone(
     val startIdx: Int,
-    val endIdx: Int, // ponytail: mitigacion o ultima vela (se extiende solo)
+    val endIdx: Int, // mitigacion o ultima vela (se extiende solo)
     val top: Double,
     val bottom: Double,
     val bullish: Boolean,
@@ -42,7 +42,7 @@ data class SmcPremiumRange(val high: Double, val low: Double) {
     val equilibrium: Double = (high + low) / 2.0
 }
 
-// ponytail: banda gris donde el FVG de un TF mayor pisa tu zona del TF actual
+// banda gris donde el FVG de un TF mayor pisa tu zona del TF actual
 data class SmcConfluenceBand(
     val top: Double,
     val bottom: Double,
@@ -61,7 +61,7 @@ data class SmcData(
     val liquidity: List<SmcLiqLevel> = emptyList()
 )
 
-// ponytail: fractal N por lado, confirma con lag como en LuxAlgo
+// fractal N por lado, confirma con lag como en LuxAlgo
 fun detectSwings(candles: List<CandleData>, lookback: Int = SMC_SWING_LOOKBACK): List<SmcSwing> {
     if (candles.size < lookback * 2 + 1) return emptyList()
     val out = ArrayList<SmcSwing>()
@@ -106,7 +106,7 @@ private fun atr(candles: List<CandleData>, period: Int = 14): Double {
     return if (n > 0) sum / n else 0.0
 }
 
-// ponytail: rompe a favor = BOS, en contra = CHoCH con flip de sesgo
+// rompe a favor = BOS, en contra = CHoCH con flip de sesgo
 fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<SmcEvent> {
     if (candles.isEmpty() || swings.isEmpty()) return emptyList()
     val events = ArrayList<SmcEvent>()
@@ -114,7 +114,7 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
     var refHigh: SmcSwing? = null
     var refLow: SmcSwing? = null
     var s = 0
-    // ponytail: arranca con el primer par alto/bajo para tener referencias
+    // arranca con el primer par alto/bajo para tener referencias
     while (s < swings.size && (refHigh == null || refLow == null)) {
         val sw = swings[s]
         if (sw.isHigh && refHigh == null) refHigh = sw
@@ -125,7 +125,7 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
     var i = max(refHigh.idx, refLow.idx) + 1
     while (i < candles.size) {
         val close = candles[i].close
-        // ponytail: avanza referencias con swings ya confirmados a esta altura
+        // avanza referencias con swings ya confirmados a esta altura
         while (s < swings.size && swings[s].idx <= i) {
             val sw = swings[s]
             if (sw.isHigh && sw.idx > (refHigh?.idx ?: -1)) refHigh = sw
@@ -138,7 +138,7 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
             val kind = if (trend == 1) SmcEventKind.BOS else SmcEventKind.CHOCH
             events.add(SmcEvent(i, rh.idx, rh.price, kind, true))
             trend = 1
-            // ponytail: la referencia avanza al maximo del quiebre o se repite el BOS
+            // la referencia avanza al maximo del quiebre o se repite el BOS
             refHigh = SmcSwing(i, candles[i].high, true)
             i++
             continue
@@ -156,7 +156,7 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
     return events
 }
 
-// ponytail: ultima vela opuesta antes del impulso que rompio
+// ultima vela opuesta antes del impulso que rompio
 fun detectOrderBlocks(
     candles: List<CandleData>,
     events: List<SmcEvent>
@@ -178,7 +178,7 @@ fun detectOrderBlocks(
         }
         val f = found ?: return@forEach
         val c = candles[f]
-        // ponytail: mitigacion por cierre dentro de la zona
+        // mitigacion por cierre dentro de la zona
         var end = candles.size - 1
         var mitigated = false
         var m = f + 1
@@ -203,13 +203,13 @@ fun detectOrderBlocks(
             )
         )
     }
-    // ponytail: solo los recientes por lado, el chart manda no las cajas
+    // solo los recientes por lado, el chart manda no las cajas
     val bull = out.filter { it.bullish }.takeLast(SMC_MAX_ZONES_PER_SIDE)
     val bear = out.filter { !it.bullish }.takeLast(SMC_MAX_ZONES_PER_SIDE)
     return (bull + bear).sortedBy { it.startIdx }
 }
 
-// ponytail: imbalance de 3 velas con umbral ATR (sin threshold todo nace mitigado)
+// imbalance de 3 velas con umbral ATR (sin threshold todo nace mitigado)
 fun detectFvg(candles: List<CandleData>): List<SmcZone> {
     if (candles.size < 3) return emptyList()
     val minGap = atr(candles) * 0.3
@@ -250,7 +250,7 @@ fun detectFvg(candles: List<CandleData>): List<SmcZone> {
     return (bull + bear).sortedBy { it.startIdx }
 }
 
-// ponytail: dos swings casi iguales = liquidez
+// dos swings casi iguales = liquidez
 fun detectEqLevels(candles: List<CandleData>, swings: List<SmcSwing>): List<SmcEqLevel> {
     if (swings.size < 2) return emptyList()
     val tol = atr(candles) * 0.25
@@ -308,7 +308,7 @@ fun computeSmc(candles: List<CandleData>, interval: String = ""): SmcData {
     )
 }
 
-// ponytail: pool BSL sobre maximos, SSL bajo minimos; sweep = SFP estricto misma vela
+// pool BSL sobre maximos, SSL bajo minimos; sweep = SFP estricto misma vela
 data class SmcLiqLevel(
     val price: Double,
     val idx: Int,
@@ -319,7 +319,7 @@ data class SmcLiqLevel(
 
 fun detectLiquidity(candles: List<CandleData>, swings: List<SmcSwing>): List<SmcLiqLevel> {
     if (candles.isEmpty() || swings.isEmpty()) return emptyList()
-    // ponytail: 3 por lado y fusiona casi-iguales para no sobre-taguear
+    // 3 por lado y fusiona casi-iguales para no sobre-taguear
     val tol = atr(candles) * 0.25
     fun dedupe(list: List<SmcSwing>): List<SmcSwing> {
         val recent = list.takeLast(SMC_LIQ_SWINGS_PER_SIDE * 2)
@@ -347,7 +347,7 @@ fun detectLiquidity(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
                     swept = m
                     break
                 }
-                // ponytail: cierre aceptado arriba = breakout real, el pool se consume
+                // cierre aceptado arriba = breakout real, el pool se consume
                 if (c.close > sw.price) {
                     consumed = true
                     break
@@ -369,7 +369,7 @@ fun detectLiquidity(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
     return out.sortedBy { it.idx }
 }
 
-// ponytail: agrega N velas en una para simular TFs mayores sin red
+// agrega N velas en una para simular TFs mayores sin red
 fun aggregateByCount(candles: List<CandleData>, n: Int): List<CandleData> {
     if (n <= 1 || candles.isEmpty()) return candles
     val out = ArrayList<CandleData>((candles.size + n - 1) / n)
@@ -403,7 +403,7 @@ fun aggregateByCount(candles: List<CandleData>, n: Int): List<CandleData> {
     return out
 }
 
-// ponytail: 15m x4 -> 1h, etiqueta corta para el chip gris
+// 15m x4 -> 1h, etiqueta corta para el chip gris
 fun higherTfLabel(interval: String, factor: Int): String {
     val baseMs = when (interval.trim()) {
         "1m" -> 60_000L
@@ -423,7 +423,7 @@ fun higherTfLabel(interval: String, factor: Int): String {
     if (baseMs <= 0L) return "HTF"
     val ms = baseMs * factor
     val mins = ms / 60_000L
-    // ponytail: redondea al TF estandar cercano (80m -> 1h) para chips limpios
+    // redondea al TF estandar cercano (80m -> 1h) para chips limpios
     val standards = listOf(1L, 5L, 15L, 30L, 60L, 120L, 240L, 360L, 720L, 1440L, 4320L, 10080L, 43200L)
     val near = standards.minByOrNull { abs(it - mins) } ?: mins
     return when {
@@ -435,7 +435,7 @@ fun higherTfLabel(interval: String, factor: Int): String {
     }
 }
 
-// ponytail: FVG de TFs mayores (x4, x16) solapados con tus zonas = bandas grises
+// FVG de TFs mayores (x4, x16) solapados con tus zonas = bandas grises
 fun detectFvgConfluence(candles: List<CandleData>, ownFvg: List<SmcZone>, interval: String): List<SmcConfluenceBand> {
     val mine = ownFvg.filter { it.kind == SmcZoneKind.FVG && !it.mitigated }
     if (mine.isEmpty() || candles.size < 32) return emptyList()
@@ -445,7 +445,7 @@ fun detectFvgConfluence(candles: List<CandleData>, ownFvg: List<SmcZone>, interv
         if (agg.size < 8) return@forEach
         val label = higherTfLabel(interval, factor)
         detectFvg(agg).forEach { z ->
-            // ponytail: el precio es absoluto, no hay que mapear tiempo
+            // el precio es absoluto, no hay que mapear tiempo
             mine.forEach { m ->
                 val top = min(z.top, m.top)
                 val bottom = max(z.bottom, m.bottom)
@@ -455,7 +455,7 @@ fun detectFvgConfluence(candles: List<CandleData>, ownFvg: List<SmcZone>, interv
             }
         }
     }
-    // ponytail: fusiona bandas que se pisan del mismo TF para no apilar grises
+    // fusiona bandas que se pisan del mismo TF para no apilar grises
     val sorted = bands.sortedWith(compareBy({ it.tfLabel }, { it.bottom }, { it.top }))
     val merged = ArrayList<SmcConfluenceBand>()
     sorted.forEach { b ->

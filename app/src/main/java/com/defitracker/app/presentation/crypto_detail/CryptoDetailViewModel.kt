@@ -118,14 +118,112 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleRsiSub() = updatePrefs { it.copy(rsiVisible = !it.rsiVisible) }
     fun toggleRsiDiv() = updatePrefs { it.copy(rsiDivVisible = !it.rsiDivVisible) }
     fun toggleRsiDivHidden() = updatePrefs { it.copy(rsiDivHidden = !it.rsiDivHidden) }
-    fun toggleMA(period: Int) = updatePrefs {
-        it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(visible = !ma.visible) else ma })
+    fun toggleMA(period: Int) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(visible = !ma.visible) else ma })
     }
-    fun setMAColor(period: Int, colorHex: String) = updatePrefs {
-        it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(colorHex = colorHex) else ma })
+    fun setMAColor(period: Int, colorHex: String) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(colorHex = colorHex) else ma })
     }
-    fun setMAWidth(period: Int, width: Float) = updatePrefs {
-        it.copy(mas = it.mas.map { ma -> if (ma.period == period) ma.copy(width = width) else ma })
+    fun setMAWidth(period: Int, width: Float) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(width = width) else ma })
+    }
+
+    // MAs por id (SMA/EMA, periodo, color, grosor, TF)
+    fun toggleMAById(id: String) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(visible = !ma.visible) else ma })
+    }
+    fun setMAColorById(id: String, colorHex: String) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(colorHex = colorHex) else ma })
+    }
+    fun setMAWidthById(id: String, width: Float) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(width = width.coerceIn(0.5f, 3f)) else ma })
+    }
+    fun setMAType(id: String, type: MaType) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(type = type) else ma })
+    }
+    fun setMAPeriod(id: String, period: Int) = updatePrefs { cur ->
+        cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(period = period.coerceIn(2, 500)) else ma })
+    }
+    fun setMATimeframe(id: String, tf: String) {
+        if (tf != "chart" && tf !in IndicatorPrefs.MA_TFS) return
+        updatePrefs { cur ->
+            cur.copy(mas = cur.mas.map { ma -> if (ma.id == id) ma.copy(timeframe = tf) else ma })
+        }
+        refreshExtraMas()
+    }
+    fun addMA() = updatePrefs { cur ->
+        if (cur.mas.size >= IndicatorPrefs.MAX_MAS) return@updatePrefs cur
+        val usedPeriods = cur.mas.map { it.period }.toSet()
+        val period = listOf(9, 21, 50, 200, 10, 30, 100, 55).firstOrNull { it !in usedPeriods } ?: 50
+        val usedColors = cur.mas.map { it.colorHex }.toSet()
+        val color = IndicatorPrefs.ADD_COLORS.firstOrNull { it !in usedColors } ?: "#FFFFFF"
+        val id = "ma${period}_${System.currentTimeMillis() % 100000}"
+        cur.copy(mas = cur.mas + MaConfig(id, period, MaType.SMA, "chart", color, 1.2f, true))
+    }
+    fun deleteMA(id: String) = updatePrefs { cur ->
+        if (cur.mas.size <= 1) return@updatePrefs cur
+        cur.copy(mas = cur.mas.filterNot { it.id == id })
+    }
+
+    // velas cacheadas por TF para MAs de otra temporalidad (plan A, respeta source)
+    private val extraTfCandles = mutableMapOf<String, List<CandleData>>()
+
+    private fun intervalForSource(tf: String): String =
+        if (source == "MEXC") tf else tf.toBinanceInterval()
+
+    // trae las velas de los TFs que piden las MAs visibles, luego re-alinea sin tocar zoom
+    fun refreshExtraMas() {
+        val chartInterval = _state.value.selectedInterval
+        val needed = _prefs.value.mas
+            .filter { it.visible && it.timeframe != "chart" && it.timeframe != chartInterval }
+            .map { it.timeframe }.toSet()
+        if (needed.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                var changed = false
+                for (tf in needed) {
+                    try {
+                        val rows = repository.getKlines(symbol, intervalForSource(tf), source, forceRefresh = false)
+                        val candles = withContext(Dispatchers.Default) {
+                            rows.toCandles().let { list ->
+                                if (source == "MEXC") list else list.aggregateForInterval(tf)
+                            }
+                        }
+                        if (candles.isNotEmpty()) {
+                            extraTfCandles[tf] = candles
+                            changed = true
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        logNonFatal("Extra TF load failed for $symbol/$tf", e)
+                    }
+                }
+                if (changed) recomputeMaLinesFromCache()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    // re-alinea MAs con el cache actual, sin red y sin mover viewport
+    private fun recomputeMaLinesFromCache() {
+        val current = _state.value
+        if (current.candles.isEmpty()) return
+        val mas = _prefs.value.mas
+        val extras = extraTfCandles.toMap()
+        viewModelScope.launch {
+            try {
+                val aligned = withContext(Dispatchers.Default) {
+                    current.candles.computeMaLines(current.selectedInterval, mas, extras)
+                }
+                if (_state.value.candles.size == current.candles.size) {
+                    _state.value = _state.value.copy(maLines = aligned)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
     }
 
     // ─── FIBO (multi-overlay) ───
@@ -151,10 +249,15 @@ class CryptoDetailViewModel @Inject constructor(
 
     fun addFib(start: FibAnchor, end: FibAnchor): FibOverlay? {
         if (_fibOverlays.value.size >= MAX_FIBS_PER_SYMBOL) return null
+        // cada fibo nuevo hereda la ultima config (color, grosor, niveles)
+        val def = _prefs.value.fib
         val overlay = FibOverlay(
             id = java.util.UUID.randomUUID().toString(),
             start = start,
-            end = end
+            end = end,
+            colorHex = def.colorHex,
+            width = def.width,
+            enabledLevels = def.enabledLevels
         )
         _fibOverlays.value = _fibOverlays.value + overlay
         _selectedFibId.value = overlay.id
@@ -188,16 +291,38 @@ class CryptoDetailViewModel @Inject constructor(
         updateFib(id, { it.copy(start = start, end = end) }, persist)
     }
 
-    fun setFibColor(id: String, hex: String) = updateFib(id, { it.copy(colorHex = hex) })
-    fun setFibWidth(id: String, w: Float) = updateFib(id, { it.copy(width = w.coerceIn(0.5f, 3f)) })
+    fun setFibColor(id: String, hex: String) {
+        updateFib(id, { it.copy(colorHex = hex) })
+        updatePrefs { it.copy(fib = it.fib.copy(colorHex = hex)) }
+    }
+    fun setFibWidth(id: String, w: Float) {
+        val cw = w.coerceIn(0.5f, 3f)
+        updateFib(id, { it.copy(width = cw) })
+        updatePrefs { it.copy(fib = it.fib.copy(width = cw)) }
+    }
     fun toggleFibLevel(id: String, ratio: Float) = updateFib(id, {
         val next = it.enabledLevels.toMutableSet()
         if (ratio in next) next.remove(ratio) else next.add(ratio)
         // nunca dejes el fibo sin niveles, vuelve al default
-        it.copy(enabledLevels = next.ifEmpty { DEFAULT_FIB_LEVELS.toSet() })
+        val levels = next.ifEmpty { DEFAULT_FIB_LEVELS.toSet() }
+        updatePrefs { p -> p.copy(fib = p.fib.copy(enabledLevels = levels)) }
+        it.copy(enabledLevels = levels)
     })
     fun toggleFibHidden(id: String) = updateFib(id, { it.copy(hidden = !it.hidden) })
     fun toggleFibLocked(id: String) = updateFib(id, { it.copy(locked = !it.locked) })
+
+    // ocultar/mostrar todos, si hay seleccion se maneja afuera
+    fun toggleAllFibsHidden() {
+        val anyVisible = _fibOverlays.value.any { !it.hidden }
+        _fibOverlays.value = _fibOverlays.value.map { it.copy(hidden = anyVisible) }
+        persistFibs()
+    }
+
+    fun deleteAllFibs() {
+        _fibOverlays.value = emptyList()
+        _selectedFibId.value = null
+        persistFibs()
+    }
 
     // ─── DIBUJOS ───
     private fun persistDraws() {
@@ -254,6 +379,19 @@ class CryptoDetailViewModel @Inject constructor(
     fun setDrawWidth(id: String, w: Float) = updateDraw(id, { it.copy(width = w.coerceIn(0.5f, 3f)) })
     fun toggleDrawHidden(id: String) = updateDraw(id, { it.copy(hidden = !it.hidden) })
     fun toggleDrawLocked(id: String) = updateDraw(id, { it.copy(locked = !it.locked) })
+
+    // ocultar/mostrar todos los dibujos
+    fun toggleAllDrawsHidden() {
+        val anyVisible = _drawOverlays.value.any { !it.hidden }
+        _drawOverlays.value = _drawOverlays.value.map { it.copy(hidden = anyVisible) }
+        persistDraws()
+    }
+
+    fun deleteAllDraws() {
+        _drawOverlays.value = emptyList()
+        _selectedDrawId.value = null
+        persistDraws()
+    }
 
     // ─── SMC ───
     fun toggleSmcStructure() = updatePrefs { it.copy(smcStructure = !it.smcStructure) }
@@ -313,7 +451,9 @@ class CryptoDetailViewModel @Inject constructor(
                         }
 
                         val chartData = withContext(Dispatchers.Default) {
-                            updatedCandles.toChartComputation(_state.value.selectedInterval)
+                            val mas = _prefs.value.mas
+                            val extras = extraTfCandles.toMap()
+                            updatedCandles.toChartComputation(_state.value.selectedInterval, mas, extras)
                         }
 
                         // si cambiaste de TF a mitad del calculo, este tick ya no sirve
@@ -369,7 +509,7 @@ class CryptoDetailViewModel @Inject constructor(
                         return@withContext ChartComputation()
                     }
 
-                    candles.toChartComputation(normalizedInterval)
+                    candles.toChartComputation(normalizedInterval, _prefs.value.mas, extraTfCandles.toMap())
                 }
 
                 _state.value = state.value.copy(
@@ -385,6 +525,8 @@ class CryptoDetailViewModel @Inject constructor(
                             rsiDiv = chartData.rsiDiv,
                     isLoading = false
                 )
+                // MAs de otro TF traen sus velas del mismo source (plan A)
+                refreshExtraMas()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -439,7 +581,7 @@ class CryptoDetailViewModel @Inject constructor(
         }
         noNewCandleStreak = 0
         val chartData = withContext(Dispatchers.Default) {
-            merged.toChartComputation(interval)
+            merged.toChartComputation(interval, _prefs.value.mas, extraTfCandles.toMap())
         }
         _state.value = _state.value.copy(
             candles = chartData.candles,
@@ -492,7 +634,11 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
-    private fun List<CandleData>.toChartComputation(interval: String = ""): ChartComputation {
+    private fun List<CandleData>.toChartComputation(
+        interval: String = "",
+        mas: List<MaConfig> = _prefs.value.mas,
+        extras: Map<String, List<CandleData>> = emptyMap()
+    ): ChartComputation {
         if (isEmpty()) return ChartComputation()
 
         val period = 20
@@ -529,19 +675,8 @@ class CryptoDetailViewModel @Inject constructor(
         val stochD = mutableListOf<Pair<Long, Double>>()
         val rsiValues = calculateRSI(this)
 
-        // SMA por periodo, una pasada O(n) cada una, fuera del hilo principal
-        val maLines = mutableMapOf<Int, List<Pair<Long, Double>>>()
-        for (maPeriod in IndicatorPrefs.MA_PERIODS) {
-            if (size < maPeriod) continue
-            val line = mutableListOf<Pair<Long, Double>>()
-            var sum = 0.0
-            for (i in indices) {
-                sum += this[i].close
-                if (i >= maPeriod) sum -= this[i - maPeriod].close
-                if (i >= maPeriod - 1) line.add(i.toLong() to sum / maPeriod)
-            }
-            maLines[maPeriod] = line
-        }
+        // SMA/EMA por MA: TF del grafico se calcula local, otro TF se alinea del cache (plan A)
+        val maLines = computeMaLines(interval, mas, extras)
 
         if (rsiValues.size >= STOCH_RSI_PERIOD) {
             val stochRSI = mutableListOf<Double>()
@@ -590,6 +725,78 @@ class CryptoDetailViewModel @Inject constructor(
                 detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK)
             )
         )
+    }
+
+    // MAs locales (chart) + alineadas de otro TF con el mismo source
+    private fun List<CandleData>.computeMaLines(
+        interval: String,
+        mas: List<MaConfig>,
+        extras: Map<String, List<CandleData>>
+    ): Map<String, List<Pair<Long, Double>>> {
+        val out = mutableMapOf<String, List<Pair<Long, Double>>>()
+        if (isEmpty()) return out
+        for (ma in mas) {
+            val tf = ma.timeframe
+            if (tf != "chart" && tf != interval) {
+                val extra = extras[tf] ?: continue
+                alignExtraMa(ma, extra)?.let { out[ma.id] = it }
+                continue
+            }
+            if (size < ma.period) continue
+            out[ma.id] = when (ma.type) {
+                MaType.EMA -> emaOf(map { it.close }, ma.period)
+                else -> smaOf(map { it.close }, ma.period)
+            }
+        }
+        return out
+    }
+
+    private fun smaOf(closes: List<Double>, period: Int): List<Pair<Long, Double>> {
+        val line = ArrayList<Pair<Long, Double>>(closes.size)
+        var sum = 0.0
+        for (i in closes.indices) {
+            sum += closes[i]
+            if (i >= period) sum -= closes[i - period]
+            if (i >= period - 1) line.add(i.toLong() to sum / period)
+        }
+        return line
+    }
+
+    private fun emaOf(closes: List<Double>, period: Int): List<Pair<Long, Double>> {
+        val line = ArrayList<Pair<Long, Double>>(closes.size)
+        if (closes.size < period) return line
+        val k = 2.0 / (period + 1)
+        var ema = closes.take(period).average()
+        line.add((period - 1).toLong() to ema)
+        for (i in period until closes.size) {
+            ema = closes[i] * k + ema * (1 - k)
+            line.add(i.toLong() to ema)
+        }
+        return line
+    }
+
+    // MA calculada en velas de otro TF, mapeada a indices del chart por tiempo
+    private fun List<CandleData>.alignExtraMa(ma: MaConfig, extra: List<CandleData>): List<Pair<Long, Double>>? {
+        if (isEmpty() || extra.size < ma.period) return null
+        val extraCloses = extra.map { it.close }
+        val extraMa = when (ma.type) {
+            MaType.EMA -> emaOf(extraCloses, ma.period)
+            else -> smaOf(extraCloses, ma.period)
+        }
+        if (extraMa.isEmpty()) return null
+        val times = extra.map { it.time }
+        val out = ArrayList<Pair<Long, Double>>(size)
+        var j = 0
+        var last: Double? = null
+        for (i in indices) {
+            val t = this[i].time
+            while (j < extraMa.size && times[j + (extra.size - extraMa.size)] <= t) {
+                last = extraMa[j].second
+                j++
+            }
+            if (last != null) out.add(i.toLong() to last)
+        }
+        return out.ifEmpty { null }
     }
 
     // tempranas marcadas y sin las que ya salieron confirmadas
@@ -705,7 +912,7 @@ data class CryptoDetailState(
     val bbLower: List<Pair<Long, Double>> = emptyList(),
     val stochK: List<Pair<Long, Double>> = emptyList(),
     val stochD: List<Pair<Long, Double>> = emptyList(),
-    val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
+    val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
     val smc: SmcData = SmcData(),
     val rsiDiv: List<RsiDiv> = emptyList(),
@@ -732,7 +939,7 @@ private data class ChartComputation(
     val bbLower: List<Pair<Long, Double>> = emptyList(),
     val stochK: List<Pair<Long, Double>> = emptyList(),
     val stochD: List<Pair<Long, Double>> = emptyList(),
-    val maLines: Map<Int, List<Pair<Long, Double>>> = emptyMap(),
+    val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
     val smc: SmcData = SmcData(),
     val rsiDiv: List<RsiDiv> = emptyList()

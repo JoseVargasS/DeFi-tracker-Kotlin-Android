@@ -1,6 +1,6 @@
 package com.defitracker.app.presentation.crypto_detail
 
-// ponytail: dibujos estilo OKX, anclados por tiempo como los fibos
+// dibujos estilo OKX, anclados por tiempo como los fibos
 
 enum class DrawKind {
     SEGMENT, LINE, RAY, ARROW,
@@ -22,7 +22,7 @@ data class DrawOverlay(
 
 const val MAX_DRAWS_PER_SYMBOL = 20
 
-// ponytail: encoding manual sin librerias: id;kind;sTime;sPrice;eTime;ePrice;color;width;hidden;locked
+// encoding manual sin librerias: id;kind;sTime;sPrice;eTime;ePrice;color;width;hidden;locked
 fun encodeDrawOverlays(overlays: List<DrawOverlay>): String = overlays.joinToString("|") { o ->
     listOf(
         o.id,

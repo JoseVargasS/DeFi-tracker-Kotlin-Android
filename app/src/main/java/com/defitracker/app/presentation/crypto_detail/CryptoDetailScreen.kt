@@ -8,22 +8,26 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.widget.TextView
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.ChangeHistory
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
@@ -46,19 +50,28 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.R
-import com.defitracker.app.ui.theme.Lato
+import com.defitracker.app.ui.theme.Geist
+import com.defitracker.app.ui.theme.InputBg
+import com.defitracker.app.ui.theme.LineDiv
+import com.defitracker.app.ui.theme.SheetBg
 import com.github.mikephil.charting.charts.BarLineChartBase
 import com.github.mikephil.charting.charts.CombinedChart
 import com.github.mikephil.charting.charts.LineChart
@@ -94,7 +107,7 @@ fun CryptoDetailScreen(
     val state = viewModel.state.value
     val prefs = viewModel.prefs.value
     val showIndicators = remember { mutableStateOf(false) }
-    val maSheetPeriod = remember { mutableStateOf<Int?>(null) }
+    val showMaList = remember { mutableStateOf(false) }
     // modo expandir, el chart manda y los TFs bajan
     val chartExpanded = remember { mutableStateOf(false) }
     val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
@@ -116,7 +129,7 @@ fun CryptoDetailScreen(
                             text = tradingPair.displayName,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 18.sp,
-                            fontFamily = Lato
+                            fontFamily = Geist
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         // badge de fuente siempre visible
@@ -170,7 +183,7 @@ fun CryptoDetailScreen(
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
                             fontSize = 19.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = Lato
+                            fontFamily = Geist
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -178,14 +191,14 @@ fun CryptoDetailScreen(
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = Lato
+                            fontFamily = Geist
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "H ${formatDecimal(detail.highPrice)}  L ${formatDecimal(detail.lowPrice)}",
                             color = Color.Gray,
                             fontSize = 11.sp,
-                            fontFamily = Lato
+                            fontFamily = Geist
                         )
                     }
                 } else {
@@ -203,7 +216,7 @@ fun CryptoDetailScreen(
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
                             fontSize = 28.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = Lato
+                            fontFamily = Geist
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(text = detailPair.displayName, color = Color.Gray, fontSize = 12.sp)
@@ -213,7 +226,7 @@ fun CryptoDetailScreen(
                                 color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                fontFamily = Lato
+                                fontFamily = Geist
                             )
                         }
                     }
@@ -344,7 +357,7 @@ fun CryptoDetailScreen(
             if (showIndicators.value) {
                 ModalBottomSheet(
                     onDismissRequest = { showIndicators.value = false },
-                    containerColor = Color(0xFF141518)
+                    containerColor = SheetBg
                 ) {
                     IndicatorsSheet(
                         prefs = prefs,
@@ -355,8 +368,8 @@ fun CryptoDetailScreen(
                         onToggleRsi = { viewModel.toggleRsiSub() },
                         onToggleRsiDiv = { viewModel.toggleRsiDiv() },
                         onToggleRsiDivHidden = { viewModel.toggleRsiDivHidden() },
-                        onToggleMA = { viewModel.toggleMA(it) },
-                        onConfigureMA = { maSheetPeriod.value = it },
+                        // medias en su propio bottom sheet encima del de indicadores
+                        onOpenMAs = { showMaList.value = true },
                         onToggleSmcStructure = { viewModel.toggleSmcStructure() },
                         onToggleSmcOB = { viewModel.toggleSmcOrderBlocks() },
                         onToggleSmcFvg = { viewModel.toggleSmcFvg() },
@@ -367,20 +380,23 @@ fun CryptoDetailScreen(
                 }
             }
 
-            // config de una MA en su propio sheet encima del de indicadores
-            maSheetPeriod.value?.let { period ->
-                prefs.mas.firstOrNull { it.period == period }?.let { ma ->
-                    ModalBottomSheet(
-                        onDismissRequest = { maSheetPeriod.value = null },
-                        containerColor = Color(0xFF141518)
-                    ) {
-                        MaConfigSheet(
-                            ma = ma,
-                            onToggleMA = { viewModel.toggleMA(ma.period) },
-                            onMAColor = { hex -> viewModel.setMAColor(ma.period, hex) },
-                            onMAWidth = { w -> viewModel.setMAWidth(ma.period, w) }
-                        )
-                    }
+            // lista de MAs en su propio sheet encima del de indicadores
+            if (showMaList.value) {
+                ModalBottomSheet(
+                    onDismissRequest = { showMaList.value = false },
+                    containerColor = SheetBg
+                ) {
+                    MaListSheet(
+                        mas = prefs.mas,
+                        onToggle = { id -> viewModel.toggleMAById(id) },
+                        onAdd = { viewModel.addMA() },
+                        onDelete = { id -> viewModel.deleteMA(id) },
+                        onType = { id, t -> viewModel.setMAType(id, t) },
+                        onPeriod = { id, p -> viewModel.setMAPeriod(id, p) },
+                        onTimeframe = { id, tf -> viewModel.setMATimeframe(id, tf) },
+                        onColor = { id, hex -> viewModel.setMAColorById(id, hex) },
+                        onWidth = { id, w -> viewModel.setMAWidthById(id, w) }
+                    )
                 }
             }
         }
@@ -690,6 +706,7 @@ fun PriceChart(
     val drawingTool = remember { mutableStateOf(DrawingTool.NONE) }
     val showDrawingSheet = remember { mutableStateOf(false) }
     val showFibLevels = remember { mutableStateOf(false) }
+    val showDeleteAllDrawings = remember { mutableStateOf(false) }
     val rangeSelection = remember { mutableStateOf<MeasureZone?>(null) }
     val fibPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
     val drawPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
@@ -805,6 +822,8 @@ fun PriceChart(
                     color = GraphicsColor.WHITE
                     textSize = 24f
                     textAlign = Paint.Align.LEFT
+                    // sombra sutil para leer sin fondo que tape el grafico
+                    setShadowLayer(4f, 0f, 0f, GraphicsColor.argb(200, 0, 0, 0))
                 }
                 private val fibChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(220, 26, 29, 35)
@@ -888,28 +907,26 @@ fun PriceChart(
                     pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
                 }
                 val smcBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(190, 38, 166, 154)
-                    strokeWidth = 2f
+                    color = GraphicsColor.argb(255, 14, 203, 129)
+                    strokeWidth = 3f
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
                 }
                 val smcBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(190, 239, 83, 80)
-                    strokeWidth = 2f
+                    color = GraphicsColor.argb(255, 239, 83, 80)
+                    strokeWidth = 3f
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
-                    pathEffect = DashPathEffect(floatArrayOf(0.5f, 6f), 0f)
                 }
                 val smcBullLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(235, 38, 166, 154)
-                    textSize = 24f
+                    color = GraphicsColor.argb(255, 14, 203, 129)
+                    textSize = 26f
                     textAlign = Paint.Align.LEFT
                     setShadowLayer(3f, 0f, 1f, GraphicsColor.argb(220, 0, 0, 0))
                 }
                 val smcBearLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(235, 239, 83, 80)
-                    textSize = 24f
+                    color = GraphicsColor.argb(255, 239, 83, 80)
+                    textSize = 26f
                     textAlign = Paint.Align.LEFT
                     setShadowLayer(3f, 0f, 1f, GraphicsColor.argb(220, 0, 0, 0))
                 }
@@ -1039,32 +1056,12 @@ fun PriceChart(
                 }
                 // volumen taker apilado transparente detras de las velas
                 private val takerBuyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(110, 38, 166, 154)
+                    color = GraphicsColor.argb(110, 14, 203, 129)
                     style = Paint.Style.FILL
                 }
                 private val takerSellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.argb(110, 239, 83, 80)
                     style = Paint.Style.FILL
-                }
-                val takerLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(200, 173, 177, 184)
-                    textAlign = Paint.Align.LEFT
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                }
-                val takerTotalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.WHITE
-                    textAlign = Paint.Align.LEFT
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                }
-                val takerBuyTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#26A69A")
-                    textAlign = Paint.Align.LEFT
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                }
-                val takerSellTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#EF5350")
-                    textAlign = Paint.Align.LEFT
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val yTagRect = RectF()
                 private val xTagRect = RectF()
@@ -1157,15 +1154,38 @@ fun PriceChart(
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null
                     val index = touchToCandleIndex(x, y, candles.size) ?: return null
-                    val price = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).y.toDouble()
+                    var price = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).y.toDouble()
+                    // iman pega Medir al high/low/close mas cercano
+                    if (magnetRef.value) {
+                        val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                        val c = candles[index]
+                        var best = price
+                        var bestDist = 28f
+                        listOf(c.high, c.low, c.close).forEach { p ->
+                            val pts = floatArrayOf(0f, p.toFloat())
+                            trans.pointValuesToPixel(pts)
+                            val d = abs(pts[1] - y)
+                            if (d < bestDist) {
+                                bestDist = d
+                                best = p
+                            }
+                        }
+                        price = best
+                    }
                     return index to price
                 }
 
                 private fun applyRangeTap(x: Float, y: Float): Boolean {
                     val (index, price) = measureAnchor(x, y) ?: return false
                     val current = rangeSelection.value
-                    // fija al completar, como el fibo; re-entrar a Medir reinicia
-                    if (current != null && current.isComplete) return true
+                    // zona completa: tap fuera del rectangulo la borra, dentro no hace nada
+                    if (current != null && current.isComplete) {
+                        if (measureHitTest(x, y) == 0) {
+                            rangeSelection.value = null
+                            invalidate()
+                        }
+                        return true
+                    }
                     rangeSelection.value = if (current == null) {
                         MeasureZone(startIdx = index, startPrice = price)
                     } else {
@@ -1215,7 +1235,7 @@ fun PriceChart(
                     val py = pts[1].coerceIn(contentTop, contentBottom)
 
                     val tagColor = if (last.close >= last.open) {
-                        GraphicsColor.parseColor("#26A69A")
+                        GraphicsColor.parseColor("#0ECB81")
                     } else {
                         GraphicsColor.parseColor("#EF5350")
                     }
@@ -1301,38 +1321,6 @@ fun PriceChart(
                             }
                         }
                     }
-                }
-
-                // leyenda C/V tomador abajo a la izq, nunca pisa las MA
-                private fun drawTakerLegend(canvas: Canvas, candles: List<CandleData>) {
-                    if (!prefsRef.value.volumeVisible) return
-                    if (candles.isEmpty()) return
-                    val current = stateRef.value
-                    val h = highlighted?.getOrNull(0)
-                    val idx = h?.x?.toInt()?.coerceIn(0, candles.size - 1) ?: (candles.size - 1)
-                    val c = candles[idx]
-                    val buy = c.takerBuyVol.coerceIn(0.0, c.volume)
-                    val sell = (c.volume - buy).coerceAtLeast(0.0)
-                    val baseAsset = splitTradingPair(current.detail?.symbol ?: current.symbol, current.source).baseAsset
-
-                    val density = context.resources.displayMetrics.density
-                    val textSize = density * 10f
-                    takerLabelPaint.textSize = textSize
-                    takerTotalPaint.textSize = textSize
-                    takerBuyTextPaint.textSize = textSize
-                    takerSellTextPaint.textSize = textSize
-                    var x = viewPortHandler.contentLeft() + density * 5f
-                    val y = viewPortHandler.contentBottom() - density * 8f
-
-                    x += drawLegendSegment(canvas, "C/V tomador  ", x, y, takerLabelPaint)
-                    x += drawLegendSegment(canvas, "Total($baseAsset) ${formatVol(c.volume.toString())}   ", x, y, takerTotalPaint)
-                    x += drawLegendSegment(canvas, "Buy($baseAsset) ${formatVol(buy.toString())}   ", x, y, takerBuyTextPaint)
-                    drawLegendSegment(canvas, "Sell($baseAsset) ${formatVol(sell.toString())}", x, y, takerSellTextPaint)
-                }
-
-                private fun drawLegendSegment(canvas: Canvas, text: String, x: Float, y: Float, paint: Paint): Float {
-                    canvas.drawText(text, x, y, paint)
-                    return paint.measureText(text)
                 }
 
                 private fun drawFixedRangeVolumeProfile(
@@ -1566,7 +1554,7 @@ fun PriceChart(
                     if (candles.isEmpty()) return 0
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
                     val lIdx = min(sel.startIdx, sel.endIdx!!).coerceIn(0, candles.size - 1)
-                    val rIdx = max(sel.startIdx, sel.endIdx!!).coerceIn(0, candles.size - 1)
+                    val rIdx = max(sel.startIdx, sel.endIdx).coerceIn(0, candles.size - 1)
                     val firstPrice = if (sel.startIdx <= sel.endIdx) sel.startPrice else sel.endPrice!!
                     val lastPrice = if (sel.startIdx <= sel.endIdx) sel.endPrice!! else sel.startPrice
                     val pts = floatArrayOf(lIdx.toFloat(), firstPrice.toFloat(), rIdx.toFloat(), lastPrice.toFloat())
@@ -1638,7 +1626,6 @@ fun PriceChart(
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
-                    val contentRight = viewPortHandler.contentRight()
                     var best: Triple<String, Int, Boolean>? = null
                     var bestDist = Float.MAX_VALUE
                     overlaysRef.value.forEach { o ->
@@ -1677,7 +1664,8 @@ fun PriceChart(
                 }
 
                 private fun applyFibTap(x: Float, y: Float) {
-                    val anchor = anchorFromTouch(x, y) ?: return
+                    // fibo tambien respeta el iman (high/low/close)
+                    val anchor = drawAnchorFromTouch(x, y) ?: return
                     onFibTap?.invoke(anchor)
                     invalidate()
                 }
@@ -1703,7 +1691,8 @@ fun PriceChart(
                     if (candles.isEmpty()) return base
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
                     val rawX = trans.getValuesByTouchPoint(x, y).x.roundToInt()
-                        .coerceIn(0, candles.size - 1)
+                    // mas alla de la ultima vela no hay high/low, se deja tal cual (fibo virtual)
+                    if (rawX < 0 || rawX >= candles.size) return base
                     val c = candles[rawX]
                     // pointValuesToPixel necesita pares x,y; evalua por separado
                     var best = base.price
@@ -1835,7 +1824,6 @@ fun PriceChart(
                 }
 
                 private fun drawSingleDraw(canvas: Canvas, candles: List<CandleData>, o: DrawOverlay, selected: Boolean) {
-                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
                     val contentLeft = viewPortHandler.contentLeft()
                     val contentRight = viewPortHandler.contentRight()
                     val contentTop = viewPortHandler.contentTop()
@@ -2006,10 +1994,7 @@ fun PriceChart(
                     fibLinePaint.strokeWidth = (o.width * context.resources.displayMetrics.density).coerceAtLeast(1f)
                     // seleccionado a full, los demas tenues
                     fibLinePaint.alpha = if (selected || selectedFibRef.value == null) 255 else 140
-                    fibLabelPaint.color = lineColor
-
-                    // linea guia entre anclas para ver la tendencia del trazo
-                    canvas.drawLine(sPts[0], sPts[1], ePts[0], ePts[1], fibLinePaint)
+                    fibLabelPaint.color = GraphicsColor.WHITE
 
                     levels.forEach { ratio ->
                         // punto inicial siempre 1, final siempre 0
@@ -2018,23 +2003,12 @@ fun PriceChart(
                         trans.pointValuesToPixel(pts)
                         val py = pts[1].coerceIn(contentTop, contentBottom)
                         canvas.drawLine(leftX, py, rightX, py, fibLinePaint)
-                        // izq solo ratio, el precio ya esta a la derecha
+                        // nivel + precio entre parentesis a la izquierda de la linea, sin fondo
                         if (selected) {
-                            val leftLabel = trimRatio(ratio)
-                            val lw = fibLabelPaint.measureText(leftLabel) + 16f
-                            val lh = fibLabelPaint.textSize + 10f
-                            val lx = (leftX + 4f).coerceIn(contentLeft, (contentRight - lw).coerceAtLeast(contentLeft))
-                            val ly = (py - lh / 2f).coerceIn(contentTop, (contentBottom - lh).coerceAtLeast(contentTop))
-                            yTagRect.set(lx, ly, lx + lw, ly + lh)
-                            canvas.drawRoundRect(yTagRect, 4f, 4f, fibChipPaint)
-                            canvas.drawText(leftLabel, lx + 8f, ly + lh - 7f, fibLabelPaint)
-                            // tag derecho al final de la linea (rango acotado)
-                            val rightLabel = formatAxisPrice(price, candles.lastOrNull()?.close ?: price)
-                            val rw = fibLabelPaint.measureText(rightLabel) + 16f
-                            val rx = (rightX - rw).coerceIn(contentLeft, (contentRight - rw).coerceAtLeast(contentLeft))
-                            yTagRect.set(rx, ly, rx + rw, ly + lh)
-                            canvas.drawRoundRect(yTagRect, 4f, 4f, fibChipPaint)
-                            canvas.drawText(rightLabel, rx + 8f, ly + lh - 7f, fibLabelPaint)
+                            val label = "${trimRatio(ratio)}(${formatAxisPrice(price, candles.lastOrNull()?.close ?: price)})"
+                            val w = fibLabelPaint.measureText(label)
+                            val lx = (leftX - 6f - w).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                            canvas.drawText(label, lx, py + fibLabelPaint.textSize * 0.35f, fibLabelPaint)
                         }
                     }
 
@@ -2115,18 +2089,18 @@ fun PriceChart(
                 ) {
                     val smc = stateRef.value.smc
                     if (candles.isEmpty()) return
-                    val prefs = prefsRef.value
-                    if (!prefs.smcOrderBlocks && !prefs.smcFvg && !prefs.smcStructure && !prefs.smcEqhl && !prefs.smcLiquidity) return
+                    val smcPrefs = prefsRef.value
+                    if (!smcPrefs.smcOrderBlocks && !smcPrefs.smcFvg && !smcPrefs.smcStructure && !smcPrefs.smcEqhl && !smcPrefs.smcLiquidity) return
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
                     val contentLeft = viewPortHandler.contentLeft()
                     val contentRight = viewPortHandler.contentRight()
                     val contentTop = viewPortHandler.contentTop()
                     val contentBottom = viewPortHandler.contentBottom()
 
-                    if (prefs.smcOrderBlocks || prefs.smcFvg) {
+                    if (smcPrefs.smcOrderBlocks || smcPrefs.smcFvg) {
                         smc.zones.forEach { z ->
-                            val wantOb = prefs.smcOrderBlocks && z.kind == SmcZoneKind.ORDER_BLOCK
-                            val wantFvg = prefs.smcFvg && z.kind == SmcZoneKind.FVG
+                            val wantOb = smcPrefs.smcOrderBlocks && z.kind == SmcZoneKind.ORDER_BLOCK
+                            val wantFvg = smcPrefs.smcFvg && z.kind == SmcZoneKind.FVG
                             if (!wantOb && !wantFvg) return@forEach
                             if (z.endIdx < visibleStart || z.startIdx > visibleEnd) return@forEach
                             val s = max(z.startIdx, 0)
@@ -2170,7 +2144,7 @@ fun PriceChart(
                         }
                     }
 
-                    if (prefs.smcStructure) {
+                    if (smcPrefs.smcStructure) {
                         smc.events.forEach { ev ->
                             if (ev.breakIdx < visibleStart || ev.swingIdx > visibleEnd) return@forEach
                             val lvl = floatArrayOf(0f, ev.levelPrice.toFloat())
@@ -2191,7 +2165,7 @@ fun PriceChart(
                         }
                     }
 
-                    if (prefs.smcEqhl) {
+                    if (smcPrefs.smcEqhl) {
                         smc.eqLevels.forEach { eq ->
                             if (eq.idx2 < visibleStart || eq.idx1 > visibleEnd) return@forEach
                             val pts = floatArrayOf(0f, eq.price.toFloat())
@@ -2211,7 +2185,7 @@ fun PriceChart(
                     }
 
                     // pools BSL/SSL + barridos, tags al borde derecho con stagger
-                    if (prefs.smcLiquidity) {
+                    if (smcPrefs.smcLiquidity) {
                         // SWEEP solo el mas reciente por lado, el resto linea pelada
                         val latestSweepBuy = smc.liquidity.filter { it.isBuySide && it.swept }.maxByOrNull { it.sweepIdx ?: -1 }
                         val latestSweepSell = smc.liquidity.filter { !it.isBuySide && it.swept }.maxByOrNull { it.sweepIdx ?: -1 }
@@ -2266,7 +2240,7 @@ fun PriceChart(
                     }
 
                     // bandas grises donde el FVG de otro TF pisa tu zona
-                    if (prefs.smcFvg) {
+                    if (smcPrefs.smcFvg) {
                         smc.confluence.forEach { band ->
                             val top = floatArrayOf(0f, band.top.toFloat())
                             trans.pointValuesToPixel(top)
@@ -2320,7 +2294,9 @@ fun PriceChart(
 
                 private fun trimRatio(r: Float): String {
                     val s = String.format(Locale.US, "%.3f", r).trimEnd('0').trimEnd('.')
-                    return if (s.isEmpty()) "0" else s
+                    if (s.isEmpty()) return "0"
+                    // estilo tradingview: sin cero inicial (.618 en vez de 0.618)
+                    return if (s.startsWith("0.")) s.substring(1) else s
                 }
 
                 override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
@@ -2789,7 +2765,6 @@ fun PriceChart(
                     drawVolumeOverlay(canvas, entries, visibleStart, visibleEnd)
                     drawSmcBackground(canvas, entries, visibleStart, visibleEnd)
                     super.onDraw(canvas)
-                    drawTakerLegend(canvas, entries)
 
                     var maxIndex = visibleStart
                     var minIndex = visibleStart
@@ -2909,20 +2884,16 @@ fun PriceChart(
                 setXAxisRenderer(TwoLineXAxisRenderer(viewPortHandler, xAxis, getTransformer(YAxis.AxisDependency.LEFT)))
                 extraBottomOffset = 18f
                 marker = OKXChartMarker(context) { stateRef.value }
-                // etiquetas del canvas con la condensada, numeros mas definidos
+                // etiquetas del canvas con Geist semibold, numeros mas definidos
                 try {
                     androidx.core.content.res.ResourcesCompat.getFont(
-                        context, com.defitracker.app.R.font.lato_semibold
+                        context, com.defitracker.app.R.font.geist_semibold
                     )?.let { tf ->
                         labelPaint.typeface = tf
                         selectionTextPaint.typeface = tf
                         tagTextPaint.typeface = tf
                         lastPriceTextPaint.typeface = tf
                         fibLabelPaint.typeface = tf
-                        takerLabelPaint.typeface = tf
-                        takerTotalPaint.typeface = tf
-                        takerBuyTextPaint.typeface = tf
-                        takerSellTextPaint.typeface = tf
                         smcBullLabelPaint.typeface = tf
                         smcBearLabelPaint.typeface = tf
                         smcEqLabelPaint.typeface = tf
@@ -3211,7 +3182,7 @@ fun PriceChart(
                     lineData.addDataSet(createBBLineDataSet(lowerEntries, "Lower", bbColor, axisDependency = YAxis.AxisDependency.RIGHT))
                     lineData.addDataSet(createBBLineDataSet(middleEntries, "Middle", middleColor, 1.2f, axisDependency = YAxis.AxisDependency.RIGHT))
                     prefs.mas.filter { it.visible }.forEach { ma ->
-                        maLineDataSet(ma, state.maLines[ma.period] ?: emptyList())?.let {
+                        maLineDataSet(ma, state.maLines[ma.id] ?: emptyList())?.let {
                             lineData.addDataSet(it)
                         }
                     }
@@ -3220,7 +3191,7 @@ fun PriceChart(
                     combinedData.setData(CandleData(createCandleDataSet(candleEntries)))
                     val maOnly = LineData()
                     prefs.mas.filter { it.visible }.forEach { ma ->
-                        maLineDataSet(ma, state.maLines[ma.period] ?: emptyList())?.let {
+                        maLineDataSet(ma, state.maLines[ma.id] ?: emptyList())?.let {
                             maOnly.addDataSet(it)
                         }
                     }
@@ -3294,14 +3265,14 @@ fun PriceChart(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 prefs.mas.filter { it.visible }.forEach { ma ->
-                    val last = state.maLines[ma.period]?.lastOrNull()?.second
+                    val last = state.maLines[ma.id]?.lastOrNull()?.second
                     if (last != null) {
                         Text(
-                            text = "MA${ma.period} ${formatPriceForChart(last)}  ",
+                            text = "${maLegendLabel(ma)} ${formatPriceForChart(last)}  ",
                             color = Color(ma.colorHex.toColorInt()),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = Lato
+                            fontFamily = Geist
                         )
                     }
                 }
@@ -3424,14 +3395,15 @@ fun PriceChart(
         if (showDrawingSheet.value) {
             ModalBottomSheet(
                 onDismissRequest = { showDrawingSheet.value = false },
-                containerColor = Color(0xFF141518)
+                containerColor = SheetBg
             ) {
                 DrawingToolsSheet(
                     active = drawingTool.value,
                     drawKind = drawKindRef.value,
                     magnetOn = magnetRef.value,
                     fibCount = fibOverlays.size + drawOverlays.size,
-                    hasFib = selectedFib != null || selectedDraw != null,
+                    // ocultar/eliminar funcionan con seleccion o con todos
+                    hasFib = fibOverlays.isNotEmpty() || drawOverlays.isNotEmpty(),
                     onPickMeasure = {
                         drawingTool.value = if (drawingTool.value == DrawingTool.MEASURE) DrawingTool.NONE else DrawingTool.MEASURE
                         rangeSelection.value = null
@@ -3466,37 +3438,88 @@ fun PriceChart(
                         magnetRef.value = !magnetRef.value
                     },
                     onHideSelected = {
-                        selectedDraw?.let { viewModel.toggleDrawHidden(it.id) }
-                            ?: selectedFib?.let { viewModel.toggleFibHidden(it.id) }
+                        // con seleccion oculta esa, sin seleccion alterna todos
+                        if (selectedDraw != null) viewModel.toggleDrawHidden(selectedDraw.id)
+                        else if (selectedFib != null) viewModel.toggleFibHidden(selectedFib.id)
+                        else {
+                            if (drawOverlays.any { !it.hidden }) viewModel.toggleAllDrawsHidden()
+                            else if (fibOverlays.any { !it.hidden }) viewModel.toggleAllFibsHidden()
+                            else {
+                                viewModel.toggleAllDrawsHidden()
+                                viewModel.toggleAllFibsHidden()
+                            }
+                            drawsRef.value = viewModel.drawOverlays.value
+                            overlaysRef.value = viewModel.fibOverlays.value
+                        }
                         showDrawingSheet.value = false
                         priceChartRef.value?.invalidate()
                     },
                     onDeleteSelected = {
-                        selectedDraw?.let {
-                            viewModel.deleteDraw(it.id)
+                        // con seleccion borra esa, sin seleccion pide borrar todos
+                        if (selectedDraw != null) {
+                            viewModel.deleteDraw(selectedDraw.id)
                             drawsRef.value = viewModel.drawOverlays.value
                             selectedDrawRef.value = viewModel.selectedDrawId.value
-                        } ?: selectedFib?.let {
-                            viewModel.deleteFib(it.id)
+                            fibPendingStart.value = null
+                            pendingStartRef.value = null
+                            drawPendingStart.value = null
+                            pendingDrawStartRef.value = null
+                            showDrawingSheet.value = false
+                            priceChartRef.value?.invalidate()
+                        } else if (selectedFib != null) {
+                            viewModel.deleteFib(selectedFib.id)
                             overlaysRef.value = viewModel.fibOverlays.value
                             selectedFibRef.value = viewModel.selectedFibId.value
+                            fibPendingStart.value = null
+                            pendingStartRef.value = null
+                            drawPendingStart.value = null
+                            pendingDrawStartRef.value = null
+                            showDrawingSheet.value = false
+                            priceChartRef.value?.invalidate()
+                        } else {
+                            showDeleteAllDrawings.value = true
                         }
+                    }
+                )
+            }
+        }
+
+        // borrar todos los trazados con confirmacion
+        if (showDeleteAllDrawings.value) {
+            AlertDialog(
+                onDismissRequest = { showDeleteAllDrawings.value = false },
+                containerColor = SheetBg,
+                titleContentColor = Color.White,
+                textContentColor = Color.Gray,
+                title = { Text("Eliminar trazados") },
+                text = { Text("¿Borrar los ${fibOverlays.size + drawOverlays.size} trazados de este símbolo?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.deleteAllFibs()
+                        viewModel.deleteAllDraws()
+                        overlaysRef.value = emptyList()
+                        drawsRef.value = emptyList()
+                        selectedFibRef.value = null
+                        selectedDrawRef.value = null
                         fibPendingStart.value = null
                         pendingStartRef.value = null
                         drawPendingStart.value = null
                         pendingDrawStartRef.value = null
+                        showDeleteAllDrawings.value = false
                         showDrawingSheet.value = false
                         priceChartRef.value?.invalidate()
-                    },
-                    onClose = { showDrawingSheet.value = false }
-                )
-            }
+                    }) { Text("Eliminar", color = Color(0xFFF6465D)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteAllDrawings.value = false }) { Text("Cancelar", color = Color.White) }
+                }
+            )
         }
 
         if (showFibLevels.value && selectedFib != null) {
             ModalBottomSheet(
                 onDismissRequest = { showFibLevels.value = false },
-                containerColor = Color(0xFF141518)
+                containerColor = SheetBg
             ) {
                 FibLevelsSheet(
                     fib = selectedFib,
@@ -3507,10 +3530,6 @@ fun PriceChart(
                     onColor = { viewModel.setFibColor(selectedFib.id, it) },
                     onWidth = {
                         viewModel.setFibWidth(selectedFib.id, it)
-                        priceChartRef.value?.invalidate()
-                    },
-                    onClose = {
-                        showFibLevels.value = false
                         priceChartRef.value?.invalidate()
                     }
                 )
@@ -3692,31 +3711,31 @@ fun RsiChart(
                 }
                 // divergencias estilo TV, linea + chip Bull/Bear
                 private val divBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#26A69A")
-                    strokeWidth = 2f
+                    color = GraphicsColor.parseColor("#0ECB81")
+                    strokeWidth = 3f
                 }
                 private val divBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#EF5350")
-                    strokeWidth = 2f
+                    strokeWidth = 3f
                 }
-                // ocultas mas tenues para diferenciarlas, como el Pine
+                // ocultas un poco mas suaves para diferenciarlas, como el Pine
                 private val divHiddenBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(110, 38, 166, 154)
-                    strokeWidth = 2f
+                    color = GraphicsColor.argb(150, 14, 203, 129)
+                    strokeWidth = 2.5f
                 }
                 private val divHiddenBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(110, 239, 83, 80)
-                    strokeWidth = 2f
+                    color = GraphicsColor.argb(150, 239, 83, 80)
+                    strokeWidth = 2.5f
                 }
                 private val divBullLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#26A69A")
-                    textSize = 22f
+                    color = GraphicsColor.parseColor("#0ECB81")
+                    textSize = 24f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val divBearLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#EF5350")
-                    textSize = 22f
+                    textSize = 24f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
@@ -3804,16 +3823,16 @@ fun RsiChart(
                                 }
                                 val label = if (div.early) "Pre-$baseLabel" else baseLabel
                                 val w = labelPaint.measureText(label) + 14f
-                                val h = labelPaint.textSize + 8f
+                                val chipH = labelPaint.textSize + 8f
                                 val lx = (p2[0] + 4f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
                                 val ly = if (div.bullish) {
-                                    (p2[1] + 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                                    (p2[1] + 4f).coerceIn(contentTop, (contentBottom - chipH).coerceAtLeast(contentTop))
                                 } else {
-                                    (p2[1] - h - 4f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                                    (p2[1] - chipH - 4f).coerceIn(contentTop, (contentBottom - chipH).coerceAtLeast(contentTop))
                                 }
-                                divRect.set(lx, ly, lx + w, ly + h)
+                                divRect.set(lx, ly, lx + w, ly + chipH)
                                 canvas.drawRoundRect(divRect, 4f, 4f, divChipPaint)
-                                canvas.drawText(label, lx + 7f, ly + h - 6f, labelPaint)
+                                canvas.drawText(label, lx + 7f, ly + chipH - 6f, labelPaint)
                             }
                         }
                     }
@@ -4033,10 +4052,10 @@ private class TwoLineXAxisRenderer(
 private fun BarLineChartBase<*>.setupCommonChartParams() {
     description.isEnabled = false
     legend.isEnabled = false
-    // numeros del chart condensados estilo OKX, con fallback silencioso
+    // numeros del chart en Geist semibold estilo OKX, con fallback silencioso
     try {
         androidx.core.content.res.ResourcesCompat.getFont(
-            context, com.defitracker.app.R.font.lato_semibold
+            context, com.defitracker.app.R.font.geist_semibold
         )?.let { tf ->
             xAxis.typeface = tf
             axisLeft.typeface = tf
@@ -4077,7 +4096,7 @@ private fun createCandleDataSet(entries: List<CandleEntry>) = CandleDataSet(entr
     // mecha fina estilo OKX, el ancho fijo en px se ve grueso al alejar
     shadowWidth = 0.7f
     decreasingColor = "#EF5350".toColorInt()
-    increasingColor = "#26A69A".toColorInt()
+    increasingColor = "#0ECB81".toColorInt()
     neutralColor = "#ADB1B8".toColorInt()
     decreasingPaintStyle = Paint.Style.FILL
     increasingPaintStyle = Paint.Style.FILL
@@ -4116,7 +4135,7 @@ private fun createBBLineDataSet(
     }
 }
 
-// una MA = un LineDataSet con su color/grosor, etiqueta MA<periodo>
+// una MA = un LineDataSet con su color/grosor, etiqueta MA|<id> para el tick en vivo
 private fun maLineDataSet(ma: MaConfig, line: List<Pair<Long, Double>>): LineDataSet? {
     if (line.isEmpty()) return null
     val entries = ArrayList<Entry>(line.size)
@@ -4125,11 +4144,18 @@ private fun maLineDataSet(ma: MaConfig, line: List<Pair<Long, Double>>): LineDat
     }
     return createBBLineDataSet(
         entries,
-        "MA${ma.period}",
+        "MA|${ma.id}",
         ma.colorHex.toColorInt(),
         ma.width,
         axisDependency = YAxis.AxisDependency.RIGHT
     )
+}
+
+// etiqueta corta de leyenda con tipo/TF
+private fun maLegendLabel(ma: MaConfig): String {
+    val kind = if (ma.type == MaType.EMA) "EMA" else "MA"
+    val tf = if (ma.timeframe != "chart") "·${ma.timeframe}" else ""
+    return "$kind${ma.period}$tf"
 }
 
 // tick en vivo actualiza el ultimo punto de cada MA sin reconstruir
@@ -4137,9 +4163,9 @@ private fun updateLastMAInPlace(chart: CombinedChart, state: CryptoDetailState) 
     val lineData = chart.data?.lineData ?: return
     for (i in 0 until lineData.dataSetCount) {
         val ds = lineData.getDataSetByIndex(i)
-        if (!ds.label.startsWith("MA")) continue
-        val period = ds.label.removePrefix("MA").toIntOrNull() ?: continue
-        val last = state.maLines[period]?.lastOrNull() ?: continue
+        if (!ds.label.startsWith("MA|")) continue
+        val id = ds.label.removePrefix("MA|")
+        val last = state.maLines[id]?.lastOrNull() ?: continue
         if (ds.entryCount > 0) {
             ds.getEntryForIndex(ds.entryCount - 1).y = last.second.toFloat()
         }
@@ -4315,8 +4341,7 @@ fun IndicatorsSheet(
     onToggleRsi: () -> Unit,
     onToggleRsiDiv: () -> Unit,
     onToggleRsiDivHidden: () -> Unit,
-    onToggleMA: (Int) -> Unit,
-    onConfigureMA: (Int) -> Unit,
+    onOpenMAs: () -> Unit = {},
     onToggleSmcStructure: () -> Unit,
     onToggleSmcOB: () -> Unit,
     onToggleSmcFvg: () -> Unit,
@@ -4345,66 +4370,31 @@ fun IndicatorsSheet(
         )
         IndicatorSwitchRow("BOLL", "Bandas de Bollinger", prefs.bbVisible, onToggleBB)
         IndicatorSwitchRow("Perfil", "Perfil de volumen", prefs.profileVisible, onToggleProfile)
-        // MAs en subseccion colapsable con resumen de activas
-        val maExpanded = remember { mutableStateOf(false) }
-        val maActive = prefs.mas.count { it.visible }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { maExpanded.value = !maExpanded.value }
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Medias móviles ($maActive/5)",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (maExpanded.value) "Toca para ocultar" else "MA20 · MA55 · MA75 · MA100 · MA200",
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
-            }
-            Text(
-                text = if (maExpanded.value) "▾" else "▸",
-                color = Color.Gray,
-                fontSize = 16.sp
-            )
-        }
-        if (maExpanded.value) {
-            prefs.mas.forEach { ma ->
+        // medias en su propio bottom sheet, resumen de activas
+        run {
+            val maActive = prefs.mas.count { it.visible }
+            val summary = prefs.mas.take(5).joinToString(" · ") { maLegendLabel(it) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onConfigureMA(ma.period) }
+                    .clickable { onOpenMAs() }
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // puntito con el color actual de la MA
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .background(Color(ma.colorHex.toColorInt()), CircleShape)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "MA${ma.period}",
+                        text = "Medias móviles ($maActive/${prefs.mas.size})",
                         color = Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Toca para configurar",
+                        text = if (summary.isNotBlank()) summary else "Toca para configurar",
                         color = Color.Gray,
                         fontSize = 12.sp
                     )
                 }
-                Switch(checked = ma.visible, onCheckedChange = { onToggleMA(ma.period) })
-            }
+                Text(text = "▸", color = Color.Gray, fontSize = 16.sp)
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -4436,103 +4426,458 @@ fun IndicatorsSheet(
     }
 }
 
-// config de una sola MA en su propio bottom sheet
+// lista de MAs en su propio bottom sheet (se abre desde Indicadores)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MaConfigSheet(
-    ma: MaConfig,
-    onToggleMA: () -> Unit,
-    onMAColor: (String) -> Unit,
-    onMAWidth: (Float) -> Unit
+fun MaListSheet(
+    mas: List<MaConfig>,
+    onToggle: (String) -> Unit,
+    onAdd: () -> Unit,
+    onDelete: (String) -> Unit,
+    onType: (String, MaType) -> Unit = { _, _ -> },
+    onPeriod: (String, Int) -> Unit = { _, _ -> },
+    onTimeframe: (String, String) -> Unit = { _, _ -> },
+    onColor: (String, String) -> Unit = { _, _ -> },
+    onWidth: (String, Float) -> Unit = { _, _ -> }
 ) {
+    var expandedColorId by remember { mutableStateOf<String?>(null) }
+    var tfMenuId by remember { mutableStateOf<String?>(null) }
+    var widthMenuId by remember { mutableStateOf<String?>(null) }
+    var periodDialogId by remember { mutableStateOf<String?>(null) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(16.dp)
-                    .background(Color(ma.colorHex.toColorInt()), CircleShape)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Medias móviles",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            if (mas.size < IndicatorPrefs.MAX_MAS) {
                 Text(
-                    text = "MA${ma.period}",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Media móvil simple",
-                    color = Color.Gray,
-                    fontSize = 12.sp
+                    text = "+ Agregar",
+                    color = Color(0xFF1ECB81),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { onAdd() }
                 )
             }
-            Switch(checked = ma.visible, onCheckedChange = { onToggleMA() })
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "Color",
-            color = Color.Gray,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
-        )
         Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        mas.forEach { ma ->
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // circulo visible como en tradingview
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .border(
+                                1.5.dp,
+                                if (ma.visible) Color(0xFF1ECB81) else Color.Gray,
+                                CircleShape
+                            )
+                            .background(
+                                if (ma.visible) Color(0xFF1ECB81).copy(alpha = 0.2f) else Color.Transparent,
+                                CircleShape
+                            )
+                            .clickable { onToggle(ma.id) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (ma.visible) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Visible",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    // titulo solo detalle, sin config externa: todo es inline
+                    Text(
+                        text = maLegendLabel(ma),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    // rejilla pegada: tipo, periodo, grosor, color, TF
+                    Row(
+                        modifier = Modifier
+                            .background(InputBg, RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF3A3F47), RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp)),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // tipo SMA/EMA
+                        MaSegText(
+                            text = if (ma.type == MaType.EMA) "EMA" else "SMA",
+                            width = 50.dp,
+                            onClick = {
+                                onType(ma.id, if (ma.type == MaType.EMA) MaType.SMA else MaType.EMA)
+                            }
+                        )
+                        MaSegDiv()
+                        // periodo
+                        MaSegText(
+                            text = ma.period.toString(),
+                            width = 44.dp,
+                            onClick = { periodDialogId = ma.id }
+                        )
+                        MaSegDiv()
+                        // grosor con preview de linea
+                        Box {
+                            Box(
+                                modifier = Modifier
+                                    .width(52.dp)
+                                    .height(36.dp)
+                                    .clickable { widthMenuId = ma.id },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(30.dp)
+                                        .height(ma.width.dp.coerceAtLeast(1.dp))
+                                        .background(Color(ma.colorHex.toColorInt()), RoundedCornerShape(1.dp))
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = widthMenuId == ma.id,
+                                onDismissRequest = { widthMenuId = null },
+                                modifier = Modifier.background(InputBg)
+                            ) {
+                                FIB_WIDTH_OPTIONS.forEach { w ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(36.dp)
+                                                        .height(w.dp.coerceAtLeast(1.dp))
+                                                        .background(Color(ma.colorHex.toColorInt()), RoundedCornerShape(1.dp))
+                                                )
+                                                Text(
+                                                    maWidthLabel(w),
+                                                    color = if (w == ma.width) Color.White else Color.Gray,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (w == ma.width) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            onWidth(ma.id, w)
+                                            widthMenuId = null
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        MaSegDiv()
+                        // color redondo, despliega el picker debajo
+                        Box(
+                            modifier = Modifier
+                                .width(40.dp)
+                                .height(36.dp)
+                                .clickable {
+                                    expandedColorId = if (expandedColorId == ma.id) null else ma.id
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .background(Color(ma.colorHex.toColorInt()), CircleShape)
+                                    .border(
+                                        if (expandedColorId == ma.id) 2.dp else 1.dp,
+                                        if (expandedColorId == ma.id) Color.White else Color(0xFF3A3F47),
+                                        CircleShape
+                                    )
+                            )
+                        }
+                        MaSegDiv()
+                        // temporalidad
+                        Box {
+                            MaSegText(
+                                text = if (ma.timeframe == "chart") "GRAF" else ma.timeframe,
+                                width = 54.dp,
+                                onClick = { tfMenuId = ma.id }
+                            )
+                            DropdownMenu(
+                                expanded = tfMenuId == ma.id,
+                                onDismissRequest = { tfMenuId = null },
+                                modifier = Modifier.background(InputBg)
+                            ) {
+                                IndicatorPrefs.MA_TFS.forEach { tf ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (tf == "chart") "GRAF" else tf,
+                                                color = Color.White,
+                                                fontSize = 13.sp
+                                            )
+                                        },
+                                        onClick = {
+                                            onTimeframe(ma.id, tf)
+                                            tfMenuId = null
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (mas.size > 1) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Eliminar ${maLegendLabel(ma)}",
+                            tint = Color.Gray,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { onDelete(ma.id) }
+                        )
+                    }
+                }
+                // picker inline debajo de la fila
+                AnimatedVisibility(visible = expandedColorId == ma.id) {
+                    Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {
+                        WideColorPicker(
+                            currentHex = ma.colorHex,
+                            onPick = { onColor(ma.id, it) },
+                            key = ma.id
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+        // dialogo compacto para el periodo
+        periodDialogId?.let { dialogId ->
+            mas.firstOrNull { it.id == dialogId }?.let { ma ->
+                var text by remember(dialogId) { mutableStateOf(ma.period.toString()) }
+                AlertDialog(
+                    onDismissRequest = { periodDialogId = null },
+                    containerColor = SheetBg,
+                    titleContentColor = Color.White,
+                    textContentColor = Color.Gray,
+                    title = { Text("Periodo ${maLegendLabel(ma)}") },
+                    text = {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { v -> text = v.filter { it.isDigit() }.take(3) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 16.sp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF1ECB81),
+                                unfocusedBorderColor = LineDiv,
+                                cursorColor = Color.White
+                            )
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            text.toIntOrNull()?.let { p ->
+                                if (p in 2..500) onPeriod(ma.id, p)
+                            }
+                            periodDialogId = null
+                        }) { Text("Listo", color = Color(0xFF1ECB81)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { periodDialogId = null }) { Text("Cancelar", color = Color.White) }
+                    }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun MaSegText(
+    text: String,
+    width: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(36.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+
+@Composable
+private fun MaSegDiv() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(20.dp)
+            .background(LineDiv)
+    )
+}
+
+// picker simple: presets + cuadrado saturacion/valor + barra de tonos, sin librerias
+private fun hexToHsv(hex: String): FloatArray {
+    return try {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(hex), hsv)
+        hsv
+    } catch (_: Exception) {
+        floatArrayOf(160f, 0.9f, 0.9f)
+    }
+}
+
+private fun hsvToHex(h: Float, s: Float, v: Float): String =
+    String.format("#%06X", 0xFFFFFF and android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
+
+@Composable
+fun WideColorPicker(
+    currentHex: String,
+    onPick: (String) -> Unit,
+    key: String = currentHex
+) {
+    // claveado por key (id de la MA / "fib") para que el drag no se reinicie al recomponer
+    val init = remember(key) { hexToHsv(currentHex) }
+    var hue by remember(key) { mutableStateOf(init[0]) }
+    var sat by remember(key) { mutableStateOf(init[1]) }
+    var valV by remember(key) { mutableStateOf(init[2]) }
+    fun emit(h: Float = hue, s: Float = sat, v: Float = valV) {
+        onPick(hsvToHex(h, s, v))
+    }
+    val hueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+    val density = LocalDensity.current
+    // tamaño real medido (sin BoxWithConstraints: rompe los DropdownMenu con intrinsics)
+    var svSize by remember(key) { mutableStateOf(IntSize.Zero) }
+    var hueBarW by remember(key) { mutableStateOf(0) }
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // presets compactos en una fila
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             IndicatorPrefs.PRESET_COLORS.forEach { hex ->
-                val selected = hex.equals(ma.colorHex, ignoreCase = true)
+                val selected = hex.equals(currentHex, ignoreCase = true)
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(28.dp)
                         .background(Color(hex.toColorInt()), CircleShape)
                         .border(
                             width = if (selected) 2.dp else 0.dp,
                             color = if (selected) Color.White else Color.Transparent,
                             shape = CircleShape
                         )
-                        .clickable { onMAColor(hex) }
+                        .clickable {
+                            val hsv = hexToHsv(hex)
+                            hue = hsv[0]
+                            sat = hsv[1]
+                            valV = hsv[2]
+                            onPick(hex)
+                        }
                 )
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "Grosor de línea",
-            color = Color.Gray,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
-        )
-        // slider local, guarda solo al soltar para no spamear DataStore
-        val sliderPos = remember(ma.width) { mutableStateOf(ma.width) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        // cuadrado saturacion (x) / valor (y) del tono actual
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Brush.horizontalGradient(listOf(Color.White, hueColor)))
+                .onSizeChanged { svSize = it }
         ) {
-            Slider(
-                value = sliderPos.value,
-                onValueChange = { sliderPos.value = it },
-                onValueChangeFinished = { onMAWidth(sliderPos.value) },
-                valueRange = 0.5f..3f,
-                modifier = Modifier.weight(1f)
+            fun updateSv(offset: androidx.compose.ui.geometry.Offset) {
+                val w = svSize.width
+                val h = svSize.height
+                if (w <= 0 || h <= 0) return
+                sat = (offset.x / w).coerceIn(0f, 1f)
+                valV = 1f - (offset.y / h).coerceIn(0f, 1f)
+                emit()
+            }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+                    .pointerInput(hue) {
+                        detectTapGestures(onTap = { updateSv(it) })
+                    }
+                    .pointerInput(hue) {
+                        detectDragGestures(
+                            onDragStart = { updateSv(it) },
+                            onDrag = { change, _ -> updateSv(change.position) }
+                        )
+                    }
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = String.format(Locale.US, "%.1f", sliderPos.value),
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
+            // selector sobre el color elegido
+            Box(
+                modifier = Modifier
+                    .offset(
+                        x = with(density) { (svSize.width * sat).toDp() } - 11.dp,
+                        y = with(density) { (svSize.height * (1f - valV)).toDp() } - 11.dp
+                    )
+                    .size(22.dp)
+                    .border(2.dp, Color.White, CircleShape)
+                    .background(Color.Transparent, CircleShape)
             )
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        // barra inferior de tonos
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(20.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(0f, 60f, 120f, 180f, 240f, 300f, 360f).map { h ->
+                            Color(android.graphics.Color.HSVToColor(floatArrayOf(h, 1f, 1f)))
+                        }
+                    )
+                )
+                .onSizeChanged { hueBarW = it.width }
+        ) {
+            fun updateHue(x: Float) {
+                if (hueBarW <= 0) return
+                hue = (x / hueBarW * 360f).coerceIn(0f, 360f)
+                emit()
+            }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { updateHue(it.x) })
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { updateHue(it.x) },
+                            onDrag = { change, _ -> updateHue(change.position.x) }
+                        )
+                    }
+            )
+            // thumb sobre el tono actual
+            Box(
+                modifier = Modifier
+                    .offset(
+                        x = with(density) { (hueBarW * (hue / 360f)).toDp() } - 11.dp,
+                        y = (-1).dp
+                    )
+                    .size(22.dp)
+                    .border(2.dp, Color.White, CircleShape)
+                    .background(Color.Transparent, CircleShape)
+            )
+        }
     }
 }
 
@@ -4550,8 +4895,7 @@ fun DrawingToolsSheet(
     onPickDraw: (DrawKind) -> Unit,
     onToggleMagnet: () -> Unit,
     onHideSelected: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    onClose: () -> Unit
+    onDeleteSelected: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -4559,41 +4903,16 @@ fun DrawingToolsSheet(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Text("Herramientas de dibujo", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(12.dp))
+        Text("Herramientas de dibujo", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             DrawingTopAction(if (magnetOn) "Imán ON" else "Imán", true, onToggleMagnet)
             DrawingTopAction("Ocultar", hasFib, onHideSelected)
             DrawingTopAction("Eliminar", hasFib, onDeleteSelected)
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Líneas de tendencia", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingToolCell(Icons.Filled.Timeline, "Segmento", active == DrawingTool.DRAW && drawKind == DrawKind.SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.SEGMENT) }
-            DrawingToolCell(Icons.Filled.ShowChart, "Línea", active == DrawingTool.DRAW && drawKind == DrawKind.LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.LINE) }
-            DrawingToolCell(Icons.Filled.ArrowForward, "Recta", active == DrawingTool.DRAW && drawKind == DrawKind.RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.RAY) }
-            DrawingToolCell(Icons.Filled.TrendingUp, "Flecha", active == DrawingTool.DRAW && drawKind == DrawKind.ARROW, Modifier.weight(1f)) { onPickDraw(DrawKind.ARROW) }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Líneas horizontales", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingToolCell(Icons.Filled.HorizontalRule, "Segmento H", active == DrawingTool.DRAW && drawKind == DrawKind.H_SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.H_SEGMENT) }
-            DrawingToolCell(Icons.Filled.Remove, "Línea H", active == DrawingTool.DRAW && drawKind == DrawKind.H_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.H_LINE) }
-            DrawingToolCell(Icons.Filled.ArrowForward, "Recta H", active == DrawingTool.DRAW && drawKind == DrawKind.H_RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.H_RAY) }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Figuras geométricas", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingToolCell(Icons.Filled.CheckBoxOutlineBlank, "Rectángulo", active == DrawingTool.DRAW && drawKind == DrawKind.RECT, Modifier.weight(1f)) { onPickDraw(DrawKind.RECT) }
-            DrawingToolCell(Icons.Filled.RadioButtonUnchecked, "Círculo", active == DrawingTool.DRAW && drawKind == DrawKind.CIRCLE, Modifier.weight(1f)) { onPickDraw(DrawKind.CIRCLE) }
-            DrawingToolCell(Icons.Filled.ChangeHistory, "Triángulo", active == DrawingTool.DRAW && drawKind == DrawKind.TRIANGLE, Modifier.weight(1f)) { onPickDraw(DrawKind.TRIANGLE) }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Más herramientas", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
+        Text("Medir y niveles", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(6.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             DrawingToolCell(
                 Icons.Filled.Straighten,
@@ -4612,6 +4931,31 @@ fun DrawingToolsSheet(
             DrawingToolCell(Icons.Filled.DragHandle, "Línea de precio", active == DrawingTool.DRAW && drawKind == DrawKind.PRICE_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.PRICE_LINE) }
         }
         Spacer(modifier = Modifier.height(8.dp))
+        Text("Líneas de tendencia", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DrawingToolCell(Icons.Filled.Timeline, "Segmento", active == DrawingTool.DRAW && drawKind == DrawKind.SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.SEGMENT) }
+            DrawingToolCell(Icons.Filled.ShowChart, "Línea", active == DrawingTool.DRAW && drawKind == DrawKind.LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.LINE) }
+            DrawingToolCell(Icons.Filled.ArrowForward, "Recta", active == DrawingTool.DRAW && drawKind == DrawKind.RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.RAY) }
+            DrawingToolCell(Icons.Filled.TrendingUp, "Flecha", active == DrawingTool.DRAW && drawKind == DrawKind.ARROW, Modifier.weight(1f)) { onPickDraw(DrawKind.ARROW) }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Líneas horizontales", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DrawingToolCell(Icons.Filled.HorizontalRule, "Segmento H", active == DrawingTool.DRAW && drawKind == DrawKind.H_SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.H_SEGMENT) }
+            DrawingToolCell(Icons.Filled.Remove, "Línea H", active == DrawingTool.DRAW && drawKind == DrawKind.H_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.H_LINE) }
+            DrawingToolCell(Icons.Filled.ArrowForward, "Recta H", active == DrawingTool.DRAW && drawKind == DrawKind.H_RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.H_RAY) }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Figuras geométricas", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DrawingToolCell(Icons.Filled.CheckBoxOutlineBlank, "Rectángulo", active == DrawingTool.DRAW && drawKind == DrawKind.RECT, Modifier.weight(1f)) { onPickDraw(DrawKind.RECT) }
+            DrawingToolCell(Icons.Filled.RadioButtonUnchecked, "Círculo", active == DrawingTool.DRAW && drawKind == DrawKind.CIRCLE, Modifier.weight(1f)) { onPickDraw(DrawKind.CIRCLE) }
+            DrawingToolCell(Icons.Filled.ChangeHistory, "Triángulo", active == DrawingTool.DRAW && drawKind == DrawKind.TRIANGLE, Modifier.weight(1f)) { onPickDraw(DrawKind.TRIANGLE) }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
         // ocultar no cierra el modo, solo esconde el trazo
         if (hasFib) {
             Text(
@@ -4628,7 +4972,7 @@ fun DrawingToolsSheet(
 private fun DrawingTopAction(label: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .background(Color(0xFF1E2026), RoundedCornerShape(8.dp))
+            .background(InputBg, RoundedCornerShape(8.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
@@ -4663,7 +5007,7 @@ private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(Color(0xFF2A2E35))
+                .background(LineDiv)
         )
         Box(
             modifier = Modifier
@@ -4688,7 +5032,7 @@ private fun DrawingToolCell(
     Box(
         modifier = modifier
             .background(
-                if (selected) Color(0xFF1ECB81).copy(alpha = 0.25f) else Color(0xFF1E2026),
+                if (selected) Color(0xFF1ECB81).copy(alpha = 0.25f) else InputBg,
                 RoundedCornerShape(8.dp)
             )
             .border(
@@ -4697,12 +5041,12 @@ private fun DrawingToolCell(
                 RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
-            Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Icon(imageVector = icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(20.dp))
+            Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
@@ -4734,15 +5078,14 @@ fun OverlayEditBar(
     Row(
         modifier = modifier
             .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
-            .background(Color(0xEE141518), RoundedCornerShape(8.dp))
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+            .background(Color(0xEE141518), RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp)),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         // pestaña de arrastre, no hace click
         Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(width = 44.dp, height = 40.dp)
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
@@ -4755,66 +5098,42 @@ fun OverlayEditBar(
                 imageVector = Icons.Default.DragHandle,
                 contentDescription = "Mover",
                 tint = Color.Gray,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
-        // lapiz abre paleta de colores
+        GridDivider()
+        // lapiz abre el mismo picker de las medias
         Box {
-            OverlayBarIconBtn(
-                icon = Icons.Filled.Edit,
-                tint = tintColor,
-                desc = "Color",
-                onClick = { showColors = true }
-            )
-            DropdownMenu(
-                expanded = showColors,
-                onDismissRequest = { showColors = false },
-                modifier = Modifier.background(Color(0xFF1E2026))
-            ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IndicatorPrefs.PRESET_COLORS.chunked(4).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            row.forEach { hex ->
-                                val selected = hex.equals(colorHex, ignoreCase = true)
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(Color(hex.toColorInt()), CircleShape)
-                                        .border(
-                                            width = if (selected) 2.dp else 0.dp,
-                                            color = if (selected) Color.White else Color.Transparent,
-                                            shape = CircleShape
-                                        )
-                                        .clickable {
-                                            onColor(hex)
-                                            showColors = false
-                                        }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // 1px abre selector de grosor con preview de linea
-        Box {
-            Box(
-                modifier = Modifier
-                    .clickable { showWidths = true }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    fibWidthLabel(width),
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
+            GridCell(onClick = { showColors = true }) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = "Color",
+                    tint = tintColor,
+                    modifier = Modifier.size(22.dp)
                 )
             }
             DropdownMenu(
+                expanded = showColors,
+                onDismissRequest = { showColors = false },
+                modifier = Modifier.background(InputBg)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    WideColorPicker(
+                        currentHex = colorHex,
+                        onPick = onColor,
+                        key = "fib"
+                    )
+                }
+            }
+        }
+        GridDivider()
+        // grosor con preview de linea
+        Box {
+            GridCellText(text = fibWidthLabel(width), onClick = { showWidths = true })
+            DropdownMenu(
                 expanded = showWidths,
                 onDismissRequest = { showWidths = false },
-                modifier = Modifier.background(Color(0xFF1E2026))
+                modifier = Modifier.background(InputBg)
             ) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
                     FIB_WIDTH_OPTIONS.forEach { w ->
@@ -4845,42 +5164,87 @@ fun OverlayEditBar(
                 }
             }
         }
+        GridDivider()
         // tuerca = niveles (solo fibo) y estilo del seleccionado
         if (showLevels) {
-            OverlayBarIconBtn(icon = Icons.Filled.Settings, tint = Color.White, desc = "Niveles", onClick = onLevels)
+            GridCell(onClick = onLevels) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Niveles",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            GridDivider()
         }
         // ojo con raya cuando esta oculto
-        OverlayBarIconBtn(
-            icon = if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-            tint = Color.Gray,
-            desc = "Visible",
-            onClick = onToggleHide
-        )
+        GridCell(onClick = onToggleHide) {
+            Icon(
+                imageVector = if (hidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                contentDescription = "Visible",
+                tint = Color.Gray,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        GridDivider()
         // candado azul cerrado bloquea mover/resize
-        OverlayBarIconBtn(
-            icon = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
-            tint = if (locked) Color(0xFF2196F3) else Color.Gray,
-            desc = "Bloquear",
-            onClick = onToggleLock
-        )
-        OverlayBarIconBtn(icon = Icons.Filled.Delete, tint = Color.Gray, desc = "Eliminar", onClick = onDelete)
+        GridCell(onClick = onToggleLock) {
+            Icon(
+                imageVector = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                contentDescription = "Bloquear",
+                tint = if (locked) Color(0xFF2196F3) else Color.Gray,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        GridDivider()
+        GridCell(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "Eliminar",
+                tint = Color.Gray,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun OverlayBarIconBtn(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    tint: Color,
-    desc: String,
+private fun GridDivider() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(24.dp)
+            .background(LineDiv)
+    )
+}
+
+@Composable
+private fun GridCell(
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(width = 44.dp, height = 40.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun GridCellText(
+    text: String,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(width = 52.dp, height = 40.dp)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(imageVector = icon, contentDescription = desc, tint = tint, modifier = Modifier.size(22.dp))
+        Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -4890,8 +5254,7 @@ fun FibLevelsSheet(
     fib: FibOverlay,
     onToggle: (Float) -> Unit,
     onColor: (String) -> Unit,
-    onWidth: (Float) -> Unit,
-    onClose: () -> Unit
+    onWidth: (Float) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -4903,22 +5266,7 @@ fun FibLevelsSheet(
         Spacer(modifier = Modifier.height(8.dp))
         Text("Color de línea", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IndicatorPrefs.PRESET_COLORS.forEach { hex ->
-                val selected = hex.equals(fib.colorHex, ignoreCase = true)
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(Color(hex.toColorInt()), CircleShape)
-                        .border(
-                            width = if (selected) 2.dp else 0.dp,
-                            color = if (selected) Color.White else Color.Transparent,
-                            shape = CircleShape
-                        )
-                        .clickable { onColor(hex) }
-                )
-            }
-        }
+        WideColorPicker(currentHex = fib.colorHex, onPick = onColor, key = "fib")
         Spacer(modifier = Modifier.height(12.dp))
         Text("Grosor de línea", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         val sliderPos = remember(fib.width) { mutableStateOf(fib.width) }
@@ -4982,6 +5330,13 @@ private fun IndicatorSwitchRow(
                 fontSize = 12.sp
             )
         }
-        Switch(checked = checked, onCheckedChange = { onToggle() })
+        Switch(
+            checked = checked,
+            onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFF1ECB81)
+            )
+        )
     }
 }

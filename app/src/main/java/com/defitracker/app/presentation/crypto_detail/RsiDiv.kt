@@ -1,12 +1,12 @@
 package com.defitracker.app.presentation.crypto_detail
 
-// ponytail: divergencias RSI estilo TradingView, funciones puras sobre velas (testeables sin Android)
+// divergencias RSI estilo TradingView, funciones puras sobre velas (testeables sin Android)
 
 const val RSI_DIV_LOOKBACK = 5
 const val RSI_DIV_EARLY_LOOKBACK = 2
 const val RSI_DIV_MIN_SEP = 5
 const val RSI_DIV_MAX_SEP = 60
-// ponytail: como TV, todas las del rango (el Pine plotea sin recorte)
+// como TV, todas las del rango (el Pine plotea sin recorte)
 
 enum class RsiDivKind { REG_BULL, REG_BEAR, HID_BULL, HID_BEAR }
 
@@ -21,7 +21,7 @@ data class RsiDiv(
     val bullish: Boolean = kind == RsiDivKind.REG_BULL || kind == RsiDivKind.HID_BULL
 }
 
-// ponytail: fractal N por lado sobre la serie del RSI
+// fractal N por lado sobre la serie del RSI
 private fun fractalPivots(values: List<Double>, lookback: Int, findHigh: Boolean): List<Int> {
     if (values.size < lookback * 2 + 1) return emptyList()
     val out = ArrayList<Int>()
@@ -49,12 +49,12 @@ fun detectRsiDivergences(
     if (candles.isEmpty() || rsi.size != candles.size) return emptyList()
     val lows = candles.map { it.low }
     val highs = candles.map { it.high }
-    // ponytail: ignora el relleno de ceros del inicio del RSI
+    // ignora el relleno de ceros del inicio del RSI
     val firstValid = rsi.indexOfFirst { it > 0.0 }.let { if (it < 0) return emptyList() else it }
     val out = ArrayList<RsiDiv>()
 
     fun scan(pivRsi: List<Int>, isLow: Boolean) {
-        // ponytail: como TV, pivotes RSI confirmados y precio en esas mismas velas
+        // como TV, pivotes RSI confirmados y precio en esas mismas velas
         var p = 0
         while (p + 1 < pivRsi.size) {
             val a = pivRsi[p]
