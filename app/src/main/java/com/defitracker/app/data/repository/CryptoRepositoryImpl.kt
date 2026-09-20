@@ -66,9 +66,14 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getSparklineCloses(symbol: String, source: String, limit: Int): List<Double> {
-        val cleanLimit = limit.coerceIn(2, 100)
-        val cacheKey = "$source:$symbol"
+    override suspend fun getSparklineCloses(symbol: String, source: String, limit: Int): List<Double> =
+        recentCloses(symbol, source, "1h", limit.coerceIn(2, 100))
+
+    override suspend fun getRecentCloses(symbol: String, source: String, interval: String, limit: Int): List<Double> =
+        recentCloses(symbol, source, interval, limit.coerceIn(2, 1000))
+
+    private suspend fun recentCloses(symbol: String, source: String, interval: String, cleanLimit: Int): List<Double> {
+        val cacheKey = "$source:$symbol:$interval"
         sparkCache[cacheKey]?.let { cached ->
             if (System.currentTimeMillis() - cached.createdAtMs <= SPARK_CACHE_TTL_MS && cached.rows.isNotEmpty()) {
                 return closesOf(cached.rows, cleanLimit)
@@ -76,15 +81,15 @@ class CryptoRepositoryImpl @Inject constructor(
         }
         return try {
             val rows = when (source) {
-                "MEXC" -> getMexcFuturesKlines(symbol, "1h", singlePage = true)
-                else -> binanceApi.getKlines(symbol = symbol, interval = "1h", limit = cleanLimit)
+                "MEXC" -> getMexcFuturesKlines(symbol, interval, singlePage = true)
+                else -> binanceApi.getKlines(symbol = symbol, interval = interval, limit = cleanLimit.coerceAtMost(1000))
             }
             if (rows.isNotEmpty()) sparkCache[cacheKey] = CachedKlines(System.currentTimeMillis(), rows)
             closesOf(rows, cleanLimit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logNonFatal("Sparkline request failed for $symbol", e)
+            logNonFatal("Recent closes request failed for $symbol/$interval", e)
             closesOf(sparkCache[cacheKey]?.rows ?: emptyList(), cleanLimit)
         }
     }

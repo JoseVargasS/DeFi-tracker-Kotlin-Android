@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -627,15 +628,18 @@ private fun formatCandleCountdown(interval: String, candleTime: Long): String {
     return when {
         totalSec >= 86_400L -> String.format(
             Locale.US,
-            "%dd %02dh",
+            "%dd %02d:%02d:%02d",
             totalSec / 86_400L,
-            (totalSec % 86_400L) / 3600L
+            (totalSec % 86_400L) / 3600L,
+            (totalSec % 3600L) / 60L,
+            totalSec % 60L
         )
         totalSec >= 3600L -> String.format(
             Locale.US,
-            "%02d:%02d",
+            "%02d:%02d:%02d",
             totalSec / 3600L,
-            (totalSec % 3600L) / 60L
+            (totalSec % 3600L) / 60L,
+            totalSec % 60L
         )
         else -> String.format(Locale.US, "%02d:%02d", totalSec / 60L, totalSec % 60L)
     }
@@ -707,6 +711,11 @@ fun PriceChart(
     val showDrawingSheet = remember { mutableStateOf(false) }
     val showFibLevels = remember { mutableStateOf(false) }
     val showDeleteAllDrawings = remember { mutableStateOf(false) }
+    // pulso: analisis del momento en bottom sheet
+    val showAnalysis = remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (viewModel.openAnalysisInitially) showAnalysis.value = true
+    }
     val rangeSelection = remember { mutableStateOf<MeasureZone?>(null) }
     val fibPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
     val drawPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
@@ -3553,6 +3562,41 @@ fun PriceChart(
                 modifier = Modifier.size(20.dp)
             )
         }
+
+        // boton fantasma del pulso, esquina inferior derecha sin tapar precio ni volumen
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 8.dp, bottom = 28.dp)
+                .background(Color(0x66000000), CircleShape)
+                .border(1.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
+                .clickable {
+                    viewModel.refreshAnalysis(force = true)
+                    showAnalysis.value = true
+                }
+                .padding(8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Bolt,
+                contentDescription = "Pulso del momento",
+                tint = Color(0xFF1ECB81),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        // sheet de analisis del momento
+        if (showAnalysis.value) {
+            ModalBottomSheet(
+                onDismissRequest = { showAnalysis.value = false },
+                containerColor = SheetBg
+            ) {
+                AnalysisSheet(
+                    analysis = viewModel.analysis.value,
+                    onRefresh = { viewModel.refreshAnalysis(force = true) }
+                )
+            }
+        }
     }
 }
 
@@ -4878,6 +4922,171 @@ fun WideColorPicker(
                     .background(Color.Transparent, CircleShape)
             )
         }
+    }
+}
+
+// ─── PULSO: SHEET DE ANALISIS DEL MOMENTO ───────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AnalysisSheet(
+    analysis: PulseAnalysis?,
+    onRefresh: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Bolt,
+                contentDescription = null,
+                tint = Color(0xFF1ECB81),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Pulso del momento",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "Actualizar",
+                color = Color(0xFF1ECB81),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onRefresh() }
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (analysis == null) {
+            Text("Calculando con las velas en pantalla…", color = Color.Gray, fontSize = 13.sp)
+        } else {
+            val biasColor = when (analysis.bias) {
+                PulseBias.BULLISH -> Color(0xFF1ECB81)
+                PulseBias.BEARISH -> Color(0xFFF6465D)
+                PulseBias.NEUTRAL -> Color.Gray
+            }
+            val biasText = when (analysis.bias) {
+                PulseBias.BULLISH -> "ALCISTA"
+                PulseBias.BEARISH -> "BAJISTA"
+                PulseBias.NEUTRAL -> "NEUTRO"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = biasText,
+                    color = biasColor,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${analysis.score}/5",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (analysis.contraTrend) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "contratendencia",
+                        color = Color(0xFFFFD60A),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            analysis.items.forEach { item ->
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .border(
+                                    1.5.dp,
+                                    if (item.hit) {
+                                        if (item.bullish == false) Color(0xFFF6465D) else Color(0xFF1ECB81)
+                                    } else Color.Gray,
+                                    CircleShape
+                                )
+                                .background(
+                                    if (item.hit) {
+                                        if (item.bullish == false) Color(0xFFF6465D).copy(alpha = 0.2f)
+                                        else Color(0xFF1ECB81).copy(alpha = 0.2f)
+                                    } else Color.Transparent,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (item.hit) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = item.label,
+                            color = if (item.hit) Color.White else Color.Gray,
+                            fontSize = 13.sp,
+                            fontWeight = if (item.hit) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                    item.detail?.let { detail ->
+                        Text(
+                            text = detail,
+                            color = Color.Gray,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 32.dp, bottom = 2.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Soporte ${analysis.support?.let { fmtPulsePrice(it) } ?: "--"}",
+                    color = Color(0xFF1ECB81),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Resistencia ${analysis.resistance?.let { fmtPulsePrice(it) } ?: "--"}",
+                    color = Color(0xFFF6465D),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(analysis.headline, color = Color.White, fontSize = 13.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Actualizado ${formatPulseTime(analysis.updatedAt)} · no es recomendación financiera",
+                color = Color.Gray,
+                fontSize = 11.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+private fun formatPulseTime(ms: Long): String {
+    return try {
+        java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(ms))
+    } catch (_: Exception) {
+        ""
     }
 }
 

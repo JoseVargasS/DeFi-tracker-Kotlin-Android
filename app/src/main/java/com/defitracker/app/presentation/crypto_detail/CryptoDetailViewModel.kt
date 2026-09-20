@@ -12,6 +12,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -54,6 +57,74 @@ class CryptoDetailViewModel @Inject constructor(
     private val source: String = checkNotNull(savedStateHandle["source"])
     // deep-link desde noti/sheet con el TF de la alerta
     private val initialInterval: String = savedStateHandle.get<String>("interval")?.trim().orEmpty()
+    // deep-link desde noti de señal: abre el sheet de analisis al entrar
+    val openAnalysisInitially: Boolean = savedStateHandle.get<String>("analysis") == "1"
+
+    // pulso del momento para el boton fantasma
+    private val _analysis = mutableStateOf<PulseAnalysis?>(null)
+    val analysis: State<PulseAnalysis?> = _analysis
+    private var lastAnalysisAt = 0L
+    private var tfClosesCache = mapOf<String, List<Double>>()
+    private var tfClosesAt = 0L
+
+    fun refreshAnalysis(force: Boolean = false) {
+        val current = _state.value
+        if (current.candles.size < 60) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastAnalysisAt < ANALYSIS_THROTTLE_MS) return
+        lastAnalysisAt = now
+        val interval = current.selectedInterval
+        val candles = current.candles
+        viewModelScope.launch {
+            try {
+                val byTf = fetchPulseTfs(interval, force)
+                val result = withContext(Dispatchers.Default) {
+                    analyzePulse(candles, interval, byTf)
+                }
+                // si cambiaste de TF o entraron velas, este analisis ya no sirve
+                if (_state.value.selectedInterval == interval && _state.value.candles.size == candles.size) {
+                    result?.let { _analysis.value = it }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    // cierres 15m/1h/4h en paralelo, 1 llamada liviana por TF; force salta el cache
+    // el TF del chart no se trae: la matriz reusa sus velas (cero red)
+    private suspend fun fetchPulseTfs(chartInterval: String, force: Boolean): Map<String, List<Double>> =
+        withContext(Dispatchers.IO) {
+            val needed = PULSE_MA_TFS.filter { it != chartInterval }
+            val now = System.currentTimeMillis()
+            if (!force && needed.all { (tfClosesCache[it]?.size ?: 0) >= 200 } && now - tfClosesAt < ANALYSIS_TF_TTL_MS) {
+                return@withContext tfClosesCache
+            }
+            try {
+                val out = coroutineScope {
+                    needed.map { tf ->
+                        async {
+                            tf to try {
+                                repository.getRecentCloses(symbol, source, tf, 260)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        }
+                    }.awaitAll().toMap()
+                }.filterValues { it.size >= 200 }
+                if (out.size == needed.size) {
+                    tfClosesCache = tfClosesCache + out
+                    tfClosesAt = now
+                }
+                tfClosesCache + out
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                tfClosesCache
+            }
+        }
 
     private var refreshJob: Job? = null
     private var chartJob: Job? = null
@@ -472,6 +543,7 @@ class CryptoDetailViewModel @Inject constructor(
                             smc = chartData.smc,
                             rsiDiv = chartData.rsiDiv
                         )
+                        refreshAnalysis()
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -527,6 +599,7 @@ class CryptoDetailViewModel @Inject constructor(
                 )
                 // MAs de otro TF traen sus velas del mismo source (plan A)
                 refreshExtraMas()
+                refreshAnalysis()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -595,6 +668,7 @@ class CryptoDetailViewModel @Inject constructor(
             smc = chartData.smc,
                             rsiDiv = chartData.rsiDiv
         )
+        refreshAnalysis()
     }
 
     private fun List<List<Any>>.toCandles(): List<CandleData> {
@@ -877,6 +951,9 @@ class CryptoDetailViewModel @Inject constructor(
         const val DEFAULT_CHART_INTERVAL = "15m"
         const val STOCH_RSI_PERIOD = 14
         const val STOCH_SMOOTH_PERIOD = 3
+        // pulso: throttle entre recomputos + TTL de las 15m
+        const val ANALYSIS_THROTTLE_MS = 15_000L
+        const val ANALYSIS_TF_TTL_MS = 300_000L
         // lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
         const val WEEK_ANCHOR_MS = 1_578_182_400_000L
     }

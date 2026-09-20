@@ -104,8 +104,8 @@ class DivAlertNotifier @Inject constructor(
                 }
             )
             .setContentTitle(message)
-            .setContentText("$kindLabel · $source Futuros · Toca para ver la gráfica")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$kindLabel · $source Futuros · Toca para ver la gráfica en $interval"))
+            .setContentText("$kindLabel · Toca para ver la gráfica en $interval")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$kindLabel · Toca para ver la gráfica en $interval"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
@@ -133,6 +133,7 @@ class DivAlertNotifier @Inject constructor(
             putExtra(MainActivity.EXTRA_ALERT_SYMBOL, symbol)
             putExtra(MainActivity.EXTRA_ALERT_SOURCE, source)
             putExtra(MainActivity.EXTRA_ALERT_INTERVAL, interval)
+            putExtra(MainActivity.EXTRA_OPEN_ANALYSIS, true)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pi = PendingIntent.getActivity(
@@ -147,7 +148,7 @@ class DivAlertNotifier @Inject constructor(
             .setColor(if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt())
             .setContentTitle(title)
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$text · Se abre el análisis al entrar"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)

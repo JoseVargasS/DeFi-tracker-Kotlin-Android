@@ -16,6 +16,8 @@ interface CryptoRepository {
     suspend fun getKlines(symbol: String, interval: String, source: String, forceRefresh: Boolean = false): List<List<Any>>
     // sparkline liviana: 1 sola llamada, ultimos cierres 1h, cache propio 5min
     suspend fun getSparklineCloses(symbol: String, source: String, limit: Int = 30): List<Double>
+    // cierres recientes de cualquier TF en 1 sola llamada (para medias lejanas)
+    suspend fun getRecentCloses(symbol: String, source: String, interval: String, limit: Int = 260): List<Double>
     // cola fresca sin cache pa' syncTail, 1 sola llamada
     suspend fun getLatestKlines(
         symbol: String,

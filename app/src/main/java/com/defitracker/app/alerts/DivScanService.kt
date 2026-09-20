@@ -244,7 +244,7 @@ class DivScanService : Service() {
                 )
                 notifier.notifySignal(
                     symbol, "MEXC", best, bull, message,
-                    "Doble confirmación $dir · $tfLabel · MEXC Futuros · Toca para ver la gráfica",
+                    "Doble confirmación $dir · $tfLabel · Toca para ver la gráfica",
                     id.hashCode()
                 )
             } catch (e: CancellationException) {
@@ -309,7 +309,7 @@ class DivScanService : Service() {
                 )
                 notifier.notifySignal(
                     symbol, "MEXC", interval, bull, message,
-                    "$title · $interval · MEXC Futuros · Toca para ver la gráfica",
+                    "$title · $interval · Toca para ver la gráfica",
                     id.hashCode()
                 )
             } catch (e: CancellationException) {

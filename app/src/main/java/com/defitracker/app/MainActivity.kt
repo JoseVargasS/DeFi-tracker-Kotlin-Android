@@ -47,12 +47,14 @@ class MainActivity : ComponentActivity() {
 
     // deep-link desde la noti push al grafico en ese TF
     var pendingAlert: Triple<String, String, String>? by androidx.compose.runtime.mutableStateOf(null)
+    var pendingAnalysis: Boolean by androidx.compose.runtime.mutableStateOf(false)
 
     companion object {
         const val ACTION_OPEN_ALERT = "com.defitracker.app.OPEN_ALERT"
         const val EXTRA_ALERT_SYMBOL = "alert_symbol"
         const val EXTRA_ALERT_SOURCE = "alert_source"
         const val EXTRA_ALERT_INTERVAL = "alert_interval"
+        const val EXTRA_OPEN_ANALYSIS = "open_analysis"
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
             val interval = intent.getStringExtra(EXTRA_ALERT_INTERVAL).orEmpty()
             if (symbol.isNotEmpty()) {
                 pendingAlert = Triple(symbol, source, interval)
+                pendingAnalysis = intent.getBooleanExtra(EXTRA_OPEN_ANALYSIS, false)
             }
             intent.action = null
         }
@@ -92,7 +95,7 @@ class MainActivity : ComponentActivity() {
                     val alert = pendingAlert
                     if (alert != null) {
                         val route = if (alert.third.isNotEmpty()) {
-                            "crypto_detail/${alert.first}/${alert.second}?interval=${alert.third}"
+                            "crypto_detail/${alert.first}/${alert.second}?interval=${alert.third}&analysis=${if (pendingAnalysis) "1" else "0"}"
                         } else {
                             "crypto_detail/${alert.first}/${alert.second}"
                         }
@@ -100,6 +103,7 @@ class MainActivity : ComponentActivity() {
                             navController.navigate(route)
                         } catch (_: Exception) {}
                         activity.pendingAlert = null
+                        activity.pendingAnalysis = false
                     }
                 }
 
@@ -230,13 +234,18 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
             TransactionsScreen()
         }
         composable(
-            route = "crypto_detail/{symbol}/{source}?interval={interval}",
+            route = "crypto_detail/{symbol}/{source}?interval={interval}&analysis={analysis}",
             arguments = listOf(
                 navArgument("symbol") { type = NavType.StringType },
                 navArgument("source") { type = NavType.StringType },
                 navArgument("interval") {
                     type = NavType.StringType
                     defaultValue = ""
+                    nullable = true
+                },
+                navArgument("analysis") {
+                    type = NavType.StringType
+                    defaultValue = "0"
                     nullable = true
                 }
             )
