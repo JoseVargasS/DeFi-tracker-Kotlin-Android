@@ -13,7 +13,10 @@ import com.defitracker.app.presentation.crypto_detail.CandleData
 import com.defitracker.app.presentation.crypto_detail.RSI_DIV_EARLY_LOOKBACK
 import com.defitracker.app.presentation.crypto_detail.RsiDiv
 import com.defitracker.app.presentation.crypto_detail.calculateRsi
+import com.defitracker.app.presentation.crypto_detail.detectFvgTap
+import com.defitracker.app.presentation.crypto_detail.detectMaWickRejection
 import com.defitracker.app.presentation.crypto_detail.detectRsiDivergences
+import com.defitracker.app.presentation.crypto_detail.detectSweepReclaim
 import com.defitracker.app.presentation.crypto_detail.toCandleList
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
@@ -62,8 +65,8 @@ class DivScanService : Service() {
             try {
                 val config = monitorPrefs.current()
                 if (config.enabled) {
-                    scanOnce(config.intervals.toList())
-                    // poda notis de mas de 7 dias
+                    scanOnce(config)
+                    // poda notis de mas de 30 dias
                     try {
                         divAlertDao.pruneOlderThan(System.currentTimeMillis() - PRUNE_MS)
                     } catch (_: Exception) {}
@@ -77,7 +80,8 @@ class DivScanService : Service() {
         }
     }
 
-    private suspend fun scanOnce(intervals: List<String>) {
+    private suspend fun scanOnce(config: DivMonitorConfig) {
+        val intervals = config.intervals.toList()
         if (intervals.isEmpty()) return
         val pairs = try {
             trackedPairDao.getAllTrackedPairs().first()
@@ -89,6 +93,8 @@ class DivScanService : Service() {
 
         for (pair in pairs) {
             if (!scope.isActive) return
+            // divis frescas por TF para la confluencia multi-TF
+            val fresh = ArrayList<Triple<String, RsiDiv, Long>>()
             for (interval in intervals) {
                 if (!scope.isActive) return
                 try {
@@ -109,8 +115,21 @@ class DivScanService : Service() {
                         continue
                     }
                     // temprana (lookback 2) + confirmada (lookback 5) sobre las mismas velas
-                    processDivs(pair.symbol, interval, candles, detectRsiDivergences(candles, rsi, RSI_DIV_EARLY_LOOKBACK), pre = true)
-                    processDivs(pair.symbol, interval, candles, detectRsiDivergences(candles, rsi), pre = false)
+                    val earlyDivs = detectRsiDivergences(candles, rsi, RSI_DIV_EARLY_LOOKBACK)
+                    val confDivs = detectRsiDivergences(candles, rsi)
+                    processDivs(pair.symbol, interval, candles, earlyDivs, pre = true)
+                    processDivs(pair.symbol, interval, candles, confDivs, pre = false)
+                    // la mas reciente fresca de este TF cuenta para confluencia
+                    (earlyDivs + confDivs).maxByOrNull { it.idx2 }?.let { d ->
+                        val recency = candles.size - 1 - d.idx2
+                        if (recency in 0..FRESH_CANDLES && d.idx2 in candles.indices) {
+                            fresh.add(Triple(interval, d, candles[d.idx2].time))
+                        }
+                    }
+                    // señales de entrada sobre las velas ya traidas, sin red extra
+                    if (candles.size >= MIN_SIGNAL_CANDLES) {
+                        processSignals(pair.symbol, interval, candles, config.signals)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -119,6 +138,7 @@ class DivScanService : Service() {
                 // secuencial con pausa, no paralelizar terceros
                 delay(PAIR_TF_DELAY_MS)
             }
+            processConfluence(pair.symbol, fresh, config.confluence)
         }
     }
 
@@ -185,6 +205,119 @@ class DivScanService : Service() {
         notifier.notifyDivergence(symbol, "MEXC", interval, last.bullish, kindLabelEs(last.kind.name), baseId.hashCode(), tag)
     }
 
+    // doble confirmacion: misma direccion fresca en 2+ TFs
+    private suspend fun processConfluence(
+        symbol: String,
+        fresh: List<Triple<String, RsiDiv, Long>>,
+        enabled: Boolean
+    ) {
+        if (!enabled || fresh.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val displaySymbol = symbol.replace("_", "")
+        listOf(true, false).forEach { bull ->
+            val tfs = fresh.filter { it.second.bullish == bull }.map { it.first }.distinct()
+            if (tfs.size < 2) return@forEach
+            val kind = if (bull) "CONF_BULL" else "CONF_BEAR"
+            try {
+                if (divAlertDao.countSince(symbol, kind, now - CONF_COOLDOWN_MS) > 0) return@forEach
+            } catch (_: Exception) { return@forEach }
+            val best = tfs.maxByOrNull { tfDurationMs(it) } ?: tfs.first()
+            val candleTime = fresh.filter { it.second.bullish == bull }.maxOfOrNull { it.third } ?: now
+            val id = "$symbol|CONF|${if (bull) "BULL" else "BEAR"}|$candleTime"
+            try {
+                if (divAlertDao.getById(id) != null) return@forEach
+                val dir = if (bull) "alcista" else "bajista"
+                val tfLabel = tfs.sortedBy { tfDurationMs(it) }.joinToString("+")
+                val message = "¡🔥 Doble confirmación $dir $tfLabel en $displaySymbol!"
+                divAlertDao.insert(
+                    DivAlertEntity(
+                        id = id,
+                        symbol = symbol,
+                        source = "MEXC",
+                        interval = best,
+                        kind = kind,
+                        bullish = bull,
+                        message = message,
+                        candleTime = candleTime,
+                        status = "CONFIRMED"
+                    )
+                )
+                notifier.notifySignal(
+                    symbol, "MEXC", best, bull, message,
+                    "Doble confirmación $dir · $tfLabel · MEXC Futuros · Toca para ver la gráfica",
+                    id.hashCode()
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Confluence failed $symbol", e)
+            }
+        }
+    }
+
+    // gatillos de entrada sobre las velas ya traidas, con cooldown 4h por señal
+    private suspend fun processSignals(
+        symbol: String,
+        interval: String,
+        candles: List<CandleData>,
+        enabled: Set<String>
+    ) {
+        if (enabled.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val displaySymbol = symbol.replace("_", "")
+        val found = ArrayList<Triple<String, Boolean, String>>()
+        if ("MA_REJECT" in enabled) {
+            try {
+                detectMaWickRejection(candles)?.let { s ->
+                    found.add(Triple("MA_REJECT_${if (s.bullish) "BULL" else "BEAR"}", s.bullish, "Mechazo ${if (s.bullish) "alcista" else "bajista"} en ${s.label}"))
+                }
+            } catch (_: Exception) {}
+        }
+        if ("FVG_TAP" in enabled) {
+            try {
+                detectFvgTap(candles)?.let { s ->
+                    found.add(Triple("FVG_TAP_${if (s.bullish) "BULL" else "BEAR"}", s.bullish, "Toque en FVG ${if (s.bullish) "alcista" else "bajista"}"))
+                }
+            } catch (_: Exception) {}
+        }
+        if ("SWEEP" in enabled) {
+            try {
+                detectSweepReclaim(candles)?.let { s ->
+                    found.add(Triple("SWEEP_${if (s.bullish) "BULL" else "BEAR"}", s.bullish, "Barrido de ${if (s.bullish) "mínimos" else "máximos"} + reclaim"))
+                }
+            } catch (_: Exception) {}
+        }
+        for ((kind, bull, title) in found) {
+            try {
+                if (divAlertDao.countSince(symbol, kind, now - SIGNAL_COOLDOWN_MS) > 0) continue
+                val candleTime = candles[candles.size - 2].time
+                val id = "$symbol|$interval|$kind|$candleTime"
+                if (divAlertDao.getById(id) != null) continue
+                val message = "¡$title · $interval en $displaySymbol!"
+                divAlertDao.insert(
+                    DivAlertEntity(
+                        id = id,
+                        symbol = symbol,
+                        source = "MEXC",
+                        interval = interval,
+                        kind = kind,
+                        bullish = bull,
+                        message = message,
+                        candleTime = candleTime,
+                        status = "CONFIRMED"
+                    )
+                )
+                notifier.notifySignal(
+                    symbol, "MEXC", interval, bull, message,
+                    "$title · $interval · MEXC Futuros · Toca para ver la gráfica",
+                    id.hashCode()
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
     // pres/confirmadas del mismo evento con el pivote hasta 2 velas corrido
     private suspend fun findNearby(symbol: String, interval: String, kind: String, candleTime: Long, status: String): DivAlertEntity? {
         val step = tfDurationMs(interval)
@@ -227,7 +360,10 @@ class DivScanService : Service() {
         private const val MIN_CANDLES = 60
         // solo avisa si el pivote cerro hace <= 3 velas, si no es historia vieja
         private const val FRESH_CANDLES = 3
-        private const val PRUNE_MS = 7L * 24 * 60 * 60 * 1000
+        private const val PRUNE_MS = 30L * 24 * 60 * 60 * 1000
+        private const val MIN_SIGNAL_CANDLES = 55
+        private const val SIGNAL_COOLDOWN_MS = 4L * 60 * 60 * 1000
+        private const val CONF_COOLDOWN_MS = 24L * 60 * 60 * 1000
 
         fun start(context: Context) {
             val intent = Intent(context, DivScanService::class.java)

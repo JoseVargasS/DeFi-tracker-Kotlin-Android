@@ -34,4 +34,10 @@ interface DivAlertDao {
 
     @Query("DELETE FROM div_alerts WHERE createdAt < :beforeMs")
     suspend fun pruneOlderThan(beforeMs: Long)
+
+    @Query("SELECT COUNT(*) FROM div_alerts WHERE symbol = :symbol AND kind = :kind AND createdAt > :sinceMs")
+    suspend fun countSince(symbol: String, kind: String, sinceMs: Long): Int
+
+    @Query("DELETE FROM div_alerts")
+    suspend fun deleteAll()
 }

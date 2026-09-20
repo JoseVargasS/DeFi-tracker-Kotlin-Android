@@ -114,6 +114,48 @@ class DivAlertNotifier @Inject constructor(
         NotificationManagerCompat.from(context).notify(alertIdHash, noti)
     }
 
+    fun notifySignal(
+        symbol: String,
+        source: String,
+        interval: String,
+        bullish: Boolean,
+        title: String,
+        text: String,
+        alertIdHash: Int
+    ) {
+        if (ActivityCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return
+        ensureChannels()
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_OPEN_ALERT
+            putExtra(MainActivity.EXTRA_ALERT_SYMBOL, symbol)
+            putExtra(MainActivity.EXTRA_ALERT_SOURCE, source)
+            putExtra(MainActivity.EXTRA_ALERT_INTERVAL, interval)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            context, alertIdHash, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val noti = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(
+                if (bullish) R.drawable.ic_arrow_up_bold
+                else R.drawable.ic_arrow_down_bold
+            )
+            .setColor(if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt())
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .build()
+        NotificationManagerCompat.from(context).notify(alertIdHash, noti)
+    }
+
     companion object {
         const val CHANNEL_ALERTS = "div_alerts"
         const val CHANNEL_SERVICE = "div_monitor_min"

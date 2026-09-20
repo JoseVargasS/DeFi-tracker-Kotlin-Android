@@ -16,7 +16,9 @@ private val Context.divMonitorDataStore by preferencesDataStore("div_monitor")
 
 data class DivMonitorConfig(
     val enabled: Boolean = true,
-    val intervals: Set<String> = setOf("5m", "15m", "30m", "1h")
+    val intervals: Set<String> = setOf("5m", "15m", "30m", "1h"),
+    val confluence: Boolean = true,
+    val signals: Set<String> = setOf("MA_REJECT", "FVG_TAP", "SWEEP")
 )
 
 @Singleton
@@ -28,7 +30,11 @@ class DivMonitorPrefs @Inject constructor(
             enabled = p[booleanPreferencesKey("enabled")] ?: true,
             intervals = p[stringPreferencesKey("intervals")]
                 ?.split(",").orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                .ifEmpty { DivMonitorConfig().intervals }
+                .ifEmpty { DivMonitorConfig().intervals },
+            confluence = p[booleanPreferencesKey("confluence")] ?: true,
+            signals = p[stringPreferencesKey("signals")]
+                ?.split(",").orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                ?: DivMonitorConfig().signals
         )
     }
 
@@ -44,10 +50,19 @@ class DivMonitorPrefs @Inject constructor(
         context.divMonitorDataStore.edit { it[stringPreferencesKey("intervals")] = clean.joinToString(",") }
     }
 
+    suspend fun setConfluence(enabled: Boolean) {
+        context.divMonitorDataStore.edit { it[booleanPreferencesKey("confluence")] = enabled }
+    }
+
+    suspend fun setSignals(signals: Set<String>) {
+        context.divMonitorDataStore.edit { it[stringPreferencesKey("signals")] = signals.joinToString(",") }
+    }
+
     companion object {
         val ALL_INTERVALS = listOf(
             "1m", "5m", "15m", "30m", "1h", "2h", "4h",
             "6h", "12h", "1d", "3d", "5d", "1w", "2w", "1mo"
         )
+        val ALL_SIGNALS = listOf("MA_REJECT", "FVG_TAP", "SWEEP")
     }
 }

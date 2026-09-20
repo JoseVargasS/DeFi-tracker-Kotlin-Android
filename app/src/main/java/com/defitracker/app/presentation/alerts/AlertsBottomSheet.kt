@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -34,6 +35,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.alerts.DivMonitorPrefs
 import com.defitracker.app.data.local.DivAlertEntity
+import com.defitracker.app.ui.theme.CardBg
+import com.defitracker.app.ui.theme.SheetBg
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -61,7 +68,7 @@ fun AlertsBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF12141A),
+        containerColor = SheetBg,
         contentColor = Color.White
     ) {
         Column(
@@ -103,6 +110,34 @@ fun AlertsBottomSheet(
                             tint = Color.White
                         )
                     }
+                    // basurero = eliminar todas con confirmacion
+                    var confirmClear by remember { mutableStateOf(false) }
+                    IconButton(onClick = { confirmClear = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Eliminar todas las notificaciones",
+                            tint = Color.White
+                        )
+                    }
+                    if (confirmClear) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { confirmClear = false },
+                            containerColor = SheetBg,
+                            titleContentColor = Color.White,
+                            textContentColor = Color.Gray,
+                            title = { Text("Eliminar notificaciones") },
+                            text = { Text("¿Borrar las ${state.alerts.size} notificaciones? No se pueden recuperar.") },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    viewModel.clearAll()
+                                    confirmClear = false
+                                }) { Text("Eliminar", color = Color(0xFFF6465D)) }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = { confirmClear = false }) { Text("Cancelar", color = Color.White) }
+                            }
+                        )
+                    }
                 }
             }
 
@@ -127,7 +162,7 @@ fun AlertsBottomSheet(
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
                             selectedLabelColor = Color.White,
-                            containerColor = Color(0xFF1A1D23),
+                            containerColor = CardBg,
                             labelColor = Color.Gray
                         )
                     )
@@ -146,13 +181,41 @@ fun AlertsBottomSheet(
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
                             selectedLabelColor = Color.White,
-                            containerColor = Color(0xFF1A1D23),
+                            containerColor = CardBg,
                             labelColor = Color.Gray
                         )
                     )
                 }
             }
 
+            Spacer(Modifier.height(8.dp))
+
+            Text("Entradas · se evalúan en tus TFs", color = Color.Gray, fontSize = 12.sp)
+            Spacer(Modifier.height(4.dp))
+            SignalSwitchRow(
+                title = "Doble confirmación",
+                subtitle = "Misma div en 2+ TFs",
+                checked = state.confluence,
+                onToggle = { viewModel.toggleConfluence(!state.confluence) }
+            )
+            SignalSwitchRow(
+                title = "Mechazo en media",
+                subtitle = "Rechazo en SMA/EMA 21-50",
+                checked = "MA_REJECT" in state.signals,
+                onToggle = { viewModel.toggleSignal("MA_REJECT") }
+            )
+            SignalSwitchRow(
+                title = "Toque en FVG",
+                subtitle = "Reacción en gap sin mitigar",
+                checked = "FVG_TAP" in state.signals,
+                onToggle = { viewModel.toggleSignal("FVG_TAP") }
+            )
+            SignalSwitchRow(
+                title = "Barrido + reclaim",
+                subtitle = "Toma de liquidez y vuelta",
+                checked = "SWEEP" in state.signals,
+                onToggle = { viewModel.toggleSignal("SWEEP") }
+            )
             Spacer(Modifier.height(8.dp))
 
             if (state.alerts.isEmpty()) {
@@ -214,8 +277,8 @@ private fun AlertRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(
-                if (alert.seen) Color(0xFF1A1D23)
-                else Color(0xFF1A1D23).copy(alpha = 0.6f)
+                if (alert.seen) CardBg
+                else CardBg.copy(alpha = 0.6f)
             )
             .clickable(onClick = onClick)
             .padding(12.dp),
@@ -262,11 +325,48 @@ private fun AlertRow(
     }
 }
 
+@Composable
+private fun SignalSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = Color.Gray, fontSize = 11.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFF1ECB81)
+            )
+        )
+    }
+}
+
 private fun DivAlertEntity.kindLabel(): String = when (kind) {
     "REG_BULL" -> "Alcista regular"
     "HID_BULL" -> "Alcista oculta"
     "REG_BEAR" -> "Bajista regular"
     "HID_BEAR" -> "Bajista oculta"
+    "CONF_BULL" -> "🔥 Doble confirmación alcista"
+    "CONF_BEAR" -> "🔥 Doble confirmación bajista"
+    "MA_REJECT_BULL" -> "Mechazo en media alcista"
+    "MA_REJECT_BEAR" -> "Mechazo en media bajista"
+    "FVG_TAP_BULL" -> "Toque en FVG alcista"
+    "FVG_TAP_BEAR" -> "Toque en FVG bajista"
+    "SWEEP_BULL" -> "Barrido + reclaim alcista"
+    "SWEEP_BEAR" -> "Barrido + reclaim bajista"
     else -> kind
 }
 

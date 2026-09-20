@@ -20,7 +20,9 @@ data class AlertsState(
     val alerts: List<DivAlertEntity> = emptyList(),
     val unread: Int = 0,
     val monitoring: Boolean = true,
-    val intervals: Set<String> = setOf("5m", "15m", "30m", "1h")
+    val intervals: Set<String> = setOf("5m", "15m", "30m", "1h"),
+    val confluence: Boolean = true,
+    val signals: Set<String> = setOf("MA_REJECT", "FVG_TAP", "SWEEP")
 )
 
 @HiltViewModel
@@ -41,7 +43,7 @@ class AlertsViewModel @Inject constructor(
             .onEach { n -> _state.value = state.value.copy(unread = n) }
             .launchIn(viewModelScope)
         prefs.configFlow
-            .onEach { c -> _state.value = state.value.copy(monitoring = c.enabled, intervals = c.intervals) }
+            .onEach { c -> _state.value = state.value.copy(monitoring = c.enabled, intervals = c.intervals, confluence = c.confluence, signals = c.signals) }
             .launchIn(viewModelScope)
     }
 
@@ -49,6 +51,17 @@ class AlertsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 dao.markAllSeen()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    // borrado real, con confirmacion en el sheet
+    fun clearAll() {
+        viewModelScope.launch {
+            try {
+                dao.deleteAll()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
@@ -89,6 +102,28 @@ class AlertsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 prefs.setIntervals(current)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun toggleConfluence(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                prefs.setConfluence(enabled)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun toggleSignal(kind: String) {
+        val current = state.value.signals.toMutableSet()
+        if (kind in current) current.remove(kind) else current.add(kind)
+        viewModelScope.launch {
+            try {
+                prefs.setSignals(current)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
