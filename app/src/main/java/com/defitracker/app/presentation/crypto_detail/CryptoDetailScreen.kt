@@ -63,7 +63,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.defitracker.app.presentation.components.PillGrid
+import com.defitracker.app.presentation.components.PillOption
+import com.defitracker.app.presentation.components.SheetSectionTitle
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -4786,17 +4790,19 @@ fun IndicatorsSheet(
             text = "Indicadores",
             color = Color.White,
             fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
         )
+        Spacer(modifier = Modifier.height(12.dp))
+        SheetSectionTitle("Principales")
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Principales",
-            color = Color.Gray,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
+        PillGrid(
+            options = listOf(
+                PillOption("BOLL", prefs.bbVisible, onToggleBB),
+                PillOption("Perfil", prefs.profileVisible, onToggleProfile)
+            )
         )
-        IndicatorSwitchRow("BOLL", "Bandas de Bollinger", prefs.bbVisible, onToggleBB)
-        IndicatorSwitchRow("Perfil", "Perfil de volumen", prefs.profileVisible, onToggleProfile)
         // medias en su propio bottom sheet, resumen de activas
         run {
             val maActive = prefs.mas.count { it.visible }
@@ -4824,32 +4830,40 @@ fun IndicatorsSheet(
                 Text(text = "▸", color = Color.Gray, fontSize = 16.sp)
             }
         }
+        Spacer(modifier = Modifier.height(12.dp))
+        SheetSectionTitle("Subindicadores")
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Subindicadores",
-            color = Color.Gray,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
+        PillGrid(
+            options = listOf(
+                PillOption("VOL", prefs.volumeVisible, onToggleVolume),
+                PillOption("StochRSI", prefs.stochVisible, onToggleStoch),
+                PillOption("RSI", prefs.rsiVisible, onToggleRsi),
+                PillOption("MACD", prefs.macdVisible, onToggleMacd)
+            )
         )
-        IndicatorSwitchRow("VOL", "Volumen", prefs.volumeVisible, onToggleVolume)
-        IndicatorSwitchRow("StochRSI", "Stoch RSI", prefs.stochVisible, onToggleStoch)
-        IndicatorSwitchRow("RSI", "RSI 14", prefs.rsiVisible, onToggleRsi)
-        IndicatorSwitchRow("MACD", "MACD 12,26,9", prefs.macdVisible, onToggleMacd)
-        IndicatorSwitchRow("DIV", "Divergencias RSI", prefs.rsiDivVisible, onToggleRsiDiv)
-        IndicatorSwitchRow("HDIV", "Divergencias ocultas", prefs.rsiDivHidden, onToggleRsiDivHidden)
+        Spacer(modifier = Modifier.height(12.dp))
+        SheetSectionTitle("Divergencias")
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Smart Money",
-            color = Color.Gray,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
+        PillGrid(
+            options = listOf(
+                PillOption("DIV", prefs.rsiDivVisible, onToggleRsiDiv),
+                PillOption("HDIV", prefs.rsiDivHidden, onToggleRsiDivHidden)
+            )
         )
-        IndicatorSwitchRow("BOS / CHoCH", "Estructura de mercado", prefs.smcStructure, onToggleSmcStructure)
-        IndicatorSwitchRow("Order Blocks", "Últimos 5 por lado", prefs.smcOrderBlocks, onToggleSmcOB)
-        IndicatorSwitchRow("FVG", "Gaps de valor justo", prefs.smcFvg, onToggleSmcFvg)
-        IndicatorSwitchRow("Premium/Discount", "Rango 120 velas + equilibrio", prefs.smcPremium, onToggleSmcPremium)
-        IndicatorSwitchRow("EQH / EQL", "Máximos/mínimos iguales", prefs.smcEqhl, onToggleSmcEqhl)
-        IndicatorSwitchRow("Liquidez BSL/SSL", "Pools + barridos", prefs.smcLiquidity, onToggleSmcLiq)
+        Spacer(modifier = Modifier.height(12.dp))
+        SheetSectionTitle("Smart Money")
+        Spacer(modifier = Modifier.height(8.dp))
+        PillGrid(
+            options = listOf(
+                PillOption("BOS / CHoCH", prefs.smcStructure, onToggleSmcStructure),
+                PillOption("Order Blocks", prefs.smcOrderBlocks, onToggleSmcOB),
+                PillOption("FVG", prefs.smcFvg, onToggleSmcFvg),
+                PillOption("Premium/Discount", prefs.smcPremium, onToggleSmcPremium),
+                PillOption("EQH / EQL", prefs.smcEqhl, onToggleSmcEqhl),
+                PillOption("Liquidez BSL/SSL", prefs.smcLiquidity, onToggleSmcLiq)
+            ),
+            columns = 2
+        )
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
@@ -5906,43 +5920,5 @@ fun FibLevelsSheet(
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
-    }
-}
-
-@Composable
-private fun IndicatorSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onToggle: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onToggle() }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = subtitle,
-                color = Color.Gray,
-                fontSize = 12.sp
-            )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = Color(0xFF1ECB81)
-            )
-        )
     }
 }

@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.alerts.DivMonitorPrefs
 import com.defitracker.app.data.local.DivAlertEntity
+import com.defitracker.app.presentation.components.PillGrid
+import com.defitracker.app.presentation.components.PillOption
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.ui.theme.SheetBg
 import java.text.SimpleDateFormat
@@ -191,30 +193,31 @@ fun AlertsBottomSheet(
             Spacer(Modifier.height(8.dp))
 
             Text("Entradas · se evalúan en tus TFs", color = Color.Gray, fontSize = 12.sp)
-            Spacer(Modifier.height(4.dp))
-            SignalSwitchRow(
-                title = "Doble confirmación",
-                subtitle = "Misma div en 2+ TFs",
-                checked = state.confluence,
-                onToggle = { viewModel.toggleConfluence(!state.confluence) }
-            )
-            SignalSwitchRow(
-                title = "Mechazo en media",
-                subtitle = "Rechazo en SMA/EMA 21-50",
-                checked = "MA_REJECT" in state.signals,
-                onToggle = { viewModel.toggleSignal("MA_REJECT") }
-            )
-            SignalSwitchRow(
-                title = "Toque en FVG",
-                subtitle = "Reacción en gap sin mitigar",
-                checked = "FVG_TAP" in state.signals,
-                onToggle = { viewModel.toggleSignal("FVG_TAP") }
-            )
-            SignalSwitchRow(
-                title = "Barrido + reclaim",
-                subtitle = "Toma de liquidez y vuelta",
-                checked = "SWEEP" in state.signals,
-                onToggle = { viewModel.toggleSignal("SWEEP") }
+            Spacer(Modifier.height(8.dp))
+            PillGrid(
+                options = listOf(
+                    PillOption(
+                        title = "Doble confirmación",
+                        selected = state.confluence,
+                        onToggle = { viewModel.toggleConfluence(!state.confluence) }
+                    ),
+                    PillOption(
+                        title = "Mechazo en media",
+                        selected = "MA_REJECT" in state.signals,
+                        onToggle = { viewModel.toggleSignal("MA_REJECT") }
+                    ),
+                    PillOption(
+                        title = "Toque en FVG",
+                        selected = "FVG_TAP" in state.signals,
+                        onToggle = { viewModel.toggleSignal("FVG_TAP") }
+                    ),
+                    PillOption(
+                        title = "Barrido + reclaim",
+                        selected = "SWEEP" in state.signals,
+                        onToggle = { viewModel.toggleSignal("SWEEP") }
+                    )
+                ),
+                columns = 2
             )
             Spacer(Modifier.height(8.dp))
 
@@ -322,35 +325,6 @@ private fun AlertRow(
                     .background(accent)
             )
         }
-    }
-}
-
-@Composable
-private fun SignalSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onToggle: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = Color.Gray, fontSize = 11.sp)
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = Color(0xFF1ECB81)
-            )
-        )
     }
 }
 
