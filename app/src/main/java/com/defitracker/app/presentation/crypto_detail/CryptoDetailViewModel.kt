@@ -188,6 +188,7 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleVolumeSub() = updatePrefs { it.copy(volumeVisible = !it.volumeVisible) }
     fun toggleStochSub() = updatePrefs { it.copy(stochVisible = !it.stochVisible) }
     fun toggleRsiSub() = updatePrefs { it.copy(rsiVisible = !it.rsiVisible) }
+    fun toggleMacdSub() = updatePrefs { it.copy(macdVisible = !it.macdVisible) }
     fun toggleRsiDiv() = updatePrefs { it.copy(rsiDivVisible = !it.rsiDivVisible) }
     fun toggleRsiDivHidden() = updatePrefs { it.copy(rsiDivHidden = !it.rsiDivHidden) }
     fun toggleMA(period: Int) = updatePrefs { cur ->
@@ -556,6 +557,9 @@ class CryptoDetailViewModel @Inject constructor(
                             stochD = chartData.stochD,
                             maLines = chartData.maLines,
                             rsi = chartData.rsi,
+                            macdDif = chartData.macdDif,
+                            macdDea = chartData.macdDea,
+                            macdHist = chartData.macdHist,
                             smc = chartData.smc,
                             rsiDiv = chartData.rsiDiv
                         )
@@ -649,6 +653,9 @@ class CryptoDetailViewModel @Inject constructor(
                     stochD = chartData.stochD,
                     maLines = chartData.maLines,
                     rsi = chartData.rsi,
+                    macdDif = chartData.macdDif,
+                    macdDea = chartData.macdDea,
+                    macdHist = chartData.macdHist,
                     smc = chartData.smc,
                             rsiDiv = chartData.rsiDiv,
                     isLoading = false
@@ -720,6 +727,9 @@ class CryptoDetailViewModel @Inject constructor(
             stochD = chartData.stochD,
             maLines = chartData.maLines,
             rsi = chartData.rsi,
+            macdDif = chartData.macdDif,
+            macdDea = chartData.macdDea,
+            macdHist = chartData.macdHist,
             smc = chartData.smc,
                             rsiDiv = chartData.rsiDiv
         )
@@ -836,6 +846,7 @@ class CryptoDetailViewModel @Inject constructor(
 
         // RSI(14) alineado a vela para el subpanel, reusa el calculo de arriba
         val rsi = rsiValues.mapIndexed { i, v -> (i + (size - rsiValues.size)).toLong() to v }
+        val macd = calculateMacd(this)
 
         return ChartComputation(
             candles = this,
@@ -846,6 +857,9 @@ class CryptoDetailViewModel @Inject constructor(
             stochD = stochD,
             maLines = maLines,
             rsi = rsi,
+            macdDif = macd.dif,
+            macdDea = macd.dea,
+            macdHist = macd.hist,
             // SMC derivado de las velas, se recalcula solo al cambiar TF
             smc = computeSmc(this, interval),
             // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
@@ -1058,6 +1072,9 @@ data class CryptoDetailState(
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
+    val macdDif: List<Pair<Long, Double>> = emptyList(),
+    val macdDea: List<Pair<Long, Double>> = emptyList(),
+    val macdHist: List<Pair<Long, Double>> = emptyList(),
     val smc: SmcData = SmcData(),
     val rsiDiv: List<RsiDiv> = emptyList(),
     val selectedInterval: String = "15m",
@@ -1085,6 +1102,9 @@ private data class ChartComputation(
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
+    val macdDif: List<Pair<Long, Double>> = emptyList(),
+    val macdDea: List<Pair<Long, Double>> = emptyList(),
+    val macdHist: List<Pair<Long, Double>> = emptyList(),
     val smc: SmcData = SmcData(),
     val rsiDiv: List<RsiDiv> = emptyList()
 )

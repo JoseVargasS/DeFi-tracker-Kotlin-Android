@@ -265,14 +265,17 @@ fun CryptoDetailScreen(
                         val priceChartRef = remember { mutableStateOf<CombinedChart?>(null) }
                         val stochChartRef = remember { mutableStateOf<LineChart?>(null) }
                         val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
+                        val macdChartRef = remember { mutableStateOf<CombinedChart?>(null) }
                         // altos arrastrables, subs mas altos por defecto
                         var priceW by remember { mutableFloatStateOf(if (chartExpanded.value) 4f else 2.5f) }
                         var stochW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
                         var rsiW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
+                        var macdW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
                         LaunchedEffect(chartExpanded.value) {
                             priceW = if (chartExpanded.value) 4f else 2.5f
                             stochW = if (chartExpanded.value) 0.7f else 1f
                             rsiW = stochW
+                            macdW = stochW
                         }
 
                         Box(modifier = Modifier.weight(priceW)) {
@@ -284,13 +287,14 @@ fun CryptoDetailScreen(
                                 onOpenIndicators = { showIndicators.value = true },
                                 priceChartRef = priceChartRef,
                                 stochChartRef = stochChartRef,
-                                rsiChartRef = rsiChartRef
+                                rsiChartRef = rsiChartRef,
+                                macdChartRef = macdChartRef
                             )
                         }
-                        if (prefs.stochVisible || prefs.rsiVisible) {
+                        if (prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible) {
                             // divisor precio/subs
                             ChartResizeDivider { dy ->
-                                var d = dy / areaHpx.coerceAtLeast(1f) * (priceW + stochW + rsiW)
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (priceW + stochW + rsiW + macdW)
                                 val np = priceW + d
                                 if (np < 1f) d = 1f - priceW
                                 if (np > 6f) d = 6f - priceW
@@ -300,12 +304,18 @@ fun CryptoDetailScreen(
                                     if (ns > 3f) { d = stochW - 3f; ns = 3f }
                                     priceW += d
                                     stochW = ns
-                                } else {
+                                } else if (prefs.rsiVisible) {
                                     var ns = rsiW - d
                                     if (ns < 0.35f) { d = rsiW - 0.35f; ns = 0.35f }
                                     if (ns > 3f) { d = rsiW - 3f; ns = 3f }
                                     priceW += d
                                     rsiW = ns
+                                } else {
+                                    var ns = macdW - d
+                                    if (ns < 0.35f) { d = macdW - 0.35f; ns = 0.35f }
+                                    if (ns > 3f) { d = macdW - 3f; ns = 3f }
+                                    priceW += d
+                                    macdW = ns
                                 }
                             }
                         }
@@ -337,6 +347,39 @@ fun CryptoDetailScreen(
                         if (prefs.rsiVisible) {
                             Box(modifier = Modifier.weight(rsiW)) {
                                 RsiChart(state, rsiChartRef, priceChartRef, prefs)
+                            }
+                        }
+                        if (prefs.macdVisible && prefs.rsiVisible) {
+                            // divisor rsi/macd
+                            ChartResizeDivider { dy ->
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (rsiW + macdW)
+                                val nr = rsiW + d
+                                if (nr < 0.35f) d = 0.35f - rsiW
+                                if (nr > 3f) d = 3f - rsiW
+                                var nm = macdW - d
+                                if (nm < 0.35f) { d = macdW - 0.35f; nm = 0.35f }
+                                if (nm > 3f) { d = macdW - 3f; nm = 3f }
+                                rsiW += d
+                                macdW = nm
+                            }
+                        }
+                        if (prefs.macdVisible && prefs.stochVisible && !prefs.rsiVisible) {
+                            // divisor stoch/macd cuando el rsi va apagado
+                            ChartResizeDivider { dy ->
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (stochW + macdW)
+                                val ns = stochW + d
+                                if (ns < 0.35f) d = 0.35f - stochW
+                                if (ns > 3f) d = 3f - stochW
+                                var nm = macdW - d
+                                if (nm < 0.35f) { d = macdW - 0.35f; nm = 0.35f }
+                                if (nm > 3f) { d = macdW - 3f; nm = 3f }
+                                stochW += d
+                                macdW = nm
+                            }
+                        }
+                        if (prefs.macdVisible) {
+                            Box(modifier = Modifier.weight(macdW)) {
+                                MacdChart(state, macdChartRef, priceChartRef)
                             }
                         }
                     }
@@ -371,6 +414,7 @@ fun CryptoDetailScreen(
                         onToggleVolume = { viewModel.toggleVolumeSub() },
                         onToggleStoch = { viewModel.toggleStochSub() },
                         onToggleRsi = { viewModel.toggleRsiSub() },
+                        onToggleMacd = { viewModel.toggleMacdSub() },
                         onToggleRsiDiv = { viewModel.toggleRsiDiv() },
                         onToggleRsiDivHidden = { viewModel.toggleRsiDivHidden() },
                         // medias en su propio bottom sheet encima del de indicadores
@@ -717,7 +761,8 @@ fun PriceChart(
     onOpenIndicators: () -> Unit,
     priceChartRef: MutableState<CombinedChart?>,
     stochChartRef: MutableState<LineChart?>,
-    rsiChartRef: MutableState<LineChart?>
+    rsiChartRef: MutableState<LineChart?>,
+    macdChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
 ) {
     val stateRef = remember { mutableStateOf(state) }
     // onDraw del chart es closure de fabrica, lee prefs via ref o queda stale
@@ -1136,7 +1181,7 @@ fun PriceChart(
                     // this chart intentionally have no such bounds.
                     viewPortHandler.matrixTouch.set(matrix)
                     invalidate()
-                    syncSubCharts(this, stochChartRef.value, rsiChartRef.value)
+                    syncSubCharts(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                 }
 
                 // el resize (divisor de altos) recalcula ejes con toda la
@@ -1235,7 +1280,7 @@ fun PriceChart(
                     }
                     highlightValue(null)
                     lastTouchYPx = -1f
-                    syncHighlights(this, stochChartRef.value, rsiChartRef.value)
+                    syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                     invalidate()
                     return true
                 }
@@ -2757,7 +2802,7 @@ fun PriceChart(
                                 gestureMoved = true
                                 lastTouchYPx = event.y
                                 highlightValue(getHighlightByTouchPoint(event.x, event.y), true)
-                                syncHighlights(this, stochChartRef.value, rsiChartRef.value)
+                                syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                                 lastGestureX = event.x
                                 lastGestureY = event.y
                                 invalidate()
@@ -2811,7 +2856,7 @@ fun PriceChart(
                                     // Toggle OFF
                                     highlightValue(null)
                                     lastTouchYPx = -1f
-                                    syncHighlights(this, stochChartRef.value, rsiChartRef.value)
+                                    syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                                 } else {
                                     // Toggle ON
                                     lastTouchYPx = event.y
@@ -3055,10 +3100,10 @@ fun PriceChart(
 
                 setOnChartValueSelectedListener(object : com.github.mikephil.charting.listener.OnChartValueSelectedListener {
                     override fun onValueSelected(e: Entry?, h: Highlight?) {
-                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value)
+                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                     }
                     override fun onNothingSelected() {
-                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value)
+                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                     }
                 })
 
@@ -3071,10 +3116,10 @@ fun PriceChart(
                     override fun onChartFling(me1: android.view.MotionEvent?, me2: android.view.MotionEvent?, velocityX: Float, velocityY: Float) {}
 
                     override fun onChartScale(me: android.view.MotionEvent?, scaleX: Float, scaleY: Float) {
-                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value)
+                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                     }
                     override fun onChartTranslate(me: android.view.MotionEvent?, dX: Float, dY: Float) {
-                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value)
+                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                     }
                 }
 
@@ -3339,14 +3384,14 @@ fun PriceChart(
                         chart.viewPortHandler.matrixTouch.set(savedMatrix)
                     }
                     chart.invalidate()
-                    syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
-                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
+                    syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                 } else if (isNewDataset) {
                     // primera carga o TF nuevo: Y solo con velas, las MAs no mandan
                     chart.applySyncAndInitialZoom(state.candles, resetViewport = true, resetCustomY = false, fitYToCandles = true, onPositioned = {
-                        syncSubCharts(chart, stochChartRef.value, rsiChartRef.value)
+                        syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                     })
-                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value)
+                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                 }
             } else if (state.candles.isNotEmpty()) {
                 updateLastCandleInPlace(chart, state)
@@ -3531,7 +3576,7 @@ fun PriceChart(
                         pendingDrawStartRef.value = null
                         priceChartRef.value?.apply {
                             highlightValue(null)
-                            syncHighlights(this, stochChartRef.value, rsiChartRef.value)
+                            syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
                             invalidate()
                         }
                         showDrawingSheet.value = false
@@ -4057,6 +4102,217 @@ fun RsiChart(
     )
 }
 
+@Composable
+fun MacdChart(
+    state: CryptoDetailState,
+    chartRef: MutableState<CombinedChart?>,
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
+) {
+    val stateRef = remember { mutableStateOf(state) }
+    val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { context ->
+            object : CombinedChart(context) {
+                private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(220, 255, 255, 255)
+                    strokeWidth = 1.5f
+                    pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
+                }
+                private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#ADB1B8")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val difPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#FFD60A")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val deaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#E91E63")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val histPosPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#0ECB81")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val histNegPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#F6465D")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val h = highlighted?.getOrNull(0)
+                    val currentState = stateRef.value
+
+                    val density = context.resources.displayMetrics.density
+                    var textX = viewPortHandler.contentLeft() + (density * 5f)
+                    val textY = viewPortHandler.contentTop() + (density * 14f)
+
+                    var difVal = 0.0
+                    var deaVal = 0.0
+                    var histVal = 0.0
+                    var hasVal = false
+
+                    if (h != null) {
+                        val xPts = floatArrayOf(h.x, 0f)
+                        getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
+                        canvas.drawLine(xPts[0], viewPortHandler.contentTop(), xPts[0], viewPortHandler.contentBottom(), linePaint)
+                        val idx = h.x.toInt()
+                        val dif = currentState.macdDif.getValueAtCandleIndex(idx)
+                        val dea = currentState.macdDea.getValueAtCandleIndex(idx)
+                        val hist = currentState.macdHist.getValueAtCandleIndex(idx)
+                        if (dif != null && dea != null && hist != null) {
+                            difVal = dif
+                            deaVal = dea
+                            histVal = hist
+                            hasVal = true
+                        }
+                    } else {
+                        val lastDif = currentState.macdDif.lastOrNull()
+                        val lastDea = currentState.macdDea.lastOrNull()
+                        val lastHist = currentState.macdHist.lastOrNull()
+                        if (lastDif != null && lastDea != null && lastHist != null) {
+                            difVal = lastDif.second
+                            deaVal = lastDea.second
+                            histVal = lastHist.second
+                            hasVal = true
+                        }
+                    }
+
+                    if (hasVal) {
+                        canvas.drawText("MACD(12,26,9)  ", textX, textY, titlePaint)
+                        textX += titlePaint.measureText("MACD(12,26,9)  ")
+                        val histText = "MACD ${formatMacdValue(histVal)}  "
+                        canvas.drawText(histText, textX, textY, if (histVal >= 0) histPosPaint else histNegPaint)
+                        textX += histPosPaint.measureText(histText)
+                        val difText = "DIF ${formatMacdValue(difVal)}  "
+                        canvas.drawText(difText, textX, textY, difPaint)
+                        textX += difPaint.measureText(difText)
+                        canvas.drawText("DEA ${formatMacdValue(deaVal)}", textX, textY, deaPaint)
+                    }
+                }
+            }.apply {
+                setupCommonChartParams()
+                setTouchEnabled(false)
+                isDragEnabled = false
+                setScaleEnabled(true)
+                isScaleYEnabled = false
+                setPinchZoom(false)
+                drawOrder = arrayOf(CombinedChart.DrawOrder.BAR, CombinedChart.DrawOrder.LINE)
+                axisLeft.apply {
+                    setLabelCount(3, true)
+                    setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
+                }
+                chartRef.value = this
+            }
+        },
+        update = { chart ->
+            stateRef.value = state
+            val viewportKey = state.viewportKey()
+            val isNewDataset = lastRenderedDataKey.value != viewportKey
+
+            if (isNewDataset) {
+                val cd = CombinedData()
+                if (state.macdDif.isNotEmpty()) {
+                    val difEntries = ArrayList<Entry>(state.macdDif.size)
+                    state.macdDif.forEach { value ->
+                        difEntries.add(Entry(value.first.toFloat(), value.second.toFloat()))
+                    }
+                    val deaEntries = ArrayList<Entry>(state.macdDea.size)
+                    state.macdDea.forEach { value ->
+                        deaEntries.add(Entry(value.first.toFloat(), value.second.toFloat()))
+                    }
+                    val lineData = LineData()
+                    lineData.addDataSet(createBBLineDataSet(difEntries, "DIF", GraphicsColor.parseColor("#FFD60A"), 1f, highlight = true))
+                    lineData.addDataSet(createBBLineDataSet(deaEntries, "DEA", GraphicsColor.parseColor("#E91E63"), 1f, highlight = true))
+                    cd.setData(lineData)
+                    val posEntries = ArrayList<BarEntry>(state.macdHist.size)
+                    val negEntries = ArrayList<BarEntry>(state.macdHist.size)
+                    state.macdHist.forEach { value ->
+                        val x = value.first.toFloat()
+                        val y = value.second.toFloat()
+                        posEntries.add(BarEntry(x, if (y >= 0f) y else 0f))
+                        negEntries.add(BarEntry(x, if (y < 0f) y else 0f))
+                    }
+                    val barData = BarData(
+                        BarDataSet(posEntries, "HIST+").apply {
+                            color = GraphicsColor.parseColor("#0ECB81")
+                            setDrawValues(false)
+                            isHighlightEnabled = true
+                        },
+                        BarDataSet(negEntries, "HIST-").apply {
+                            color = GraphicsColor.parseColor("#F6465D")
+                            setDrawValues(false)
+                            isHighlightEnabled = true
+                        }
+                    )
+                    cd.setData(barData)
+                }
+                chart.data = cd
+            } else if (state.macdDif.isNotEmpty()) {
+                updateLastMacdInPlace(chart, state)
+            }
+
+            chart.xAxis.applyTimeAxis(state)
+            chart.xAxis.setDrawLabels(false)
+            chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
+            if (isNewDataset) {
+                // al montar, hereda el rango visible del principal
+                priceChartRef.value?.let { chart.syncViewportFrom(it) }
+                lastRenderedDataKey.value = viewportKey
+            }
+        }
+    )
+}
+
+// 4 decimales como en tradingview, 2 si la escala es grande
+private fun formatMacdValue(v: Double): String =
+    if (abs(v) >= 100.0) String.format(Locale.US, "%.2f", v)
+    else String.format(Locale.US, "%.4f", v)
+
+// tick en vivo actualiza el ultimo punto del MACD sin reconstruir
+private fun updateLastMacdInPlace(chart: CombinedChart, state: CryptoDetailState) {
+    val cd = chart.data ?: return
+    val lastDif = state.macdDif.lastOrNull()
+    val lastDea = state.macdDea.lastOrNull()
+    val lastHist = state.macdHist.lastOrNull()
+    cd.lineData?.let { ld ->
+        for (i in 0 until ld.dataSetCount) {
+            val ds = ld.getDataSetByIndex(i)
+            val v = when (ds.label) {
+                "DIF" -> lastDif
+                "DEA" -> lastDea
+                else -> null
+            } ?: continue
+            if (ds.entryCount > 0) {
+                ds.getEntryForIndex(ds.entryCount - 1).y = v.second.toFloat()
+            }
+        }
+    }
+    if (lastHist != null) {
+        cd.barData?.let { bd ->
+            for (i in 0 until bd.dataSetCount) {
+                val ds = bd.getDataSetByIndex(i)
+                if (ds.entryCount > 0) {
+                    (ds.getEntryForIndex(ds.entryCount - 1) as? BarEntry)?.y = lastHist.second.toFloat()
+                }
+            }
+        }
+    }
+    chart.invalidate()
+}
+
 // ─── INITIAL ZOOM / SCROLL ───────────────────────────────────────────────────
 private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     data: List<*>,
@@ -4113,8 +4369,8 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     }
 }
 
-private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart?) {
-    listOf(stochChart, rsiChart).forEach { sub ->
+private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart?, macdChart: BarLineChartBase<*>? = null) {
+    listOf(stochChart, rsiChart, macdChart).forEach { sub ->
         sub ?: return@forEach
         sub.syncViewportFrom(priceChart)
     }
@@ -4142,9 +4398,9 @@ private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
     invalidate()
 }
 
-private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart? = null) {
+private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart? = null, macdChart: BarLineChartBase<*>? = null) {
     val h = priceChart.highlighted?.getOrNull(0)
-    listOf(stochChart, rsiChart).forEach { sub ->
+    listOf(stochChart, rsiChart, macdChart).forEach { sub ->
         if (h != null) {
             sub?.highlightValue(h.x, 0, false)
         } else {
@@ -4509,6 +4765,7 @@ fun IndicatorsSheet(
     onToggleVolume: () -> Unit,
     onToggleStoch: () -> Unit,
     onToggleRsi: () -> Unit,
+    onToggleMacd: () -> Unit,
     onToggleRsiDiv: () -> Unit,
     onToggleRsiDivHidden: () -> Unit,
     onOpenMAs: () -> Unit = {},
@@ -4577,6 +4834,7 @@ fun IndicatorsSheet(
         IndicatorSwitchRow("VOL", "Volumen", prefs.volumeVisible, onToggleVolume)
         IndicatorSwitchRow("StochRSI", "Stoch RSI", prefs.stochVisible, onToggleStoch)
         IndicatorSwitchRow("RSI", "RSI 14", prefs.rsiVisible, onToggleRsi)
+        IndicatorSwitchRow("MACD", "MACD 12,26,9", prefs.macdVisible, onToggleMacd)
         IndicatorSwitchRow("DIV", "Divergencias RSI", prefs.rsiDivVisible, onToggleRsiDiv)
         IndicatorSwitchRow("HDIV", "Divergencias ocultas", prefs.rsiDivHidden, onToggleRsiDivHidden)
         Spacer(modifier = Modifier.height(8.dp))

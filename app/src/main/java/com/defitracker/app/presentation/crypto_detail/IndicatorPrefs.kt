@@ -35,6 +35,8 @@ data class IndicatorPrefs(
     val volumeVisible: Boolean = true,
     val stochVisible: Boolean = true,
     val rsiVisible: Boolean = true,
+    // MACD apagado por defecto para no achicar el precio con 3 subs
+    val macdVisible: Boolean = false,
     // divergencias RSI estilo TV, apagadas por defecto para no meter ruido
     val rsiDivVisible: Boolean = false,
     // como el Pine (plotHiddenBull/Bear=false), las ocultas van aparte
@@ -51,7 +53,7 @@ data class IndicatorPrefs(
 ) {
     // cambia si cambia cualquier ajuste -> el chart reconstruye sin resetear zoom
     fun prefsKey(): String = buildString {
-        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible).append(rsiDivVisible).append(rsiDivHidden)
+        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible).append(macdVisible).append(rsiDivVisible).append(rsiDivHidden)
         mas.forEach { append(it.id).append(it.type).append(it.period).append(it.timeframe).append(it.visible).append(it.colorHex).append(it.width) }
         append(fib.colorHex).append(fib.width).append(fib.hidden).append(fib.enabledLevels.sorted().joinToString(","))
         append(smcStructure).append(smcOrderBlocks).append(smcFvg).append(smcPremium).append(smcEqhl).append(smcLiquidity)
@@ -98,6 +100,7 @@ class IndicatorPrefsRepository @Inject constructor(
             volumeVisible = p[booleanPreferencesKey("volume_visible")] ?: true,
             stochVisible = p[booleanPreferencesKey("stoch_visible")] ?: true,
             rsiVisible = p[booleanPreferencesKey("rsi_visible")] ?: true,
+            macdVisible = p[booleanPreferencesKey("macd_visible")] ?: false,
             rsiDivVisible = p[booleanPreferencesKey("rsi_div_visible")] ?: false,
             rsiDivHidden = p[booleanPreferencesKey("rsi_div_hidden")] ?: false,
             smcStructure = p[booleanPreferencesKey("smc_structure")] ?: false,
@@ -193,6 +196,7 @@ class IndicatorPrefsRepository @Inject constructor(
             e[booleanPreferencesKey("volume_visible")] = prefs.volumeVisible
             e[booleanPreferencesKey("stoch_visible")] = prefs.stochVisible
             e[booleanPreferencesKey("rsi_visible")] = prefs.rsiVisible
+            e[booleanPreferencesKey("macd_visible")] = prefs.macdVisible
             e[booleanPreferencesKey("rsi_div_visible")] = prefs.rsiDivVisible
             e[booleanPreferencesKey("rsi_div_hidden")] = prefs.rsiDivHidden
             e[booleanPreferencesKey("smc_structure")] = prefs.smcStructure
