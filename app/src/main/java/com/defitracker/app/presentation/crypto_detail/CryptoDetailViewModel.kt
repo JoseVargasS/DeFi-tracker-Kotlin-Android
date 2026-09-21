@@ -561,6 +561,24 @@ class CryptoDetailViewModel @Inject constructor(
                         )
                         refreshAnalysis()
                     }
+                    // ponytail: wake-up exacto al cierre; si la vela cierra antes del proximo tick, syncTail justo ahi
+                    val lastClose = _state.value.candles.lastOrNull()
+                    val durClose = candleDurationMs(_state.value.selectedInterval)
+                    if (lastClose != null && durClose > 0L && !tailSyncing) {
+                        val msToClose = lastClose.time + durClose - System.currentTimeMillis()
+                        if (msToClose in 1L..DETAIL_REFRESH_MS) {
+                            val ival = _state.value.selectedInterval
+                            delay(msToClose + CLOSE_SYNC_GRACE_MS)
+                            if (_state.value.selectedInterval == ival && !tailSyncing) {
+                                tailSyncing = true
+                                try {
+                                    syncTail()
+                                } finally {
+                                    tailSyncing = false
+                                }
+                            }
+                        }
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -995,6 +1013,8 @@ class CryptoDetailViewModel @Inject constructor(
     private companion object {
         const val TAG = "CryptoDetailVM"
         const val DETAIL_REFRESH_MS = 5_000L
+        // ponytail: gracia post-cierre pa' que el exchange publique la vela antes del tail
+        const val CLOSE_SYNC_GRACE_MS = 1_200L
         const val DEFAULT_CHART_INTERVAL = "15m"
         const val STOCH_RSI_PERIOD = 14
         const val STOCH_SMOOTH_PERIOD = 3

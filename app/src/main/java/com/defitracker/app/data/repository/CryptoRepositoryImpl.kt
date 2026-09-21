@@ -694,10 +694,11 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     private fun formatPrice(price: Double): String {
-        return if (price < 1.0) {
-            String.format(java.util.Locale.US, "%.6f", price)
-        } else {
-            String.format(java.util.Locale.US, "%.2f", price)
+        return when {
+            price < 1.0 -> String.format(java.util.Locale.US, "%.6f", price)
+            // ponytail: banda de cruce $1-10 con 4 decimales; la UI recorta a 2 si es consolidada
+            price < 10.0 -> String.format(java.util.Locale.US, "%.4f", price)
+            else -> String.format(java.util.Locale.US, "%.2f", price)
         }
     }
 

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +55,8 @@ fun CryptoPairItem(
         animationSpec = tween(durationMillis = 180),
         label = "priceChangeColor"
     )
+    // ponytail: banda $1-10, solo recién-cruzadas (sparkline toco sub-$1) muestran 4, consolidadas 2
+    val priceText = remember(pair.price, sparkline) { stickyListPrice(pair.price, sparkline) }
 
     Surface(
         color = Color.Transparent,
@@ -134,7 +137,7 @@ fun CryptoPairItem(
 
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(min = 86.dp)) {
                 Text(
-                    text = pair.price,
+                    text = priceText,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
@@ -162,6 +165,14 @@ fun CryptoPairItem(
             }
         }
     }
+}
+
+// ponytail: banda $1-10 con 4 decimales del repo; si el sparkline (24h) va todo sobre $1, recorta a 2
+private fun stickyListPrice(price: String, sparkline: List<Double>): String {
+    val d = price.toDoubleOrNull() ?: return price
+    if (d < 1.0 || d >= 10.0 || sparkline.size < 2) return price
+    if (sparkline.all { it >= 1.0 }) return String.format(java.util.Locale.US, "%.2f", d)
+    return price
 }
 
 @Composable
