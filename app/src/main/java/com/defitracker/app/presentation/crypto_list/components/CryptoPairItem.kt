@@ -55,7 +55,7 @@ fun CryptoPairItem(
         animationSpec = tween(durationMillis = 180),
         label = "priceChangeColor"
     )
-    // ponytail: banda $1-10, solo recién-cruzadas (sparkline toco sub-$1) muestran 4, consolidadas 2
+    // nota: banda $1-10, solo recién-cruzadas (sparkline toco sub-$1) muestran 4, consolidadas 2
     val priceText = remember(pair.price, sparkline) { stickyListPrice(pair.price, sparkline) }
 
     Surface(
@@ -167,7 +167,7 @@ fun CryptoPairItem(
     }
 }
 
-// ponytail: banda $1-10 con 4 decimales del repo; si el sparkline (24h) va todo sobre $1, recorta a 2
+// nota: banda $1-10 con 4 decimales del repo; si el sparkline (24h) va todo sobre $1, recorta a 2
 private fun stickyListPrice(price: String, sparkline: List<Double>): String {
     val d = price.toDoubleOrNull() ?: return price
     if (d < 1.0 || d >= 10.0 || sparkline.size < 2) return price

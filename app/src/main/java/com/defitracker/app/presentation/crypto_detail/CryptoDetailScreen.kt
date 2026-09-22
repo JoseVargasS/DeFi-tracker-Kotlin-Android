@@ -573,7 +573,7 @@ private val knownQuoteAssets = listOf(
 
 private fun formatDecimal(value: String, extended: Boolean = false): String {
     val d = value.toDoubleOrNull() ?: return value
-    // ponytail: banda $1-10, recién-cruzadas 4 decimales, consolidadas 2
+    // nota: banda $1-10, recién-cruzadas 4 decimales, consolidadas 2
     if (d >= 1.0 && d < 10.0) {
         return if (extended) String.format(Locale.US, "%.4f", d)
         else String.format(Locale.US, "%.2f", d)
@@ -581,13 +581,13 @@ private fun formatDecimal(value: String, extended: Boolean = false): String {
     return formatPriceForChart(d)
 }
 
-// ponytail: true si hubo precio bajo $1 en las ultimas N velas (moneda recién-cruzada)
+// nota: true si hubo precio bajo $1 en las ultimas N velas (moneda recién-cruzada)
 private fun List<CandleData>.hasSubDollarHistory(window: Int = 200): Boolean =
     takeLast(window).any { it.close < 1.0 }
 
 private fun formatPriceForChart(value: Double, extended: Boolean = false): String {
     if (value == 0.0) return "0.00"
-    // ponytail: recién-cruzadas mantienen 4 decimales en banda $1-10
+    // nota: recién-cruzadas mantienen 4 decimales en banda $1-10
     if (extended && value >= 1.0 && value < 10.0) {
         return String.format(Locale.US, "%.4f", value)
     }
@@ -607,7 +607,7 @@ private fun formatPriceForChart(value: Double, extended: Boolean = false): Strin
 // eje/tags/fibo con los mismos decimales del precio actual, sin colas largas
 private fun formatAxisPrice(value: Double, refClose: Double, extended: Boolean = false): String {
     if (value == 0.0) return "0.00"
-    // ponytail: recién-cruzadas mantienen 4 decimales en banda $1-10
+    // nota: recién-cruzadas mantienen 4 decimales en banda $1-10
     if (extended && value >= 1.0 && value < 10.0) {
         return String.format(Locale.US, "%.4f", value)
     }
@@ -4406,10 +4406,24 @@ private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rs
     val h = priceChart.highlighted?.getOrNull(0)
     listOf(stochChart, rsiChart, macdChart).forEach { sub ->
         if (h != null) {
-            sub?.highlightValue(h.x, 0, false)
+            sub?.highlightXSafe(h.x)
         } else {
             sub?.highlightValues(null)
         }
+    }
+}
+
+// estandar subs: LineChart acepta highlightValue(x, 0); CombinedChart revienta con
+// IndexOutOfBounds en CombinedData.getDataByIndex (dataIndex -1) si no se fija dataIndex = 0 (su LineData)
+private fun BarLineChartBase<*>.highlightXSafe(x: Float) {
+    try {
+        if (this is CombinedChart) {
+            highlightValue(Highlight(x, 0, 0), false)
+        } else {
+            highlightValue(x, 0, false)
+        }
+    } catch (_: Exception) {
+        highlightValues(null)
     }
 }
 

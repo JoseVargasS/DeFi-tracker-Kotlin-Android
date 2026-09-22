@@ -157,6 +157,17 @@ Before final response after code changes:
 - Confirm no unrelated files were reverted.
 - Summarize changed files and behavior, not every small implementation detail.
 
+## Adding A New Sub-Indicator (Chart Standard)
+
+Follow the MACD path (`MacdCalc.kt`, `MacdChart` in `CryptoDetailScreen.kt`):
+
+- Pure calc in `presentation/crypto_detail/<Name>Calc.kt`, aligned to candle index as `List<Pair<Long, Double>>`.
+- State fields in `CryptoDetailState` + `ChartComputation`; compute inside `toChartComputation` (already off-main); copy into all three `state.copy` blocks (tick, `loadChartData`, `syncTail`).
+- Prefs flag (`*Visible`, default off unless requested) in `IndicatorPrefs` + DataStore key + `prefsKey()` + `toggle*()` in the ViewModel.
+- Sub chart as `AndroidView` cloning `RsiChart` (viewport/time-axis/in-place tick update). If it needs bars, use `CombinedChart` like `MacdChart`.
+- Highlight rule (crash standard): never call `highlightValue(x, 0)` directly on a `CombinedChart` sub — `CombinedData` throws `IndexOutOfBoundsException` (`dataIndex -1`). Always go through `highlightXSafe(x)`, which pins `dataIndex = 0` (its `LineData`) with try/catch fallback.
+- Wire into `PriceChart` refs, `sync*` helpers, layout weights/dividers, and the `IndicatorsSheet` grid (`PillGrid`).
+
 ## Common Pitfalls
 
 - Treating API errors as empty lists.
