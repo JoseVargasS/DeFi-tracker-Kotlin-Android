@@ -272,6 +272,7 @@ fun CryptoDetailScreen(
                         val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
                         val macdChartRef = remember { mutableStateOf<CombinedChart?>(null) }
                         val takerChartRef = remember { mutableStateOf<BarChart?>(null) }
+                        val subRefs = remember { SubChartRefs(stochChartRef, rsiChartRef, macdChartRef, takerChartRef) }
                         // altos arrastrables, subs mas altos por defecto
                         var priceW by remember { mutableFloatStateOf(if (chartExpanded.value) 4f else 2.5f) }
                         var stochW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
@@ -367,7 +368,7 @@ fun CryptoDetailScreen(
                                     ) {
                         if (prefs.stochVisible) {
                             Box(modifier = subMod(stochW)) {
-                                StochRSIChart(state, stochChartRef, priceChartRef)
+                                StochRSIChart(state, stochChartRef, priceChartRef, subRefs)
                             }
                         }
                         if (prefs.stochVisible && prefs.rsiVisible) {
@@ -386,7 +387,7 @@ fun CryptoDetailScreen(
                         }
                         if (prefs.rsiVisible) {
                             Box(modifier = subMod(rsiW)) {
-                                RsiChart(state, rsiChartRef, priceChartRef, prefs)
+                                RsiChart(state, rsiChartRef, priceChartRef, prefs, subRefs)
                             }
                         }
                         if (prefs.macdVisible && prefs.rsiVisible) {
@@ -419,7 +420,7 @@ fun CryptoDetailScreen(
                         }
                         if (prefs.macdVisible) {
                             Box(modifier = subMod(macdW)) {
-                                MacdChart(state, macdChartRef, priceChartRef)
+                                MacdChart(state, macdChartRef, priceChartRef, subRefs)
                             }
                         }
                         if (prefs.takerVisible && (prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible)) {
@@ -458,7 +459,7 @@ fun CryptoDetailScreen(
                         }
                         if (prefs.takerVisible) {
                             Box(modifier = subMod(takerW)) {
-                                TakerChart(state, takerChartRef, priceChartRef)
+                                TakerChart(state, takerChartRef, priceChartRef, subRefs)
                             }
                         }
                                     }
@@ -3840,11 +3841,82 @@ fun PriceChart(
 }
 
 // ─── STOCHRSI CHART ──────────────────────────────────────────────────────────
+// nota: refs compartidas para que cada sub pueda panear al precio y resincronizar a sus hermanos
+data class SubChartRefs(
+    val stoch: MutableState<LineChart?>,
+    val rsi: MutableState<LineChart?>,
+    val macd: MutableState<CombinedChart?>,
+    val taker: MutableState<BarChart?>
+)
+
+// nota: pan horizontal desde el sub estilo OKX. El sub nunca panea solo (su clamp nativo
+// lo trababa del borde derecho); maneja el dedo y mueve al precio con su misma receta sin clamp,
+// luego resincroniza a los 4. Drag vertical/tap se sueltan para no cambiar nada mas.
+private class SubPanForwarder {
+    private var downX = 0f
+    private var downY = 0f
+    private var lastX = 0f
+    private var dragging = false
+    private var slop = 0f
+
+    fun onTouch(
+        v: android.view.View,
+        event: android.view.MotionEvent?,
+        priceChartRef: MutableState<CombinedChart?>,
+        peers: SubChartRefs?
+    ): Boolean {
+        if (event == null) return false
+        if (slop == 0f) slop = android.view.ViewConfiguration.get(v.context).scaledTouchSlop.toFloat()
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                lastX = event.x
+                dragging = false
+                return true
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (!dragging) {
+                    val dx = abs(event.x - downX)
+                    val dy = abs(event.y - downY)
+                    if (dx > slop && dx > dy) {
+                        dragging = true
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                    } else if (dy > slop) {
+                        return false
+                    } else {
+                        return true
+                    }
+                }
+                val dx = event.x - lastX
+                lastX = event.x
+                if (abs(dx) >= 1f) {
+                    val price = priceChartRef.value ?: return true
+                    val m = Matrix(price.viewPortHandler.matrixTouch)
+                    m.postTranslate(dx, 0f)
+                    price.isAutoScaleMinMaxEnabled = false
+                    price.viewPortHandler.matrixTouch.set(m)
+                    price.invalidate()
+                    if (peers != null) {
+                        syncSubCharts(price, peers.stoch.value, peers.rsi.value, peers.macd.value, peers.taker.value)
+                    }
+                }
+                return true
+            }
+            else -> {
+                dragging = false
+                return true
+            }
+        }
+    }
+}
+
 @Composable
 fun StochRSIChart(
     state: CryptoDetailState,
     chartRef: MutableState<LineChart?>,
-    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
+    peers: SubChartRefs? = null
 ) {
     val stateRef = remember { mutableStateOf(state) }
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
@@ -3868,6 +3940,11 @@ fun StochRSIChart(
                     textSize = context.resources.displayMetrics.density * 10f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val panForwarder = SubPanForwarder()
+
+                override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
+                    return panForwarder.onTouch(this, event, priceChartRef, peers)
                 }
 
                 override fun onDraw(canvas: Canvas) {
@@ -3972,7 +4049,8 @@ fun RsiChart(
     state: CryptoDetailState,
     chartRef: MutableState<LineChart?>,
     priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
-    prefs: IndicatorPrefs = IndicatorPrefs.DEFAULT
+    prefs: IndicatorPrefs = IndicatorPrefs.DEFAULT,
+    peers: SubChartRefs? = null
 ) {
     val stateRef = remember { mutableStateOf(state) }
     val prefsRef = remember { mutableStateOf(prefs) }
@@ -4026,6 +4104,11 @@ fun RsiChart(
                     color = GraphicsColor.argb(220, 20, 21, 24)
                 }
                 private val divRect = RectF()
+                private val panForwarder = SubPanForwarder()
+
+                override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
+                    return panForwarder.onTouch(this, event, priceChartRef, peers)
+                }
 
                 override fun onDraw(canvas: Canvas) {
                     super.onDraw(canvas)
@@ -4191,7 +4274,8 @@ fun RsiChart(
 fun MacdChart(
     state: CryptoDetailState,
     chartRef: MutableState<CombinedChart?>,
-    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
+    peers: SubChartRefs? = null
 ) {
     val stateRef = remember { mutableStateOf(state) }
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
@@ -4233,6 +4317,11 @@ fun MacdChart(
                     textSize = context.resources.displayMetrics.density * 10f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val panForwarder = SubPanForwarder()
+
+                override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
+                    return panForwarder.onTouch(this, event, priceChartRef, peers)
                 }
 
                 override fun onDraw(canvas: Canvas) {
@@ -4403,7 +4492,8 @@ private fun updateLastMacdInPlace(chart: CombinedChart, state: CryptoDetailState
 fun TakerChart(
     state: CryptoDetailState,
     chartRef: MutableState<BarChart?>,
-    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
+    peers: SubChartRefs? = null
 ) {
     val stateRef = remember { mutableStateOf(state) }
     val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
@@ -4440,6 +4530,11 @@ fun TakerChart(
                     textSize = context.resources.displayMetrics.density * 10f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val panForwarder = SubPanForwarder()
+
+                override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
+                    return panForwarder.onTouch(this, event, priceChartRef, peers)
                 }
 
                 override fun onDraw(canvas: Canvas) {
