@@ -50,7 +50,7 @@ fun PillGrid(
                             .clip(RoundedCornerShape(14.dp))
                             .background(if (opt.selected) Color.Transparent else CardBg)
                             .border(
-                                1.dp,
+                                0.5.dp,
                                 if (opt.selected) Color.White else Color.Transparent,
                                 RoundedCornerShape(14.dp)
                             )

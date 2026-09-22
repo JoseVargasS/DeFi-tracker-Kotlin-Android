@@ -29,3 +29,10 @@ data class PairDetail(
     val quoteVolume: String,
     val isPositive: Boolean
 )
+
+// buy/sell del tomador (Binance Futuros), en moneda base
+data class TakerVolume(
+    val timeMs: Long,
+    val buy: Double,
+    val sell: Double
+)

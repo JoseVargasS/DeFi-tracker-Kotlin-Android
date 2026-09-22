@@ -8,6 +8,7 @@ import com.defitracker.app.data.local.AppDatabase
 import com.defitracker.app.data.local.TrackedPairDao
 import com.defitracker.app.data.local.WalletDao
 import com.defitracker.app.data.remote.BinanceApi
+import com.defitracker.app.data.remote.BinanceFuturesApi
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
@@ -34,6 +35,16 @@ object AppModule {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(BinanceApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBinanceFuturesApi(): BinanceFuturesApi {
+        return Retrofit.Builder()
+            .baseUrl(Constants.BINANCE_FUTURES_BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(BinanceFuturesApi::class.java)
     }
 
     @Provides
@@ -99,13 +110,14 @@ object AppModule {
     @Singleton
     fun provideCryptoRepository(
         binanceApi: BinanceApi,
+        binanceFuturesApi: BinanceFuturesApi,
         coinStatsApi: CoinStatsApi,
         mexcFuturesApi: MexcFuturesApi,
         trackedPairDao: TrackedPairDao,
         walletDao: WalletDao
     ): CryptoRepository {
         return CryptoRepositoryImpl(
-            binanceApi, coinStatsApi, mexcFuturesApi,
+            binanceApi, binanceFuturesApi, coinStatsApi, mexcFuturesApi,
             trackedPairDao, walletDao
         )
     }

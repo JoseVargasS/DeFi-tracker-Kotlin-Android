@@ -167,6 +167,7 @@ Follow the MACD path (`MacdCalc.kt`, `MacdChart` in `CryptoDetailScreen.kt`):
 - Sub chart as `AndroidView` cloning `RsiChart` (viewport/time-axis/in-place tick update). If it needs bars, use `CombinedChart` like `MacdChart`.
 - Highlight rule (crash standard): never call `highlightValue(x, 0)` directly on a `CombinedChart` sub — `CombinedData` throws `IndexOutOfBoundsException` (`dataIndex -1`). Always go through `highlightXSafe(x)`, which pins `dataIndex = 0` (its `LineData`) with try/catch fallback.
 - Wire into `PriceChart` refs, `sync*` helpers, layout weights/dividers, and the `IndicatorsSheet` grid (`PillGrid`).
+- Network-fed subs (like taker C/V from Binance Futures) are the exception: fetch in `loadChartData`/tick via `repository`, align by candle time in the ViewModel, keep them out of `toChartComputation`.
 
 ## Common Pitfalls
 

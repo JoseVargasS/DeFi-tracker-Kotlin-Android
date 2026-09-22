@@ -80,6 +80,7 @@ import com.defitracker.app.ui.theme.Geist
 import com.defitracker.app.ui.theme.InputBg
 import com.defitracker.app.ui.theme.LineDiv
 import com.defitracker.app.ui.theme.SheetBg
+import com.github.mikephil.charting.charts.BarChart
 import com.github.mikephil.charting.charts.BarLineChartBase
 import com.github.mikephil.charting.charts.CombinedChart
 import com.github.mikephil.charting.charts.LineChart
@@ -270,19 +271,27 @@ fun CryptoDetailScreen(
                         val stochChartRef = remember { mutableStateOf<LineChart?>(null) }
                         val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
                         val macdChartRef = remember { mutableStateOf<CombinedChart?>(null) }
+                        val takerChartRef = remember { mutableStateOf<BarChart?>(null) }
                         // altos arrastrables, subs mas altos por defecto
                         var priceW by remember { mutableFloatStateOf(if (chartExpanded.value) 4f else 2.5f) }
                         var stochW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
                         var rsiW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
                         var macdW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
+                        var takerW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
                         LaunchedEffect(chartExpanded.value) {
                             priceW = if (chartExpanded.value) 4f else 2.5f
                             stochW = if (chartExpanded.value) 0.7f else 1f
                             rsiW = stochW
                             macdW = stochW
+                            takerW = stochW
                         }
+                        val anySub = prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible || prefs.takerVisible
+                        val subsTotalW = (if (prefs.stochVisible) stochW else 0f) +
+                            (if (prefs.rsiVisible) rsiW else 0f) +
+                            (if (prefs.macdVisible) macdW else 0f) +
+                            (if (prefs.takerVisible) takerW else 0f)
 
-                        Box(modifier = Modifier.weight(priceW)) {
+                        Box(modifier = Modifier.weight(priceW).heightIn(min = 280.dp)) {
                             PriceChart(
                                 state = state,
                                 prefs = prefs,
@@ -292,13 +301,14 @@ fun CryptoDetailScreen(
                                 priceChartRef = priceChartRef,
                                 stochChartRef = stochChartRef,
                                 rsiChartRef = rsiChartRef,
-                                macdChartRef = macdChartRef
+                                macdChartRef = macdChartRef,
+                                takerChartRef = takerChartRef
                             )
                         }
-                        if (prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible) {
+                        if (anySub) {
                             // divisor precio/subs
                             ChartResizeDivider { dy ->
-                                var d = dy / areaHpx.coerceAtLeast(1f) * (priceW + stochW + rsiW + macdW)
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (priceW + stochW + rsiW + macdW + takerW)
                                 val np = priceW + d
                                 if (np < 1f) d = 1f - priceW
                                 if (np > 6f) d = 6f - priceW
@@ -314,12 +324,18 @@ fun CryptoDetailScreen(
                                     if (ns > 3f) { d = rsiW - 3f; ns = 3f }
                                     priceW += d
                                     rsiW = ns
-                                } else {
+                                } else if (prefs.macdVisible) {
                                     var ns = macdW - d
                                     if (ns < 0.35f) { d = macdW - 0.35f; ns = 0.35f }
                                     if (ns > 3f) { d = macdW - 3f; ns = 3f }
                                     priceW += d
                                     macdW = ns
+                                } else {
+                                    var ns = takerW - d
+                                    if (ns < 0.35f) { d = takerW - 0.35f; ns = 0.35f }
+                                    if (ns > 3f) { d = takerW - 3f; ns = 3f }
+                                    priceW += d
+                                    takerW = ns
                                 }
                             }
                         }
@@ -329,8 +345,28 @@ fun CryptoDetailScreen(
                                 onPick = { viewModel.loadChartData(it) }
                             )
                         }
+                        // subs en contenedor propio: precio siempre visible, subs con scroll invisible si no entran
+                        if (anySub) {
+                            Box(modifier = Modifier.weight(subsTotalW)) {
+                                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                    val subN = (if (prefs.stochVisible) 1 else 0) +
+                                        (if (prefs.rsiVisible) 1 else 0) +
+                                        (if (prefs.macdVisible) 1 else 0) +
+                                        (if (prefs.takerVisible) 1 else 0)
+                                    val subDivN = (if (prefs.stochVisible && prefs.rsiVisible) 1 else 0) +
+                                        (if (prefs.macdVisible && prefs.rsiVisible) 1 else 0) +
+                                        (if (prefs.macdVisible && prefs.stochVisible && !prefs.rsiVisible) 1 else 0) +
+                                        (if (prefs.takerVisible && (prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible)) 1 else 0)
+                                    val tight = maxHeight < 120.dp * subN + 18.dp * subDivN
+                                    val sh = { w: Float -> (maxHeight * (w / subsTotalW)).coerceAtLeast(120.dp) }
+                                    fun androidx.compose.foundation.layout.ColumnScope.subMod(w: Float): Modifier =
+                                        if (tight) Modifier.fillMaxWidth().height(sh(w)) else Modifier.weight(w)
+                                    Column(
+                                        modifier = Modifier.fillMaxSize()
+                                            .then(if (tight) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                                    ) {
                         if (prefs.stochVisible) {
-                            Box(modifier = Modifier.weight(stochW)) {
+                            Box(modifier = subMod(stochW)) {
                                 StochRSIChart(state, stochChartRef, priceChartRef)
                             }
                         }
@@ -349,7 +385,7 @@ fun CryptoDetailScreen(
                             }
                         }
                         if (prefs.rsiVisible) {
-                            Box(modifier = Modifier.weight(rsiW)) {
+                            Box(modifier = subMod(rsiW)) {
                                 RsiChart(state, rsiChartRef, priceChartRef, prefs)
                             }
                         }
@@ -382,8 +418,51 @@ fun CryptoDetailScreen(
                             }
                         }
                         if (prefs.macdVisible) {
-                            Box(modifier = Modifier.weight(macdW)) {
+                            Box(modifier = subMod(macdW)) {
                                 MacdChart(state, macdChartRef, priceChartRef)
+                            }
+                        }
+                        if (prefs.takerVisible && (prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible)) {
+                            // divisor ultimo-sub/taker
+                            ChartResizeDivider { dy ->
+                                var d = dy / areaHpx.coerceAtLeast(1f) * (stochW + rsiW + macdW + takerW)
+                                if (prefs.macdVisible) {
+                                    val nm = macdW + d
+                                    if (nm < 0.35f) d = 0.35f - macdW
+                                    if (nm > 3f) d = 3f - macdW
+                                    var nt = takerW - d
+                                    if (nt < 0.35f) { d = takerW - 0.35f; nt = 0.35f }
+                                    if (nt > 3f) { d = takerW - 3f; nt = 3f }
+                                    macdW += d
+                                    takerW = nt
+                                } else if (prefs.rsiVisible) {
+                                    val nr = rsiW + d
+                                    if (nr < 0.35f) d = 0.35f - rsiW
+                                    if (nr > 3f) d = 3f - rsiW
+                                    var nt = takerW - d
+                                    if (nt < 0.35f) { d = takerW - 0.35f; nt = 0.35f }
+                                    if (nt > 3f) { d = takerW - 3f; nt = 3f }
+                                    rsiW += d
+                                    takerW = nt
+                                } else {
+                                    val ns = stochW + d
+                                    if (ns < 0.35f) d = 0.35f - stochW
+                                    if (ns > 3f) d = 3f - stochW
+                                    var nt = takerW - d
+                                    if (nt < 0.35f) { d = takerW - 0.35f; nt = 0.35f }
+                                    if (nt > 3f) { d = takerW - 3f; nt = 3f }
+                                    stochW += d
+                                    takerW = nt
+                                }
+                            }
+                        }
+                        if (prefs.takerVisible) {
+                            Box(modifier = subMod(takerW)) {
+                                TakerChart(state, takerChartRef, priceChartRef)
+                            }
+                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -419,6 +498,7 @@ fun CryptoDetailScreen(
                         onToggleStoch = { viewModel.toggleStochSub() },
                         onToggleRsi = { viewModel.toggleRsiSub() },
                         onToggleMacd = { viewModel.toggleMacdSub() },
+                        onToggleTaker = { viewModel.toggleTakerSub() },
                         onToggleRsiDiv = { viewModel.toggleRsiDiv() },
                         onToggleRsiDivHidden = { viewModel.toggleRsiDivHidden() },
                         // medias en su propio bottom sheet encima del de indicadores
@@ -766,7 +846,8 @@ fun PriceChart(
     priceChartRef: MutableState<CombinedChart?>,
     stochChartRef: MutableState<LineChart?>,
     rsiChartRef: MutableState<LineChart?>,
-    macdChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
+    macdChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
+    takerChartRef: MutableState<BarChart?> = mutableStateOf(null)
 ) {
     val stateRef = remember { mutableStateOf(state) }
     // onDraw del chart es closure de fabrica, lee prefs via ref o queda stale
@@ -1185,7 +1266,7 @@ fun PriceChart(
                     // this chart intentionally have no such bounds.
                     viewPortHandler.matrixTouch.set(matrix)
                     invalidate()
-                    syncSubCharts(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                    syncSubCharts(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                 }
 
                 // el resize (divisor de altos) recalcula ejes con toda la
@@ -1284,7 +1365,7 @@ fun PriceChart(
                     }
                     highlightValue(null)
                     lastTouchYPx = -1f
-                    syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                    syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     invalidate()
                     return true
                 }
@@ -2806,7 +2887,7 @@ fun PriceChart(
                                 gestureMoved = true
                                 lastTouchYPx = event.y
                                 highlightValue(getHighlightByTouchPoint(event.x, event.y), true)
-                                syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                                syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                                 lastGestureX = event.x
                                 lastGestureY = event.y
                                 invalidate()
@@ -2860,7 +2941,7 @@ fun PriceChart(
                                     // Toggle OFF
                                     highlightValue(null)
                                     lastTouchYPx = -1f
-                                    syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                                    syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                                 } else {
                                     // Toggle ON
                                     lastTouchYPx = event.y
@@ -3104,10 +3185,10 @@ fun PriceChart(
 
                 setOnChartValueSelectedListener(object : com.github.mikephil.charting.listener.OnChartValueSelectedListener {
                     override fun onValueSelected(e: Entry?, h: Highlight?) {
-                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     }
                     override fun onNothingSelected() {
-                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                        syncHighlights(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     }
                 })
 
@@ -3120,10 +3201,10 @@ fun PriceChart(
                     override fun onChartFling(me1: android.view.MotionEvent?, me2: android.view.MotionEvent?, velocityX: Float, velocityY: Float) {}
 
                     override fun onChartScale(me: android.view.MotionEvent?, scaleX: Float, scaleY: Float) {
-                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     }
                     override fun onChartTranslate(me: android.view.MotionEvent?, dX: Float, dY: Float) {
-                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                        syncSubCharts(this@apply, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     }
                 }
 
@@ -3388,14 +3469,14 @@ fun PriceChart(
                         chart.viewPortHandler.matrixTouch.set(savedMatrix)
                     }
                     chart.invalidate()
-                    syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
-                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                    syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
+                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                 } else if (isNewDataset) {
                     // primera carga o TF nuevo: Y solo con velas, las MAs no mandan
                     chart.applySyncAndInitialZoom(state.candles, resetViewport = true, resetCustomY = false, fitYToCandles = true, onPositioned = {
-                        syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                        syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     })
-                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                    syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                 }
             } else if (state.candles.isNotEmpty()) {
                 updateLastCandleInPlace(chart, state)
@@ -3580,7 +3661,7 @@ fun PriceChart(
                         pendingDrawStartRef.value = null
                         priceChartRef.value?.apply {
                             highlightValue(null)
-                            syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value)
+                            syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                             invalidate()
                         }
                         showDrawingSheet.value = false
@@ -4317,6 +4398,175 @@ private fun updateLastMacdInPlace(chart: CombinedChart, state: CryptoDetailState
     chart.invalidate()
 }
 
+// ─── TAKER C/V ───────────────────────────────────────────────────────────────
+@Composable
+fun TakerChart(
+    state: CryptoDetailState,
+    chartRef: MutableState<BarChart?>,
+    priceChartRef: MutableState<CombinedChart?> = mutableStateOf(null)
+) {
+    val stateRef = remember { mutableStateOf(state) }
+    val lastRenderedDataKey = remember { mutableStateOf<String?>(null) }
+    val lastTakerKey = remember { mutableStateOf<String?>(null) }
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { context ->
+            object : BarChart(context) {
+                private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.argb(220, 255, 255, 255)
+                    strokeWidth = 1.5f
+                    pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
+                }
+                private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#ADB1B8")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val totalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.WHITE
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val buyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#0ECB81")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val sellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#F6465D")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+                    val h = highlighted?.getOrNull(0)
+                    val currentState = stateRef.value
+
+                    val density = context.resources.displayMetrics.density
+                    var textX = viewPortHandler.contentLeft() + (density * 5f)
+                    val textY = viewPortHandler.contentTop() + (density * 14f)
+                    val base = splitTradingPair(currentState.symbol, currentState.source).baseAsset
+
+                    canvas.drawText("C/V del tomador  ", textX, textY, titlePaint)
+                    textX += titlePaint.measureText("C/V del tomador  ")
+
+                    if (currentState.takerBuy.isEmpty()) {
+                        canvas.drawText("Sin datos taker en este TF/par", textX, textY, titlePaint)
+                        return
+                    }
+
+                    if (h != null) {
+                        val xPts = floatArrayOf(h.x, 0f)
+                        getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
+                        canvas.drawLine(xPts[0], viewPortHandler.contentTop(), xPts[0], viewPortHandler.contentBottom(), linePaint)
+                        val idx = h.x.toInt()
+                        val buy = currentState.takerBuy.getValueAtCandleIndex(idx)
+                        val sell = currentState.takerSell.getValueAtCandleIndex(idx)
+                        if (buy != null && sell != null) {
+                            val buyText = "Buy($base) ${formatTakerCompact(buy)}  "
+                            canvas.drawText(buyText, textX, textY, buyPaint)
+                            textX += buyPaint.measureText(buyText)
+                            canvas.drawText("Sell($base) ${formatTakerCompact(sell)}", textX, textY, sellPaint)
+                        }
+                    } else {
+                        val totalBuy = currentState.takerBuy.sumOf { it.second }
+                        val totalSell = currentState.takerSell.sumOf { it.second }
+                        val totalText = "Total($base) ${formatTakerCompact(totalBuy + totalSell)}  "
+                        canvas.drawText(totalText, textX, textY, totalPaint)
+                        textX += totalPaint.measureText(totalText)
+                        val buyText = "Buy($base) ${formatTakerCompact(totalBuy)}  "
+                        canvas.drawText(buyText, textX, textY, buyPaint)
+                        textX += buyPaint.measureText(buyText)
+                        canvas.drawText("Sell($base) ${formatTakerCompact(totalSell)}", textX, textY, sellPaint)
+                    }
+                }
+            }.apply {
+                setupCommonChartParams()
+                setTouchEnabled(false)
+                isDragEnabled = false
+                setScaleEnabled(true)
+                isScaleYEnabled = false
+                setPinchZoom(false)
+                axisLeft.apply {
+                    setLabelCount(3, true)
+                    setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
+                    valueFormatter = object : ValueFormatter() {
+                        override fun getFormattedValue(value: Float): String {
+                            return formatTakerCompact(value.toDouble())
+                        }
+                    }
+                }
+                chartRef.value = this
+            }
+        },
+        update = { chart ->
+            stateRef.value = state
+            val viewportKey = state.viewportKey()
+            val isNewDataset = lastRenderedDataKey.value != viewportKey
+
+            // nota: el taker cambia cada tick por el merge; se reconstruye solo cuando cambio
+            val takerKey = "${state.takerBuy.size}-${state.takerBuy.lastOrNull()?.second}-${state.takerSell.lastOrNull()?.second}"
+            val needsBuild = isNewDataset || (chart.data?.dataSetCount ?: 0) == 0 || lastTakerKey.value != takerKey
+            if (needsBuild) {
+                val barData = BarData()
+                barData.barWidth = 0.7f
+                if (state.takerBuy.isNotEmpty()) {
+                    // nota: una entrada apilada por cada vela (sin match = [0,0] invisible)
+                    // para calzar 1:1 con velas/volumen en cualquier zoom
+                    val buyByX = state.takerBuy.associate { it.first to it.second }
+                    val sellByX = state.takerSell.associate { it.first to it.second }
+                    val entries = ArrayList<BarEntry>(state.candles.size)
+                    for (i in state.candles.indices) {
+                        val k = i.toLong()
+                        entries.add(
+                            BarEntry(
+                                i.toFloat(),
+                                floatArrayOf(
+                                    (buyByX[k] ?: 0.0).toFloat(),
+                                    (sellByX[k] ?: 0.0).toFloat()
+                                )
+                            )
+                        )
+                    }
+                    barData.addDataSet(
+                        BarDataSet(entries, "T/S").apply {
+                            colors = listOf(
+                                GraphicsColor.parseColor("#0ECB81"),
+                                GraphicsColor.parseColor("#F6465D")
+                            )
+                            setDrawValues(false)
+                            isHighlightEnabled = true
+                        }
+                    )
+                }
+                chart.data = barData
+                lastTakerKey.value = takerKey
+            }
+
+            chart.xAxis.applyTimeAxis(state)
+            chart.xAxis.setDrawLabels(false)
+            chart.applySyncAndInitialZoom(state.candles, resetViewport = needsBuild, skipPositioning = needsBuild)
+            if (needsBuild) {
+                // al montar, hereda el rango visible del principal
+                priceChartRef.value?.let { chart.syncViewportFrom(it) }
+                lastRenderedDataKey.value = viewportKey
+            }
+        }
+    )
+}
+
+// miles/millones compactos como en OKX (504.204K)
+private fun formatTakerCompact(v: Double): String = when {
+    v >= 1_000_000 -> String.format(Locale.US, "%.3fM", v / 1_000_000)
+    v >= 1_000 -> String.format(Locale.US, "%.3fK", v / 1_000)
+    else -> String.format(Locale.US, "%.1f", v)
+}
+
 // ─── INITIAL ZOOM / SCROLL ───────────────────────────────────────────────────
 private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     data: List<*>,
@@ -4373,12 +4623,12 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     }
 }
 
-private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart?, macdChart: BarLineChartBase<*>? = null) {
-    listOf(stochChart, rsiChart, macdChart).forEach { sub ->
+private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart?, macdChart: BarLineChartBase<*>? = null, takerChart: BarLineChartBase<*>? = null) {
+    listOf(stochChart, rsiChart, macdChart, takerChart).forEach { sub ->
         sub ?: return@forEach
         sub.syncViewportFrom(priceChart)
     }
-    syncHighlights(priceChart, stochChart, rsiChart)
+    syncHighlights(priceChart, stochChart, rsiChart, macdChart, takerChart)
 }
 
 private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
@@ -4402,9 +4652,9 @@ private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
     invalidate()
 }
 
-private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart? = null, macdChart: BarLineChartBase<*>? = null) {
+private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart? = null, macdChart: BarLineChartBase<*>? = null, takerChart: BarLineChartBase<*>? = null) {
     val h = priceChart.highlighted?.getOrNull(0)
-    listOf(stochChart, rsiChart, macdChart).forEach { sub ->
+    listOf(stochChart, rsiChart, macdChart, takerChart).forEach { sub ->
         if (h != null) {
             sub?.highlightXSafe(h.x)
         } else {
@@ -4784,6 +5034,7 @@ fun IndicatorsSheet(
     onToggleStoch: () -> Unit,
     onToggleRsi: () -> Unit,
     onToggleMacd: () -> Unit,
+    onToggleTaker: () -> Unit,
     onToggleRsiDiv: () -> Unit,
     onToggleRsiDivHidden: () -> Unit,
     onOpenMAs: () -> Unit = {},
@@ -4852,7 +5103,8 @@ fun IndicatorsSheet(
                 PillOption("VOL", prefs.volumeVisible, onToggleVolume),
                 PillOption("StochRSI", prefs.stochVisible, onToggleStoch),
                 PillOption("RSI", prefs.rsiVisible, onToggleRsi),
-                PillOption("MACD", prefs.macdVisible, onToggleMacd)
+                PillOption("MACD", prefs.macdVisible, onToggleMacd),
+                PillOption("C/V Taker", prefs.takerVisible, onToggleTaker)
             )
         )
         Spacer(modifier = Modifier.height(12.dp))

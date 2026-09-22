@@ -7,6 +7,7 @@ import com.defitracker.app.data.local.TrackedPairEntity
 import com.defitracker.app.data.local.WalletDao
 import com.defitracker.app.data.local.WalletEntity
 import com.defitracker.app.data.remote.BinanceApi
+import com.defitracker.app.data.remote.BinanceFuturesApi
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.remote.dto.CoinStatsBalanceDto
@@ -17,6 +18,7 @@ import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.domain.model.PairDetail
+import com.defitracker.app.domain.model.TakerVolume
 import com.defitracker.app.domain.repository.CryptoRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -33,6 +35,7 @@ import javax.inject.Singleton
 @Singleton
 class CryptoRepositoryImpl @Inject constructor(
     private val binanceApi: BinanceApi,
+    private val binanceFuturesApi: BinanceFuturesApi,
     private val coinStatsApi: CoinStatsApi,
     private val mexcFuturesApi: MexcFuturesApi,
     private val trackedPairDao: TrackedPairDao,
@@ -199,6 +202,36 @@ class CryptoRepositoryImpl @Inject constructor(
             throw e
         } catch (e: Exception) {
             logNonFatal("Tail klines request failed for $symbol/$interval", e)
+            emptyList()
+        }
+    }
+
+    // nota: taker siempre de Binance Futuros (peso 0, sin auth); MEXC se mapea quitando el "_"
+    override suspend fun getTakerVolumes(
+        symbol: String,
+        interval: String,
+        source: String,
+        limit: Int
+    ): List<TakerVolume> {
+        if (interval.trim() !in TAKER_NATIVE_INTERVALS) return emptyList()
+        return try {
+            val binSymbol = if (source == "MEXC") symbol.replace("_", "") else symbol
+            binanceFuturesApi.getTakerVolume(
+                symbol = binSymbol,
+                period = interval.trim(),
+                limit = limit.coerceIn(2, 500)
+            ).mapNotNull { row ->
+                if (row.timestamp <= 0L) return@mapNotNull null
+                TakerVolume(
+                    timeMs = row.timestamp,
+                    buy = row.buyVol?.toDoubleOrNull() ?: 0.0,
+                    sell = row.sellVol?.toDoubleOrNull() ?: 0.0
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logNonFatal("Taker volume request failed for $symbol/$interval", e)
             emptyList()
         }
     }
@@ -733,6 +766,8 @@ class CryptoRepositoryImpl @Inject constructor(
         const val SPARK_CACHE_TTL_MS = 300_000L
         const val KLINE_CACHE_TTL_MS = 30_000L
         const val TAIL_SYNC_LIMIT = 10
+        // TFs con periodo taker nativo en Binance Futuros
+        val TAKER_NATIVE_INTERVALS = setOf("5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d")
         // lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
         const val WEEK_ANCHOR_MS = 1_578_182_400_000L
         const val TRANSACTION_MIN_DISPLAY_LIMIT = 5

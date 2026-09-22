@@ -37,6 +37,8 @@ data class IndicatorPrefs(
     val rsiVisible: Boolean = true,
     // MACD apagado por defecto para no achicar el precio con 3 subs
     val macdVisible: Boolean = false,
+    // C/V del tomador (Binance Futuros), apagado por defecto
+    val takerVisible: Boolean = false,
     // divergencias RSI estilo TV, apagadas por defecto para no meter ruido
     val rsiDivVisible: Boolean = false,
     // como el Pine (plotHiddenBull/Bear=false), las ocultas van aparte
@@ -53,7 +55,7 @@ data class IndicatorPrefs(
 ) {
     // cambia si cambia cualquier ajuste -> el chart reconstruye sin resetear zoom
     fun prefsKey(): String = buildString {
-        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible).append(macdVisible).append(rsiDivVisible).append(rsiDivHidden)
+        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible).append(macdVisible).append(takerVisible).append(rsiDivVisible).append(rsiDivHidden)
         mas.forEach { append(it.id).append(it.type).append(it.period).append(it.timeframe).append(it.visible).append(it.colorHex).append(it.width) }
         append(fib.colorHex).append(fib.width).append(fib.hidden).append(fib.enabledLevels.sorted().joinToString(","))
         append(smcStructure).append(smcOrderBlocks).append(smcFvg).append(smcPremium).append(smcEqhl).append(smcLiquidity)
@@ -101,6 +103,7 @@ class IndicatorPrefsRepository @Inject constructor(
             stochVisible = p[booleanPreferencesKey("stoch_visible")] ?: true,
             rsiVisible = p[booleanPreferencesKey("rsi_visible")] ?: true,
             macdVisible = p[booleanPreferencesKey("macd_visible")] ?: false,
+            takerVisible = p[booleanPreferencesKey("taker_visible")] ?: false,
             rsiDivVisible = p[booleanPreferencesKey("rsi_div_visible")] ?: false,
             rsiDivHidden = p[booleanPreferencesKey("rsi_div_hidden")] ?: false,
             smcStructure = p[booleanPreferencesKey("smc_structure")] ?: false,
@@ -197,6 +200,7 @@ class IndicatorPrefsRepository @Inject constructor(
             e[booleanPreferencesKey("stoch_visible")] = prefs.stochVisible
             e[booleanPreferencesKey("rsi_visible")] = prefs.rsiVisible
             e[booleanPreferencesKey("macd_visible")] = prefs.macdVisible
+            e[booleanPreferencesKey("taker_visible")] = prefs.takerVisible
             e[booleanPreferencesKey("rsi_div_visible")] = prefs.rsiDivVisible
             e[booleanPreferencesKey("rsi_div_hidden")] = prefs.rsiDivHidden
             e[booleanPreferencesKey("smc_structure")] = prefs.smcStructure

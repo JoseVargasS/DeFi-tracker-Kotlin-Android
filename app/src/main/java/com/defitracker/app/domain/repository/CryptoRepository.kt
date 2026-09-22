@@ -6,6 +6,7 @@ import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.domain.model.PairDetail
+import com.defitracker.app.domain.model.TakerVolume
 import kotlinx.coroutines.flow.Flow
 
 interface CryptoRepository {
@@ -26,6 +27,14 @@ interface CryptoRepository {
         sinceTimeMs: Long = 0L,
         limit: Int = 10
     ): List<List<Any>>
+    // buy/sell del tomador siempre desde Binance Futuros (MEXC no lo expone);
+    // en TFs sin periodo nativo devuelve vacio
+    suspend fun getTakerVolumes(
+        symbol: String,
+        interval: String,
+        source: String,
+        limit: Int = 500
+    ): List<TakerVolume>
     suspend fun getAvailableSymbols(source: String = "Binance"): List<AvailableCryptoPair>
 
     // Wallets

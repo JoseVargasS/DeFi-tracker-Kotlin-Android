@@ -189,6 +189,44 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleStochSub() = updatePrefs { it.copy(stochVisible = !it.stochVisible) }
     fun toggleRsiSub() = updatePrefs { it.copy(rsiVisible = !it.rsiVisible) }
     fun toggleMacdSub() = updatePrefs { it.copy(macdVisible = !it.macdVisible) }
+    fun toggleTakerSub() {
+        val next = !_prefs.value.takerVisible
+        updatePrefs { it.copy(takerVisible = next) }
+        if (next) viewModelScope.launch { syncTaker(500) }
+    }
+
+    // nota: taker siempre de Binance Futuros; el tick fusiona (conserva lo previo),
+    // el full de 500 solo al abrir/cambiar TF o prender el toggle
+    private suspend fun syncTaker(limit: Int) {
+        if (!_prefs.value.takerVisible) return
+        val interval = _state.value.selectedInterval
+        val rows = try {
+            repository.getTakerVolumes(symbol, interval, source, limit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
+        }
+        if (rows.isEmpty() || _state.value.selectedInterval != interval) return
+        val candles = _state.value.candles
+        if (candles.isEmpty()) return
+        val byTime = rows.associate { it.timeMs to it }
+        val prevBuy = _state.value.takerBuy.associate { it.first to it.second }
+        val prevSell = _state.value.takerSell.associate { it.first to it.second }
+        val buy = ArrayList<Pair<Long, Double>>(candles.size)
+        val sell = ArrayList<Pair<Long, Double>>(candles.size)
+        candles.forEachIndexed { i, c ->
+            val b = byTime[c.time]?.buy ?: prevBuy[i.toLong()]
+            val s = byTime[c.time]?.sell ?: prevSell[i.toLong()]
+            if (b != null && s != null) {
+                buy.add(i.toLong() to b)
+                sell.add(i.toLong() to s)
+            }
+        }
+        if (buy.isNotEmpty() && _state.value.selectedInterval == interval) {
+            _state.value = _state.value.copy(takerBuy = buy, takerSell = sell)
+        }
+    }
     fun toggleRsiDiv() = updatePrefs { it.copy(rsiDivVisible = !it.rsiDivVisible) }
     fun toggleRsiDivHidden() = updatePrefs { it.copy(rsiDivHidden = !it.rsiDivHidden) }
     fun toggleMA(period: Int) = updatePrefs { cur ->
@@ -564,6 +602,8 @@ class CryptoDetailViewModel @Inject constructor(
                             rsiDiv = chartData.rsiDiv
                         )
                         refreshAnalysis()
+                        // taker en vivo solo si el sub va visible (peso 0, 1 llamada liviana)
+                        syncTaker(10)
                     }
                     // nota: wake-up exacto al cierre; si la vela cierra antes del proximo tick, syncTail justo ahi
                     val lastClose = _state.value.candles.lastOrNull()
@@ -600,7 +640,7 @@ class CryptoDetailViewModel @Inject constructor(
 
         chartJob?.cancel()
         chartJob = viewModelScope.launch {
-            _state.value = state.value.copy(selectedInterval = normalizedInterval, isLoading = true, error = "")
+            _state.value = state.value.copy(selectedInterval = normalizedInterval, isLoading = true, error = "", takerBuy = emptyList(), takerSell = emptyList())
             try {
                 val masSnapshot = _prefs.value.mas
                 val neededTfs = masSnapshot
@@ -662,6 +702,7 @@ class CryptoDetailViewModel @Inject constructor(
                 )
                 // extras ya traidos en paralelo arriba; solo refresca analisis
                 refreshAnalysis()
+                syncTaker(500)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1075,6 +1116,8 @@ data class CryptoDetailState(
     val macdDif: List<Pair<Long, Double>> = emptyList(),
     val macdDea: List<Pair<Long, Double>> = emptyList(),
     val macdHist: List<Pair<Long, Double>> = emptyList(),
+    val takerBuy: List<Pair<Long, Double>> = emptyList(),
+    val takerSell: List<Pair<Long, Double>> = emptyList(),
     val smc: SmcData = SmcData(),
     val rsiDiv: List<RsiDiv> = emptyList(),
     val selectedInterval: String = "15m",
