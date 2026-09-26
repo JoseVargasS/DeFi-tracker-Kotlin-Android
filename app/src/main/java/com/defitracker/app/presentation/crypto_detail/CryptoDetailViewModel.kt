@@ -595,6 +595,7 @@ class CryptoDetailViewModel @Inject constructor(
                             stochD = chartData.stochD,
                             maLines = chartData.maLines,
                             rsi = chartData.rsi,
+                            rsiMa = chartData.rsiMa,
                             macdDif = chartData.macdDif,
                             macdDea = chartData.macdDea,
                             macdHist = chartData.macdHist,
@@ -693,6 +694,7 @@ class CryptoDetailViewModel @Inject constructor(
                     stochD = chartData.stochD,
                     maLines = chartData.maLines,
                     rsi = chartData.rsi,
+                    rsiMa = chartData.rsiMa,
                     macdDif = chartData.macdDif,
                     macdDea = chartData.macdDea,
                     macdHist = chartData.macdHist,
@@ -768,6 +770,7 @@ class CryptoDetailViewModel @Inject constructor(
             stochD = chartData.stochD,
             maLines = chartData.maLines,
             rsi = chartData.rsi,
+            rsiMa = chartData.rsiMa,
             macdDif = chartData.macdDif,
             macdDea = chartData.macdDea,
             macdHist = chartData.macdHist,
@@ -887,6 +890,9 @@ class CryptoDetailViewModel @Inject constructor(
 
         // RSI(14) alineado a vela para el subpanel, reusa el calculo de arriba
         val rsi = rsiValues.mapIndexed { i, v -> (i + (size - rsiValues.size)).toLong() to v }
+        // signal line: SMA 14 sobre el RSI, alineada igual que el RSI
+        val rsiMaValues = rsiMaOf(rsiValues)
+        val rsiMa = rsiMaValues.mapIndexed { i, v -> (i + (size - rsiMaValues.size)).toLong() to v }
         val macd = calculateMacd(this)
 
         return ChartComputation(
@@ -898,6 +904,7 @@ class CryptoDetailViewModel @Inject constructor(
             stochD = stochD,
             maLines = maLines,
             rsi = rsi,
+            rsiMa = rsiMa,
             macdDif = macd.dif,
             macdDea = macd.dea,
             macdHist = macd.hist,
@@ -1113,6 +1120,7 @@ data class CryptoDetailState(
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
+    val rsiMa: List<Pair<Long, Double>> = emptyList(),
     val macdDif: List<Pair<Long, Double>> = emptyList(),
     val macdDea: List<Pair<Long, Double>> = emptyList(),
     val macdHist: List<Pair<Long, Double>> = emptyList(),
@@ -1145,6 +1153,7 @@ private data class ChartComputation(
     val stochD: List<Pair<Long, Double>> = emptyList(),
     val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
     val rsi: List<Pair<Long, Double>> = emptyList(),
+    val rsiMa: List<Pair<Long, Double>> = emptyList(),
     val macdDif: List<Pair<Long, Double>> = emptyList(),
     val macdDea: List<Pair<Long, Double>> = emptyList(),
     val macdHist: List<Pair<Long, Double>> = emptyList(),

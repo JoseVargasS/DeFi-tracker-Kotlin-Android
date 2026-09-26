@@ -345,7 +345,6 @@ fun CryptoListScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .animateContentSize()
                 ) {
                     if (visiblePairs.isEmpty() && !isSearchMode) {
                         Column(
@@ -389,7 +388,7 @@ fun CryptoListScreen(
                             }
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.weight(1f)
                         ) {
                             items(
                                 items = displayPairs,

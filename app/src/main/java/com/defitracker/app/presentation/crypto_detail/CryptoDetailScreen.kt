@@ -4070,6 +4070,12 @@ fun RsiChart(
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
+                private val rsiMaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#FFD60A")
+                    textSize = context.resources.displayMetrics.density * 10f
+                    textAlign = Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
                 // divergencias estilo TV, linea + chip Bull/Bear
                 private val divBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#0ECB81")
@@ -4120,7 +4126,9 @@ fun RsiChart(
                     val textY = viewPortHandler.contentTop() + (density * 14f)
 
                     var rsiVal = 0.0
+                    var maVal = 0.0
                     var hasVal = false
+                    var hasMa = false
 
                     if (h != null) {
                         val xPts = floatArrayOf(h.x, 0f)
@@ -4132,20 +4140,37 @@ fun RsiChart(
                             rsiVal = it
                             hasVal = true
                         }
+                        currentState.rsiMa.getValueAtCandleIndex(h.x.toInt())?.let {
+                            maVal = it
+                            hasMa = true
+                        }
                     } else {
                         currentState.rsi.lastOrNull()?.let {
                             rsiVal = it.second
                             hasVal = true
                         }
+                        currentState.rsiMa.lastOrNull()?.let {
+                            maVal = it.second
+                            hasMa = true
+                        }
                     }
 
                     if (hasVal) {
+                        val rsiText = "RSI: ${String.format(Locale.US, "%.2f", rsiVal)}"
                         canvas.drawText(
-                            "RSI: ${String.format(Locale.US, "%.2f", rsiVal)}",
+                            rsiText,
                             textX,
                             textY,
                             rsiPaint
                         )
+                        if (hasMa) {
+                            canvas.drawText(
+                                "  MA: ${String.format(Locale.US, "%.2f", maVal)}",
+                                textX + rsiPaint.measureText(rsiText),
+                                textY,
+                                rsiMaPaint
+                            )
+                        }
                     }
 
                     // divergencias sobre pivotes confirmados, solo el rango visible
@@ -4236,7 +4261,7 @@ fun RsiChart(
             val viewportKey = state.viewportKey()
             val isNewDataset = lastRenderedDataKey.value != viewportKey
 
-            if (isNewDataset) {
+            if (isNewDataset || (chart.data?.dataSets?.size ?: 0) != 2) {
                 val lineData = LineData()
                 if (state.rsi.isNotEmpty()) {
                     val rsiEntries = ArrayList<Entry>(state.rsi.size)
@@ -4248,6 +4273,21 @@ fun RsiChart(
                             rsiEntries,
                             "RSI",
                             GraphicsColor.parseColor("#B39DDB"),
+                            1.2f,
+                            highlight = true
+                        )
+                    )
+                }
+                if (state.rsiMa.isNotEmpty()) {
+                    val maEntries = ArrayList<Entry>(state.rsiMa.size)
+                    state.rsiMa.forEach { value ->
+                        maEntries.add(Entry(value.first.toFloat(), value.second.toFloat()))
+                    }
+                    lineData.addDataSet(
+                        createBBLineDataSet(
+                            maEntries,
+                            "RSI MA",
+                            GraphicsColor.parseColor("#FFD60A"),
                             1.2f,
                             highlight = true
                         )
@@ -5026,6 +5066,14 @@ private fun updateLastRsiInPlace(chart: LineChart, state: CryptoDetailState) {
         val ds = ld.getDataSetByIndex(0)
         if (ds.entryCount > 0) {
             ds.getEntryForIndex(ds.entryCount - 1).y = lastRsi.second.toFloat()
+        }
+    }
+    if (ld.dataSets.size > 1) {
+        state.rsiMa.lastOrNull()?.let { lastMa ->
+            val ds = ld.getDataSetByIndex(1)
+            if (ds.entryCount > 0) {
+                ds.getEntryForIndex(ds.entryCount - 1).y = lastMa.second.toFloat()
+            }
         }
     }
     chart.invalidate()

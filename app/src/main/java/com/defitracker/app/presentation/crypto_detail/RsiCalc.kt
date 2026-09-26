@@ -2,6 +2,21 @@ package com.defitracker.app.presentation.crypto_detail
 
 // RSI(14) + parseo de klines compartido entre chart y worker de alertas
 
+// media del RSI para la signal line del subpanel (SMA 14, la estandar de TV)
+const val RSI_MA_PERIOD = 14
+
+fun rsiMaOf(values: List<Double>, period: Int = RSI_MA_PERIOD): List<Double> {
+    if (values.size < period) return values.toList()
+    val out = ArrayList<Double>(values.size)
+    var sum = 0.0
+    for (i in values.indices) {
+        sum += values[i]
+        if (i >= period) sum -= values[i - period]
+        out.add(if (i >= period - 1) sum / period else values[i])
+    }
+    return out
+}
+
 fun calculateRsi(candles: List<CandleData>, period: Int = 14): List<Double> {
     val rsi = mutableListOf<Double>()
     if (candles.size <= period) return emptyList()

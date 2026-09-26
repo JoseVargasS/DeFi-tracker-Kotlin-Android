@@ -236,6 +236,17 @@ class CryptoListViewModel @Inject constructor(
     fun onAddPair(symbol: String, baseAsset: String, quoteAsset: String, source: String) {
         viewModelScope.launch {
             repository.addTrackedPair(symbol, baseAsset, quoteAsset, source)
+            // sparkline al toque: el loop general pasa cada 5 min, el par nuevo no espera
+            try {
+                val closes = repository.getSparklineCloses(symbol, source, 30).takeLast(24)
+                if (closes.size >= 2) {
+                    _sparklines.value = _sparklines.value + (pairKey(symbol, source) to closes)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Sparkline fetch failed for $symbol-$source", e)
+            }
         }
     }
 
