@@ -42,8 +42,6 @@ import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Settings
@@ -118,7 +116,7 @@ fun CryptoDetailScreen(
     val showIndicators = remember { mutableStateOf(false) }
     val showMaList = remember { mutableStateOf(false) }
     // modo expandir, el chart manda y los TFs bajan
-    val chartExpanded = remember { mutableStateOf(false) }
+    val chartExpanded = remember { mutableStateOf(true) }
     val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
 
     Scaffold(
@@ -176,11 +174,9 @@ fun CryptoDetailScreen(
                 .padding(padding)
                 .background(Color(0xFF000000))
         ) {
-            // Stats Header (compacto en expandir, el chart manda)
+            // header compacto, el chart manda
             state.detail?.let { detail ->
-                val detailPair = splitTradingPair(detail.symbol, state.source)
                 val stickyExt = state.candles.hasSubDollarHistory()
-                if (chartExpanded.value) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -211,54 +207,9 @@ fun CryptoDetailScreen(
                             fontFamily = Geist
                         )
                     }
-                } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(modifier = Modifier.weight(1.2f)) {
-                        Text(text = "Last price", color = Color.Gray, fontSize = 11.sp)
-                        Text(
-                            text = formatDecimal(detail.price, stickyExt),
-                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = Geist
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = detailPair.displayName, color = Color.Gray, fontSize = 12.sp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "${if (detail.isPositive) "+" else ""}${detail.priceChangePercent}%",
-                                color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = Geist
-                            )
-                        }
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        StatRow("24h high", formatDecimal(detail.highPrice, stickyExt))
-                        StatRow("24h low", formatDecimal(detail.lowPrice, stickyExt))
-                        StatRow("24h vol (${detailPair.baseAsset})", formatVol(detail.volume))
-                        StatRow("24h turnover (${detailPair.quoteAsset})", formatVol(detail.quoteVolume))
-                    }
-                }
-                }
             }
 
-            // Interval Selector arriba solo en normal; en expandir baja del chart
-            if (!chartExpanded.value) {
-                IntervalRow(
-                    selected = state.selectedInterval,
-                    onPick = { viewModel.loadChartData(it) }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(if (chartExpanded.value) 2.dp else 4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             // Stacked Charts Area (subs compactos, el protagonista es el chart)
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -274,18 +225,11 @@ fun CryptoDetailScreen(
                         val takerChartRef = remember { mutableStateOf<BarChart?>(null) }
                         val subRefs = remember { SubChartRefs(stochChartRef, rsiChartRef, macdChartRef, takerChartRef) }
                         // altos arrastrables, subs mas altos por defecto
-                        var priceW by remember { mutableFloatStateOf(if (chartExpanded.value) 4f else 2.5f) }
-                        var stochW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
-                        var rsiW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
-                        var macdW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
-                        var takerW by remember { mutableFloatStateOf(if (chartExpanded.value) 0.7f else 1f) }
-                        LaunchedEffect(chartExpanded.value) {
-                            priceW = if (chartExpanded.value) 4f else 2.5f
-                            stochW = if (chartExpanded.value) 0.7f else 1f
-                            rsiW = stochW
-                            macdW = stochW
-                            takerW = stochW
-                        }
+                        var priceW by remember { mutableFloatStateOf(4f) }
+                        var stochW by remember { mutableFloatStateOf(0.7f) }
+                        var rsiW by remember { mutableFloatStateOf(0.7f) }
+                        var macdW by remember { mutableFloatStateOf(0.7f) }
+                        var takerW by remember { mutableFloatStateOf(0.7f) }
                         val anySub = prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible || prefs.takerVisible
                         val subsTotalW = (if (prefs.stochVisible) stochW else 0f) +
                             (if (prefs.rsiVisible) rsiW else 0f) +
@@ -340,12 +284,10 @@ fun CryptoDetailScreen(
                                 }
                             }
                         }
-                        if (chartExpanded.value) {
-                            IntervalRow(
-                                selected = state.selectedInterval,
-                                onPick = { viewModel.loadChartData(it) }
-                            )
-                        }
+                        IntervalRow(
+                            selected = state.selectedInterval,
+                            onPick = { viewModel.loadChartData(it) }
+                        )
                         // subs en contenedor propio: precio siempre visible, subs con scroll invisible si no entran
                         if (anySub) {
                             Box(modifier = Modifier.weight(subsTotalW)) {
@@ -594,16 +536,6 @@ fun IntervalRow(selected: String, onPick: (String) -> Unit) {
     }
 }
 
-@Composable
-fun StatRow(label: String, value: String) {    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = label, color = Color.Gray, fontSize = 10.sp)
-        Text(text = value, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
 private data class TradingPairParts(
     val baseAsset: String,
     val quoteAsset: String
@@ -810,15 +742,6 @@ private fun CryptoDetailState.viewportKey(): String {
     val first = candles.firstOrNull()?.time ?: 0L
     val last = candles.lastOrNull()?.time ?: 0L
     return "$symbol-${candles.size}-$first-$last"
-}
-
-private fun formatVol(vol: String): String {
-    val v = vol.toDoubleOrNull() ?: return vol
-    return when {
-        v >= 1_000_000 -> String.format(Locale.US, "%.2fM", v / 1_000_000)
-        v >= 1_000 -> String.format(Locale.US, "%.2fK", v / 1_000)
-        else -> String.format(Locale.US, "%.2f", v)
-    }
 }
 
 private fun List<Pair<Long, Double>>.getValueAtCandleIndex(index: Int): Double? {
@@ -3784,24 +3707,6 @@ fun PriceChart(
                     }
                 )
             }
-        }
-
-        // expandir a lo OKX, esquina inferior izquierda del grafico
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 8.dp, bottom = 28.dp)
-                .background(Color(0xCC1A1D23), CircleShape)
-                .clickable { chartExpanded.value = !chartExpanded.value }
-                .padding(8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (chartExpanded.value) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                contentDescription = "Expandir",
-                tint = Color.White,
-                modifier = Modifier.size(20.dp)
-            )
         }
 
         // boton fantasma del pulso, esquina inferior derecha sin tapar precio ni volumen

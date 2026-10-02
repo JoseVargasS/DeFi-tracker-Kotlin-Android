@@ -1095,7 +1095,7 @@ class CryptoDetailViewModel @Inject constructor(
         const val DETAIL_REFRESH_MS = 5_000L
         // nota: gracia post-cierre pa' que el exchange publique la vela antes del tail
         const val CLOSE_SYNC_GRACE_MS = 1_200L
-        const val DEFAULT_CHART_INTERVAL = "15m"
+        const val DEFAULT_CHART_INTERVAL = "5m"
         const val STOCH_RSI_PERIOD = 14
         const val STOCH_SMOOTH_PERIOD = 3
         // pulso: throttle entre recomputos + TTL de las 15m
