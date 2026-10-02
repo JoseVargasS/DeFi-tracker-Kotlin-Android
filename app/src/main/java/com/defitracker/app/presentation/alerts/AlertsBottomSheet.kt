@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -104,6 +105,24 @@ fun AlertsBottomSheet(
                             checkedTrackColor = Color(0xFF1ECB81)
                         )
                     )
+                    // tuerca = config en su propio sheet, ya no mezclada con las notis
+                    var showAlertConfig by remember { mutableStateOf(false) }
+                    IconButton(onClick = { showAlertConfig = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Configuración de alertas",
+                            tint = Color.White
+                        )
+                    }
+                    if (showAlertConfig) {
+                        AlertConfigSheet(
+                            state = state,
+                            onDismiss = { showAlertConfig = false },
+                            onToggleInterval = { viewModel.toggleInterval(it) },
+                            onToggleConfluence = { viewModel.toggleConfluence(!state.confluence) },
+                            onToggleSignal = { viewModel.toggleSignal(it) }
+                        )
+                    }
                     // escobita = marcar todas como vistas
                     IconButton(onClick = { viewModel.markAllSeen() }) {
                         Icon(
@@ -150,77 +169,6 @@ fun AlertsBottomSheet(
             )
             Spacer(Modifier.height(8.dp))
 
-            // TFs configurables, por defecto 5m/15m/30m/1h
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DivMonitorPrefs.ALL_INTERVALS.take(7).forEach { tf ->
-                    val selected = tf in state.intervals
-                    FilterChip(
-                        selected = selected,
-                        onClick = { viewModel.toggleInterval(tf) },
-                        label = { Text(tf, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
-                            selectedLabelColor = Color.White,
-                            containerColor = CardBg,
-                            labelColor = Color.Gray
-                        )
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DivMonitorPrefs.ALL_INTERVALS.drop(7).forEach { tf ->
-                    val selected = tf in state.intervals
-                    FilterChip(
-                        selected = selected,
-                        onClick = { viewModel.toggleInterval(tf) },
-                        label = { Text(tf, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
-                            selectedLabelColor = Color.White,
-                            containerColor = CardBg,
-                            labelColor = Color.Gray
-                        )
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Text("Entradas · se evalúan en tus TFs", color = Color.Gray, fontSize = 12.sp)
-            Spacer(Modifier.height(8.dp))
-            PillGrid(
-                options = listOf(
-                    PillOption(
-                        title = "Doble confirmación",
-                        selected = state.confluence,
-                        onToggle = { viewModel.toggleConfluence(!state.confluence) }
-                    ),
-                    PillOption(
-                        title = "Mechazo en media",
-                        selected = "MA_REJECT" in state.signals,
-                        onToggle = { viewModel.toggleSignal("MA_REJECT") }
-                    ),
-                    PillOption(
-                        title = "Toque en FVG",
-                        selected = "FVG_TAP" in state.signals,
-                        onToggle = { viewModel.toggleSignal("FVG_TAP") }
-                    ),
-                    PillOption(
-                        title = "Barrido + reclaim",
-                        selected = "SWEEP" in state.signals,
-                        onToggle = { viewModel.toggleSignal("SWEEP") }
-                    )
-                ),
-                columns = 2
-            )
-            Spacer(Modifier.height(8.dp))
-
             if (state.alerts.isEmpty()) {
                 Column(
                     modifier = Modifier
@@ -260,6 +208,108 @@ fun AlertsBottomSheet(
                     }
                 }
             }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+// config de alertas en su propio sheet (tuerca dentro de la zona de notis)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AlertConfigSheet(
+    state: AlertsState,
+    onDismiss: () -> Unit,
+    onToggleInterval: (String) -> Unit,
+    onToggleConfluence: () -> Unit,
+    onToggleSignal: (String) -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = SheetBg,
+        contentColor = Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "Configuración de alertas",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+            // TFs configurables, por defecto 5m/15m/30m/1h
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DivMonitorPrefs.ALL_INTERVALS.take(7).forEach { tf ->
+                    val selected = tf in state.intervals
+                    FilterChip(
+                        selected = selected,
+                        onClick = { onToggleInterval(tf) },
+                        label = { Text(tf, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
+                            selectedLabelColor = Color.White,
+                            containerColor = CardBg,
+                            labelColor = Color.Gray
+                        )
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                DivMonitorPrefs.ALL_INTERVALS.drop(7).forEach { tf ->
+                    val selected = tf in state.intervals
+                    FilterChip(
+                        selected = selected,
+                        onClick = { onToggleInterval(tf) },
+                        label = { Text(tf, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
+                            selectedLabelColor = Color.White,
+                            containerColor = CardBg,
+                            labelColor = Color.Gray
+                        )
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text("Entradas · se evalúan en tus TFs", color = Color.Gray, fontSize = 12.sp)
+            Spacer(Modifier.height(8.dp))
+            PillGrid(
+                options = listOf(
+                    PillOption(
+                        title = "Doble confirmación",
+                        selected = state.confluence,
+                        onToggle = onToggleConfluence
+                    ),
+                    PillOption(
+                        title = "Mechazo en media",
+                        selected = "MA_REJECT" in state.signals,
+                        onToggle = { onToggleSignal("MA_REJECT") }
+                    ),
+                    PillOption(
+                        title = "Toque en FVG",
+                        selected = "FVG_TAP" in state.signals,
+                        onToggle = { onToggleSignal("FVG_TAP") }
+                    ),
+                    PillOption(
+                        title = "Barrido + reclaim",
+                        selected = "SWEEP" in state.signals,
+                        onToggle = { onToggleSignal("SWEEP") }
+                    )
+                ),
+                columns = 2
+            )
             Spacer(Modifier.height(24.dp))
         }
     }
