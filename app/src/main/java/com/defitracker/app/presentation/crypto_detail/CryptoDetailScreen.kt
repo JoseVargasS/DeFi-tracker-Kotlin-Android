@@ -5154,6 +5154,7 @@ fun MaListSheet(
     var tfMenuId by remember { mutableStateOf<String?>(null) }
     var widthMenuId by remember { mutableStateOf<String?>(null) }
     var periodDialogId by remember { mutableStateOf<String?>(null) }
+    val sheetContext = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -5168,15 +5169,23 @@ fun MaListSheet(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            if (mas.size < IndicatorPrefs.MAX_MAS) {
-                Text(
-                    text = "+ Agregar",
-                    color = Color(0xFF1ECB81),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable { onAdd() }
-                )
-            }
+            Text(
+                text = "+ Agregar",
+                color = if (mas.size < IndicatorPrefs.MAX_MAS) Color(0xFF1ECB81) else Color.Gray,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable {
+                    if (mas.size < IndicatorPrefs.MAX_MAS) {
+                        onAdd()
+                    } else {
+                        android.widget.Toast.makeText(
+                            sheetContext,
+                            "Máximo ${IndicatorPrefs.MAX_MAS} medias",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            )
         }
         Spacer(modifier = Modifier.height(8.dp))
         mas.forEach { ma ->
