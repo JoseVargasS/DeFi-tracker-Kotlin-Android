@@ -53,6 +53,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -214,7 +216,25 @@ fun CryptoDetailScreen(
             // Stacked Charts Area (subs compactos, el protagonista es el chart)
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val areaHpx = with(LocalDensity.current) { maxHeight.toPx() }
-            Column(modifier = Modifier.fillMaxSize()) {
+                // X de la cruz en px de columna, la publica el onDraw del chart de precio (OKX)
+                val crossX = remember { mutableFloatStateOf(-1f) }
+            Column(
+                modifier = Modifier.fillMaxSize()
+                    // cruz continua sobre todo el stack, arriba de los charts sin comerse toques (OKX)
+                    .drawWithContent {
+                        drawContent()
+                        val x = crossX.floatValue
+                        if (x >= 0f && x <= size.width) {
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.86f),
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = 1.5f,
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f), 0f)
+                            )
+                        }
+                    }
+            ) {
                 when {
                     state.candles.isNotEmpty() -> {
                         // Shared chart references for sync
@@ -247,7 +267,8 @@ fun CryptoDetailScreen(
                                 stochChartRef = stochChartRef,
                                 rsiChartRef = rsiChartRef,
                                 macdChartRef = macdChartRef,
-                                takerChartRef = takerChartRef
+                                takerChartRef = takerChartRef,
+                                crossX = crossX
                             )
                         }
                         if (anySub) {
@@ -725,7 +746,8 @@ fun PriceChart(
     stochChartRef: MutableState<LineChart?>,
     rsiChartRef: MutableState<LineChart?>,
     macdChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
-    takerChartRef: MutableState<BarChart?> = mutableStateOf(null)
+    takerChartRef: MutableState<BarChart?> = mutableStateOf(null),
+    crossX: MutableFloatState = mutableFloatStateOf(-1f)
 ) {
     val stateRef = remember { mutableStateOf(state) }
     // onDraw del chart es closure de fabrica, lee prefs via ref o queda stale
@@ -2944,7 +2966,11 @@ fun PriceChart(
                     drawMaTfTags(canvas, entries)
 
                     // --- Draw Crosshair Lines Manually (Exact Y, Snapped X) ---
-                    val h = highlighted?.getOrNull(0) ?: return
+                    val h = highlighted?.getOrNull(0)
+                    if (h == null) {
+                        crossX.floatValue = -1f
+                        return
+                    }
 
                     val xPts = floatArrayOf(h.x, h.y)
                     trans.pointValuesToPixel(xPts)
@@ -2953,8 +2979,8 @@ fun PriceChart(
 
                     val py = if (lastTouchYPx >= 0) lastTouchYPx.coerceIn(contentTop, contentBottom) else snappedPy
 
-                    // Vertical Line
-                    canvas.drawLine(px, contentTop, px, contentBottom, linePaint)
+                    // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
+                    crossX.floatValue = px
                     // Horizontal Line
                     canvas.drawLine(contentLeft, py, contentRight, py, linePaint)
                     // Intersection Dot
@@ -3366,6 +3392,8 @@ fun PriceChart(
                 lastCandleCount.value = state.candles.size
                 lastCandleInterval.value = state.selectedInterval
             }
+            // panes con el mismo rect X para que la cruz del overlay calce en todos (OKX)
+            chart.alignViewportXWith(stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
         }
     )
 
@@ -3820,11 +3848,7 @@ fun StochRSIChart(
                     var hasVal = false
 
                     if (h != null) {
-                        val xPts = floatArrayOf(h.x, 0f)
-                        getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
-                        val px = xPts[0]
-                        canvas.drawLine(px, viewPortHandler.contentTop(), px, viewPortHandler.contentBottom(), linePaint)
-
+                        // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
                         val idx = h.x.toInt()
                         val k = currentState.stochK.getValueAtCandleIndex(idx)
                         val d = currentState.stochD.getValueAtCandleIndex(idx)
@@ -3899,6 +3923,8 @@ fun StochRSIChart(
                 priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
+            // mismo rect X que el principal para que la cruz calce (OKX)
+            priceChartRef.value?.let { chart.alignViewportXWith(it) }
         }
     )
 }
@@ -3990,11 +4016,7 @@ fun RsiChart(
                     var hasMa = false
 
                     if (h != null) {
-                        val xPts = floatArrayOf(h.x, 0f)
-                        getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
-                        val px = xPts[0]
-                        canvas.drawLine(px, viewPortHandler.contentTop(), px, viewPortHandler.contentBottom(), linePaint)
-
+                        // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
                         currentState.rsi.getValueAtCandleIndex(h.x.toInt())?.let {
                             rsiVal = it
                             hasVal = true
@@ -4165,6 +4187,8 @@ fun RsiChart(
                 priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
+            // mismo rect X que el principal para que la cruz calce (OKX)
+            priceChartRef.value?.let { chart.alignViewportXWith(it) }
         }
     )
 }
@@ -4345,6 +4369,8 @@ fun MacdChart(
                 priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
+            // mismo rect X que el principal para que la cruz calce (OKX)
+            priceChartRef.value?.let { chart.alignViewportXWith(it) }
         }
     )
 }
@@ -4550,6 +4576,8 @@ fun TakerChart(
                 priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
+            // mismo rect X que el principal para que la cruz calce (OKX)
+            priceChartRef.value?.let { chart.alignViewportXWith(it) }
         }
     )
 }
@@ -4626,6 +4654,7 @@ private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsi
 }
 
 private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
+
     val sourceValues = FloatArray(9)
     source.viewPortHandler.matrixTouch.getValues(sourceValues)
 
@@ -4644,6 +4673,26 @@ private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
     // MPAndroidChart's translation/scale clamp.
     viewPortHandler.matrixTouch.set(targetMatrix)
     invalidate()
+}
+
+// panes con el mismo rect X para que la cruz del overlay calce en todos (OKX)
+private fun BarLineChartBase<*>.alignViewportXWith(vararg others: BarLineChartBase<*>?) {
+    val charts = listOf(this) + others.filterNotNull()
+    if (charts.size < 2 || width <= 0) return
+    charts.forEach { it.resetViewPortOffsets(); it.calculateOffsets() }
+    val left = charts.maxOf { it.viewPortHandler.contentLeft() }
+    val right = charts.maxOf { it.width.toFloat() - it.viewPortHandler.contentRight() }
+    charts.forEach {
+        val vph = it.viewPortHandler
+        val w = it.width.toFloat()
+        if (w <= 0f) return@forEach
+        val curL = vph.contentLeft()
+        val curR = w - vph.contentRight()
+        if (kotlin.math.abs(curL - left) > 0.5f || kotlin.math.abs(curR - right) > 0.5f) {
+            it.setViewPortOffsets(left, vph.contentTop(), right, vph.contentBottom())
+        }
+    }
+    charts.forEach { it.invalidate() }
 }
 
 private fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart? = null, macdChart: BarLineChartBase<*>? = null, takerChart: BarLineChartBase<*>? = null) {
