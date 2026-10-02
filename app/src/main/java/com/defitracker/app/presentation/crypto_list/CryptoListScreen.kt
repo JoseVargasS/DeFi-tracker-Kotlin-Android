@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.alerts.DivScanService
+import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.alerts.AlertsBottomSheet
 import com.defitracker.app.presentation.alerts.AlertsViewModel
@@ -86,26 +87,25 @@ fun CryptoListScreen(
     val filteredSymbols = remember(searchQuery, state.availableSymbols) {
         val query = searchQuery.trim()
         if (query.isEmpty()) emptyList()
-        else state.availableSymbols.filter {
+        else (state.availableSymbols + tvIndexSymbols).filter {
             it.symbol.contains(query, ignoreCase = true) ||
             it.baseAsset.contains(query, ignoreCase = true) ||
             it.quoteAsset.contains(query, ignoreCase = true) ||
-            it.displayName.contains(query, ignoreCase = true)
+            it.displayName.contains(query, ignoreCase = true) ||
+            it.keywords.contains(query, ignoreCase = true)
         }.take(10)
     }
 
     val showSymbolError = state.availableSymbols.isEmpty() && state.symbolsError.isNotEmpty()
 
-    // cada fuente ve solo sus pares, en orden manual guardado
+    // todas las fuentes juntas, en orden manual guardado
     val pairOrder = viewModel.pairOrder.value
     val orderIndex = remember(pairOrder) {
         pairOrder.withIndex().associate { it.value to it.index }
     }
-    val visiblePairs = remember(state.pairs, state.selectedSource, orderIndex) {
-        state.pairs.filter { it.source == state.selectedSource }
-            .sortedBy { orderIndex["${it.symbol}-${it.source}"] ?: Int.MAX_VALUE }
+    val visiblePairs = remember(state.pairs, orderIndex) {
+        state.pairs.sortedBy { orderIndex["${it.symbol}-${it.source}"] ?: Int.MAX_VALUE }
     }
-    val sources = listOf("Binance", "MEXC")
 
     // drag con long-press, vive en copia local hasta soltar
     val listState = rememberLazyListState()
@@ -204,48 +204,6 @@ fun CryptoListScreen(
                     }
                 }
 
-                // segmentado compacto centrado, solo el ancho necesario
-                Row(
-                    modifier = Modifier
-                        .align(androidx.compose.ui.Alignment.CenterHorizontally)
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(CardBg)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    sources.forEach { source ->
-                        val selected = state.selectedSource == source
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (selected) Color(0xFF1ECB81).copy(alpha = 0.25f)
-                                    else Color.Transparent
-                                )
-                                .clickable { viewModel.selectSource(source) }
-                                .padding(horizontal = 14.dp, vertical = 4.dp),
-                            contentAlignment = androidx.compose.ui.Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = source,
-                                    color = if (selected) Color.White else Color.Gray,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                                )
-                                Text(
-                                    text = if (source == "Binance") "Spot" else "Futuros",
-                                    color = if (selected) Color(0xFF1ECB81) else Color.Gray.copy(alpha = 0.7f),
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
                 AnimatedVisibility(
                     visible = isSearchMode,
                     enter = fadeIn() + expandVertically(),
@@ -309,20 +267,20 @@ fun CryptoListScreen(
                                                 headlineContent = {
                                                     Text(
                                                         // perps sin slash tambien al buscar
-                                                        if (state.selectedSource == "MEXC") pair.baseAsset + pair.quoteAsset
+                                                        if (pair.source == "MEXC") pair.baseAsset + pair.quoteAsset
                                                         else pair.displayName,
                                                         color = Color.White,
                                                         fontSize = 14.sp
                                                     )
                                                 },
-                                                supportingContent = { Text("${pair.symbol} · ${state.selectedSource}", color = Color.Gray, fontSize = 11.sp) },
+                                                supportingContent = { Text("${pair.symbol} · ${pair.source ?: "Binance"}", color = Color.Gray, fontSize = 11.sp) },
                                                 modifier = Modifier
                                                     .clickable {
                                                         viewModel.onAddPair(
                                                             symbol = pair.symbol,
                                                             baseAsset = pair.baseAsset,
                                                             quoteAsset = pair.quoteAsset,
-                                                            source = state.selectedSource
+                                                            source = pair.source ?: "Binance"
                                                         )
                                                         isSearchMode = false
                                                         searchQuery = ""
@@ -486,4 +444,22 @@ fun CryptoListScreen(
         }
     }
 }
+
+// indices que TradingView publica como CRYPTOCAP:*; se muestran en el buscador
+private val tvIndexSymbols = listOf(
+    AvailableCryptoPair("BTC.D", "BTC.D", "", "TV", "btc dominance dominancia"),
+    AvailableCryptoPair("ETH.D", "ETH.D", "", "TV", "eth dominance dominancia"),
+    AvailableCryptoPair("USDT.D", "USDT.D", "", "TV", "usdt dominance dominancia tether"),
+    AvailableCryptoPair("USDC.D", "USDC.D", "", "TV", "usdc dominance dominancia"),
+    AvailableCryptoPair("OTHERS.D", "OTHERS.D", "", "TV", "others dominance dominancia other"),
+    AvailableCryptoPair("BTC", "BTC", "", "TV", "btc bitcoin market cap"),
+    AvailableCryptoPair("ETH", "ETH", "", "TV", "eth ethereum market cap"),
+    AvailableCryptoPair("USDT", "USDT", "", "TV", "usdt tether stablecoin"),
+    AvailableCryptoPair("USDC", "USDC", "", "TV", "usdc stablecoin"),
+    AvailableCryptoPair("TOTAL", "TOTAL", "", "TV", "total market cap"),
+    AvailableCryptoPair("TOTAL2", "TOTAL2", "", "TV", "total2 market cap"),
+    AvailableCryptoPair("TOTAL3", "TOTAL3", "", "TV", "total3 market cap"),
+    AvailableCryptoPair("OTHERS", "OTHERS", "", "TV", "others altcoins market cap")
+)
+
 

@@ -290,7 +290,25 @@ class CryptoDetailViewModel @Inject constructor(
     private val extraTfCandles = mutableMapOf<String, List<CandleData>>()
 
     private fun intervalForSource(tf: String): String =
-        if (source == "MEXC") tf else tf.toBinanceInterval()
+        if (source == "MEXC") tf else if (source == "TV") tvResolutionFor(tf) else tf.toBinanceInterval()
+
+    private fun tvResolutionFor(tf: String): String = when (tf.trim()) {
+        "1m" -> "1"
+        "3m" -> "3"
+        "5m" -> "5"
+        "15m" -> "15"
+        "30m" -> "30"
+        "1h" -> "60"
+        "2h" -> "120"
+        "4h" -> "240"
+        "6h" -> "360"
+        "12h" -> "720"
+        "1d", "5d" -> "1D"
+        "3d" -> "3D"
+        "1w", "2w" -> "1W"
+        "1mo" -> "1M"
+        else -> "60"
+    }
 
     // trae las velas de los TFs que piden las MAs visibles, luego re-alinea sin tocar zoom
     fun refreshExtraMas(force: Boolean = false) {
@@ -652,7 +670,7 @@ class CryptoDetailViewModel @Inject constructor(
                     repository.getKlines(
                         symbol,
                         // MEXC mapea+agrega en repo, Binance usa su formato
-                        if (source == "MEXC") normalizedInterval else normalizedInterval.toBinanceInterval(),
+                        intervalForSource(normalizedInterval),
                         source,
                         // carga completa siempre fresca, si no el cambio de TF muestra velas viejas
                         forceRefresh = true
@@ -725,7 +743,7 @@ class CryptoDetailViewModel @Inject constructor(
         val sinceMs = current.candles.lastOrNull()?.time ?: 0L
         val rows = repository.getLatestKlines(
             symbol,
-            if (source == "MEXC") interval else interval.toBinanceInterval(),
+            intervalForSource(interval),
             source,
             sinceTimeMs = sinceMs
         )

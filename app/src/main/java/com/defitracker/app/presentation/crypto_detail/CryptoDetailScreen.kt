@@ -613,6 +613,7 @@ private data class TradingPairParts(
 
 private fun sourceLabel(source: String): String = when (source) {
     "MEXC" -> "MEXC · Futuros"
+    "TV" -> "TradingView · CRYPTOCAP"
     else -> "Binance · Spot"
 }
 

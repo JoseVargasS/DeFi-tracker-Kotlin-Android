@@ -13,9 +13,11 @@ data class CryptoPair(
 data class AvailableCryptoPair(
     val symbol: String,
     val baseAsset: String,
-    val quoteAsset: String
+    val quoteAsset: String,
+    val source: String? = null,
+    val keywords: String = ""
 ) {
-    val displayName: String = "$baseAsset/$quoteAsset"
+    val displayName: String = if (quoteAsset.isBlank()) baseAsset else "$baseAsset/$quoteAsset"
 }
 
 data class PairDetail(

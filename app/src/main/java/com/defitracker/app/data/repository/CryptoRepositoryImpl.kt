@@ -10,6 +10,7 @@ import com.defitracker.app.data.remote.BinanceApi
 import com.defitracker.app.data.remote.BinanceFuturesApi
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
+import com.defitracker.app.data.remote.tv.TradingViewClient
 import com.defitracker.app.data.remote.dto.CoinStatsBalanceDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionSyncRequest
@@ -38,6 +39,7 @@ class CryptoRepositoryImpl @Inject constructor(
     private val binanceFuturesApi: BinanceFuturesApi,
     private val coinStatsApi: CoinStatsApi,
     private val mexcFuturesApi: MexcFuturesApi,
+    private val tradingViewClient: TradingViewClient,
     private val trackedPairDao: TrackedPairDao,
     private val walletDao: WalletDao
 ) : CryptoRepository {
@@ -85,6 +87,7 @@ class CryptoRepositoryImpl @Inject constructor(
         return try {
             val rows = when (source) {
                 "MEXC" -> getMexcFuturesKlines(symbol, interval, singlePage = true)
+                "TV" -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), 1000)
                 else -> binanceApi.getKlines(symbol = symbol, interval = interval, limit = cleanLimit.coerceAtMost(1000))
             }
             if (rows.isNotEmpty()) sparkCache[cacheKey] = CachedKlines(System.currentTimeMillis(), rows)
@@ -138,6 +141,7 @@ class CryptoRepositoryImpl @Inject constructor(
         return try {
             when (source) {
                 "MEXC" -> getMexcFuturesPairDetail(symbol)
+                "TV" -> getTvPairDetail(symbol)
                 else -> getBinancePairDetail(symbol)
             }
         } catch (e: CancellationException) {
@@ -162,6 +166,7 @@ class CryptoRepositoryImpl @Inject constructor(
         return try {
             val klines = when (source) {
                 "MEXC" -> getMexcFuturesKlines(symbol, interval)
+                "TV" -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), tvCountbackFor(interval))
                 else -> getBinanceKlines(symbol, interval)
             }
             if (klines.isNotEmpty()) {
@@ -192,6 +197,8 @@ class CryptoRepositoryImpl @Inject constructor(
                     startSec = if (sinceTimeMs > 0L) sinceTimeMs / 1000L else null,
                     singlePage = true
                 )
+                "TV" -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), TAIL_SYNC_LIMIT * 5)
+                    .let { rows -> if (sinceTimeMs > 0L) rows.filter { (it[0] as? Number)?.toLong() ?: it[0].toString().toLong() >= sinceTimeMs } else rows.takeLast(limit) }
                 else -> binanceApi.getKlines(
                     symbol = symbol,
                     interval = interval,
@@ -214,6 +221,7 @@ class CryptoRepositoryImpl @Inject constructor(
         limit: Int
     ): List<TakerVolume> {
         if (interval.trim() !in TAKER_NATIVE_INTERVALS) return emptyList()
+        if (source == "TV") return emptyList()
         return try {
             val binSymbol = if (source == "MEXC") symbol.replace("_", "") else symbol
             binanceFuturesApi.getTakerVolume(
@@ -499,6 +507,57 @@ class CryptoRepositoryImpl @Inject constructor(
             symbol = null,
             decimals = null,
             network = networkName
+        )
+    }
+
+    private fun tvTicker(symbol: String) =
+        if (symbol.startsWith("CRYPTOCAP:")) symbol else "CRYPTOCAP:$symbol"
+
+    private fun tvResolution(interval: String): String = when (interval.trim()) {
+        "1m" -> "1"
+        "3m" -> "3"
+        "5m" -> "5"
+        "15m" -> "15"
+        "30m" -> "30"
+        "1h" -> "60"
+        "2h" -> "120"
+        "4h" -> "240"
+        "6h" -> "360"
+        "12h" -> "720"
+        "1d", "5d" -> "1D"
+        "3d" -> "3D"
+        "1w", "2w" -> "1W"
+        "1mo" -> "1M"
+        else -> "60"
+    }
+
+    private fun tvCountbackFor(interval: String): Int = when (interval) {
+        "1m", "5m", "15m" -> 3000
+        "30m", "1h" -> 2000
+        else -> 1000
+    }
+
+    private suspend fun getTvPairDetail(symbol: String): PairDetail {
+        val rows = tradingViewClient.getKlines(tvTicker(symbol), "1D", 3)
+        if (rows.size < 2) {
+            return PairDetail(symbol, "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", true)
+        }
+        val last = rows.last()
+        val prev = rows[rows.size - 2]
+        val close = last[4].toString().toDoubleOrNull() ?: 0.0
+        val prevClose = prev[4].toString().toDoubleOrNull() ?: 0.0
+        val change = close - prevClose
+        val pct = if (prevClose == 0.0) 0.0 else change / prevClose * 100.0
+        return PairDetail(
+            symbol = symbol,
+            price = formatPrice(close),
+            priceChange = formatPrice(change),
+            priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+            highPrice = formatPrice(last[2].toString().toDoubleOrNull() ?: 0.0),
+            lowPrice = formatPrice(last[3].toString().toDoubleOrNull() ?: 0.0),
+            volume = last[5].toString(),
+            quoteVolume = "0.00",
+            isPositive = pct >= 0
         )
     }
 

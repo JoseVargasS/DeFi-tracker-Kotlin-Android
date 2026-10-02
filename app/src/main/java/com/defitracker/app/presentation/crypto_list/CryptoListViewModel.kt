@@ -83,36 +83,33 @@ class CryptoListViewModel @Inject constructor(
         }
     }
 
-    private fun loadAvailableSymbols(source: String = state.value.selectedSource) {
-        symbolsBySource[source]?.let { cached ->
+    private fun loadAvailableSymbols() {
+        symbolsBySource["combined"]?.let { cached ->
             _state.value = state.value.copy(availableSymbols = cached, symbolsError = "")
             return
         }
         viewModelScope.launch {
-            try {
-                val symbols = repository.getAvailableSymbols(source)
-                symbolsBySource[source] = symbols
-                // ignora respuesta tardia si el usuario ya cambio de fuente
-                if (state.value.selectedSource != source) return@launch
-                _state.value = state.value.copy(
-                    availableSymbols = symbols,
-                    symbolsError = if (symbols.isEmpty()) "Could not load symbols. Check your connection." else ""
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                if (state.value.selectedSource != source) return@launch
-                _state.value = state.value.copy(
-                    symbolsError = "Could not load symbols: ${e.message}"
-                )
+            val all = mutableListOf<AvailableCryptoPair>()
+            // buscador unificado: spot + futuros + TV, cada entrada etiquetada con su fuente
+            for (source in listOf("Binance", "MEXC")) {
+                try {
+                    all += repository.getAvailableSymbols(source).map { it.copy(source = source) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
             }
+            symbolsBySource["combined"] = all
+            _state.value = state.value.copy(
+                availableSymbols = all,
+                symbolsError = if (all.isEmpty()) "Could not load symbols. Check your connection." else ""
+            )
         }
     }
 
     fun selectSource(source: String) {
         if (state.value.selectedSource == source) return
         _state.value = state.value.copy(selectedSource = source)
-        loadAvailableSymbols(source)
+        loadAvailableSymbols()
     }
 
     private fun getTrackedPairs() {

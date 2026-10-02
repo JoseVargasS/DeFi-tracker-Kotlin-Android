@@ -105,6 +105,15 @@ fun CryptoPairItem(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                } else if (pair.source == "TV") {
+                    Text(
+                        text = pair.baseAsset,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 } else {
                     // spot con slash chico en el mismo Text para que no salte de linea
                     Text(
@@ -121,7 +130,7 @@ fun CryptoPairItem(
                     )
                 }
                 Text(
-                    text = pair.symbol,
+                    text = pairSourceLabel(pair),
                     fontSize = 12.sp,
                     color = Color(0xFFAAAAAA),
                     fontWeight = FontWeight.Medium,
@@ -168,6 +177,11 @@ fun CryptoPairItem(
 }
 
 // nota: banda $1-10 con 4 decimales del repo; si el sparkline (24h) va todo sobre $1, recorta a 2
+private fun pairSourceLabel(pair: CryptoPair): String = when (pair.source) {
+    "MEXC" -> "MEXC · Futuros"
+    "TV" -> if (pair.symbol.endsWith(".D")) "TradingView · Dominancia" else "TradingView · Market cap"
+    else -> "Binance · Spot"
+}
 private fun stickyListPrice(price: String, sparkline: List<Double>): String {
     val d = price.toDoubleOrNull() ?: return price
     if (d < 1.0 || d >= 10.0 || sparkline.size < 2) return price
