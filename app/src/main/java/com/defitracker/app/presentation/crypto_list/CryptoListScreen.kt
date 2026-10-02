@@ -420,6 +420,7 @@ fun CryptoListScreen(
                                     CryptoPairItem(
                                         pair = pair,
                                         sparkline = sparklines[key] ?: emptyList(),
+                                        extended = viewModel.dayExt.value[key] ?: false,
                                         onClick = { onNavigateToDetail(pair.symbol, pair.source, "") },
                                         onDelete = { viewModel.onRemovePair(pair.symbol) }
                                     )

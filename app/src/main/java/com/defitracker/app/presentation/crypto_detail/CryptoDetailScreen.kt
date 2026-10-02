@@ -176,7 +176,7 @@ fun CryptoDetailScreen(
         ) {
             // header compacto, el chart manda
             state.detail?.let { detail ->
-                val stickyExt = state.candles.hasSubDollarHistory()
+                val stickyExt = state.daySubDollar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -185,7 +185,7 @@ fun CryptoDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = formatDecimal(detail.price, stickyExt),
+                            text = formatPriceForChart(detail.price.toDoubleOrNull() ?: 0.0, stickyExt),
                             color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
                             fontSize = 19.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -201,7 +201,7 @@ fun CryptoDetailScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "H ${formatDecimal(detail.highPrice, stickyExt)}  L ${formatDecimal(detail.lowPrice, stickyExt)}",
+                            text = "H ${formatPriceForChart(detail.highPrice.toDoubleOrNull() ?: 0.0, stickyExt)}  L ${formatPriceForChart(detail.lowPrice.toDoubleOrNull() ?: 0.0, stickyExt)}",
                             color = Color.Gray,
                             fontSize = 11.sp,
                             fontFamily = Geist
@@ -584,53 +584,6 @@ private val knownQuoteAssets = listOf(
     "TRY",
     "DAI"
 )
-
-private fun formatDecimal(value: String, extended: Boolean = false): String {
-    val d = value.toDoubleOrNull() ?: return value
-    // nota: banda $1-10, recién-cruzadas 4 decimales, consolidadas 2
-    if (d >= 1.0 && d < 10.0) {
-        return if (extended) String.format(Locale.US, "%.4f", d)
-        else String.format(Locale.US, "%.2f", d)
-    }
-    return formatPriceForChart(d)
-}
-
-// nota: true si hubo precio bajo $1 en las ultimas N velas (moneda recién-cruzada)
-private fun List<CandleData>.hasSubDollarHistory(window: Int = 200): Boolean =
-    takeLast(window).any { it.close < 1.0 }
-
-private fun formatPriceForChart(value: Double, extended: Boolean = false): String {
-    if (value == 0.0) return "0.00"
-    // nota: recién-cruzadas mantienen 4 decimales en banda $1-10
-    if (extended && value >= 1.0 && value < 10.0) {
-        return String.format(Locale.US, "%.4f", value)
-    }
-    if (abs(value) >= 1000.0) {
-        return String.format(Locale.US, "%,.2f", value)
-    }
-    // hasta 8 decimales recortando ceros, pa' seguir precios chicos sin ruido
-    var s = String.format(Locale.US, "%.8f", value)
-    s = s.trimEnd('0').trimEnd('.')
-    val frac = s.substringAfter('.', "")
-    if (frac.length < 2) {
-        s = String.format(Locale.US, "%.2f", value)
-    }
-    return s
-}
-
-// eje/tags/fibo con los mismos decimales del precio actual, sin colas largas
-private fun formatAxisPrice(value: Double, refClose: Double, extended: Boolean = false): String {
-    if (value == 0.0) return "0.00"
-    // nota: recién-cruzadas mantienen 4 decimales en banda $1-10
-    if (extended && value >= 1.0 && value < 10.0) {
-        return String.format(Locale.US, "%.4f", value)
-    }
-    if (abs(value) >= 1000.0) {
-        return String.format(Locale.US, "%,.2f", value)
-    }
-    val n = formatPriceForChart(refClose).substringAfter('.', "").length.coerceIn(2, 8)
-    return String.format(Locale.US, "%.${n}f", value)
-}
 
 private enum class ChartTouchMode {
     UNDECIDED,
@@ -1309,7 +1262,7 @@ fun PriceChart(
                         val v = trans.getValuesByTouchPoint(0f, py).y
                         if (!v.isFinite()) continue
                         canvas.drawText(
-                            formatAxisPrice(v, refClose, candles.hasSubDollarHistory()),
+                            formatAxisPrice(v, refClose, stateRef.value.daySubDollar),
                             contentRight - 6f,
                             py + pinnedYLabelPaint.textSize * 0.35f,
                             pinnedYLabelPaint
@@ -1340,7 +1293,7 @@ fun PriceChart(
                     lastPriceTagPaint.color = tagColor
                     canvas.drawLine(contentLeft, py, contentRight, py, lastPriceLinePaint)
 
-                    val priceText = formatPriceForChart(last.close, candles.hasSubDollarHistory())
+                    val priceText = formatPriceForChart(last.close, stateRef.value.daySubDollar)
                     val countdown = formatCandleCountdown(current.selectedInterval, last.time)
                     val textSize = lastPriceTextPaint.textSize
                     val padX = 12f
@@ -1590,7 +1543,7 @@ fun PriceChart(
                     val pocY = pocPts[1].coerceIn(contentTop, contentBottom)
                     canvas.drawLine(contentLeft, pocY, contentRight, pocY, profilePocLinePaint)
 
-                    val label = "POC ${formatPriceForChart(pocPrice, candles.hasSubDollarHistory())}"
+                    val label = "POC ${formatPriceForChart(pocPrice, stateRef.value.daySubDollar)}"
                     val paddingX = 8f
                     val paddingY = 5f
                     val labelWidth = selectionTextPaint.measureText(label) + paddingX * 2f
@@ -2071,7 +2024,7 @@ fun PriceChart(
                         }
                         DrawKind.PRICE_LINE -> {
                             hLine(s.y, contentLeft, contentRight, dashed = true)
-                            val label = formatAxisPrice(o.start.price, candles.lastOrNull()?.close ?: o.start.price, candles.hasSubDollarHistory())
+                            val label = formatAxisPrice(o.start.price, candles.lastOrNull()?.close ?: o.start.price, stateRef.value.daySubDollar)
                             val w = drawLabelPaint.measureText(label) + 16f
                             val h = drawLabelPaint.textSize + 10f
                             val rx = (contentRight - w).coerceAtLeast(contentLeft)
@@ -2164,7 +2117,7 @@ fun PriceChart(
                         canvas.drawLine(leftX, py, rightX, py, fibLinePaint)
                         // nivel + precio entre parentesis a la izquierda de la linea, sin fondo
                         if (selected) {
-                            val label = "${trimRatio(ratio)}(${formatAxisPrice(price, candles.lastOrNull()?.close ?: price, candles.hasSubDollarHistory())})"
+                            val label = "${trimRatio(ratio)}(${formatAxisPrice(price, candles.lastOrNull()?.close ?: price, stateRef.value.daySubDollar)})"
                             val w = fibLabelPaint.measureText(label)
                             val lx = (leftX - 6f - w).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
                             canvas.drawText(label, lx, py + fibLabelPaint.textSize * 0.35f, fibLabelPaint)
@@ -2960,7 +2913,7 @@ fun PriceChart(
                         trans.pointValuesToPixel(pts)
                         val px = pts[0]
                         val py = pts[1]
-                        val label = formatPriceForChart(maxEntry.high, entries.hasSubDollarHistory())
+                        val label = formatPriceForChart(maxEntry.high, stateRef.value.daySubDollar)
                         val labelWidth = labelPaint.measureText(label)
                         val lineEndX = if (px + labelWidth + 16f < contentRight) px + 20f else px - 20f
                         canvas.drawLine(px, py, lineEndX, py, linePaint)
@@ -2974,7 +2927,7 @@ fun PriceChart(
                         trans.pointValuesToPixel(pts)
                         val px = pts[0]
                         val py = pts[1]
-                        val label = formatPriceForChart(minEntry.low, entries.hasSubDollarHistory())
+                        val label = formatPriceForChart(minEntry.low, stateRef.value.daySubDollar)
                         val labelWidth = labelPaint.measureText(label)
                         val lineEndX = if (px + labelWidth + 16f < contentRight) px + 20f else px - 20f
                         canvas.drawLine(px, py, lineEndX, py, linePaint)
@@ -3015,7 +2968,7 @@ fun PriceChart(
 
                     // mismos decimales que el tag de precio actual
                     val refClose = entries.lastOrNull()?.close ?: currentPrice
-                    val priceText = formatAxisPrice(priceAtTouch, refClose, entries.hasSubDollarHistory())
+                    val priceText = formatAxisPrice(priceAtTouch, refClose, stateRef.value.daySubDollar)
                     val pctText = String.format(Locale.US, "%+.2f%%", pctFromCurrent)
 
                     val twPrice = tagTextPaint.measureText(priceText)
@@ -3089,7 +3042,7 @@ fun PriceChart(
                             return formatAxisPrice(
                                 value.toDouble(),
                                 stateRef.value.candles.lastOrNull()?.close ?: 0.0,
-                                stateRef.value.candles.hasSubDollarHistory()
+                                stateRef.value.daySubDollar
                             )
                         }
                     }
@@ -3103,7 +3056,7 @@ fun PriceChart(
                     setLabelCount(6, false)
                     valueFormatter = object : ValueFormatter() {
                         override fun getFormattedValue(value: Float): String {
-                            return formatPriceForChart(value.toDouble(), stateRef.value.candles.hasSubDollarHistory())
+                            return formatPriceForChart(value.toDouble(), stateRef.value.daySubDollar)
                         }
                     }
                 }
@@ -3439,7 +3392,7 @@ fun PriceChart(
                     val last = state.maLines[ma.id]?.lastOrNull()?.second
                     if (last != null) {
                         Text(
-                            text = "${maLegendLabel(ma)} ${formatAxisPrice(last, state.candles.lastOrNull()?.close ?: last, state.candles.hasSubDollarHistory())}  ",
+                            text = "${maLegendLabel(ma)} ${formatAxisPrice(last, state.candles.lastOrNull()?.close ?: last, state.daySubDollar)}  ",
                             color = Color(ma.colorHex.toColorInt()),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -5035,7 +4988,7 @@ class OKXChartMarker(
                     else -> hourSdf
                 }
                 tvTime.text = sdf.format(Date(candle.time))
-                val markerExt = state.candles.hasSubDollarHistory()
+                val markerExt = state.daySubDollar
                 tvOpen.text = formatPriceForChart(candle.open, markerExt)
                 tvHigh.text = formatPriceForChart(candle.high, markerExt)
                 tvLow.text = formatPriceForChart(candle.low, markerExt)

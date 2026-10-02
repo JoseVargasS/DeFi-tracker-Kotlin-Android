@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.defitracker.app.domain.model.CryptoPair
+import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.Geist
@@ -46,6 +47,7 @@ import com.defitracker.app.ui.theme.GeistTnum
 fun CryptoPairItem(
     pair: CryptoPair,
     sparkline: List<Double>,
+    extended: Boolean = false,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -55,8 +57,10 @@ fun CryptoPairItem(
         animationSpec = tween(durationMillis = 180),
         label = "priceChangeColor"
     )
-    // nota: banda $1-10, solo recién-cruzadas (sparkline toco sub-$1) muestran 4, consolidadas 2
-    val priceText = remember(pair.price, sparkline) { stickyListPrice(pair.price, sparkline) }
+    // misma precision de costumbre que el chart, ceros de la banda conservados
+    val priceText = remember(pair.price, extended) {
+        formatPriceForChart(pair.price.toDoubleOrNull() ?: 0.0, extended)
+    }
 
     Surface(
         color = Color.Transparent,
@@ -181,12 +185,6 @@ private fun pairSourceLabel(pair: CryptoPair): String = when (pair.source) {
     "MEXC" -> "MEXC · Futuros"
     "TV" -> if (pair.symbol.endsWith(".D")) "TradingView · Dominancia" else "TradingView · Market cap"
     else -> "Binance · Spot"
-}
-private fun stickyListPrice(price: String, sparkline: List<Double>): String {
-    val d = price.toDoubleOrNull() ?: return price
-    if (d < 1.0 || d >= 10.0 || sparkline.size < 2) return price
-    if (sparkline.all { it >= 1.0 }) return String.format(java.util.Locale.US, "%.2f", d)
-    return price
 }
 
 @Composable

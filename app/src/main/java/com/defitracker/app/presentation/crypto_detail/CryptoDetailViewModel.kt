@@ -687,6 +687,16 @@ class CryptoDetailViewModel @Inject constructor(
                         }
                     }
                 }
+                // referencia de precision: alguna vela diaria < $1 en ~45 dias (cache 5 min del repo)
+                val daySubDollarDeferred = async(Dispatchers.IO) {
+                    try {
+                        repository.getRecentCloses(symbol, source, "1d", 45).any { it < 1.0 }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        state.value.daySubDollar
+                    }
+                }
                 val rawKlines = rawKlinesDeferred.await()
                 extrasDeferred.awaitAll().forEach { (tf, candles) ->
                     if (candles.isNotEmpty()) extraTfCandles[tf] = candles
@@ -718,6 +728,7 @@ class CryptoDetailViewModel @Inject constructor(
                     macdHist = chartData.macdHist,
                     smc = chartData.smc,
                             rsiDiv = chartData.rsiDiv,
+                    daySubDollar = daySubDollarDeferred.await(),
                     isLoading = false
                 )
                 // extras ya traidos en paralelo arriba; solo refresca analisis
@@ -1147,6 +1158,7 @@ data class CryptoDetailState(
     val smc: SmcData = SmcData(),
     val rsiDiv: List<RsiDiv> = emptyList(),
     val selectedInterval: String = "15m",
+    val daySubDollar: Boolean = false,
     val isLoading: Boolean = false,
     val error: String = ""
 )

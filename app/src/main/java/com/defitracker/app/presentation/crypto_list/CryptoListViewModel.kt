@@ -54,6 +54,9 @@ class CryptoListViewModel @Inject constructor(
     val sparklines: State<Map<String, List<Double>>> = _sparklines
     private val _volumes = mutableStateOf<Map<String, Double>>(emptyMap())
     val volumes: State<Map<String, Double>> = _volumes
+    // precision de costumbre por par: 1 call diaria extra por par cada 5 min (cache 5 min del repo)
+    private val _dayExt = mutableStateOf<Map<String, Boolean>>(emptyMap())
+    val dayExt: State<Map<String, Boolean>> = _dayExt
     private val _sortMode = mutableStateOf(SortMode.MANUAL)
     val sortMode: State<SortMode> = _sortMode
 
@@ -218,6 +221,27 @@ class CryptoListViewModel @Inject constructor(
             if (out.isNotEmpty()) _sparklines.value = _sparklines.value + out
             delay(SPARK_CHUNK_DELAY_MS)
         }
+        // referencia diaria de precision junto al sparkline (misma frecuencia, cacheada)
+        try {
+            coroutineScope {
+                pairs.chunked(5).forEach { inner ->
+                    inner.map { pair ->
+                        async {
+                            try {
+                                pairKey(pair.symbol, pair.source) to
+                                    repository.getRecentCloses(pair.symbol, pair.source, "1d", 45).any { it < 1.0 }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                    }.awaitAll().filterNotNull().forEach { (k, v) -> _dayExt.value = _dayExt.value + (k to v) }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {}
     }
 
     private suspend fun updateWidget() {
@@ -239,6 +263,8 @@ class CryptoListViewModel @Inject constructor(
                 if (closes.size >= 2) {
                     _sparklines.value = _sparklines.value + (pairKey(symbol, source) to closes)
                 }
+                val ext = repository.getRecentCloses(symbol, source, "1d", 45).any { it < 1.0 }
+                _dayExt.value = _dayExt.value + (pairKey(symbol, source) to ext)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
