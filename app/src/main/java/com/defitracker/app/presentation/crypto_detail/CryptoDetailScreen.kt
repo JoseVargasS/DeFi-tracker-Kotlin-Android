@@ -4246,11 +4246,6 @@ fun MacdChart(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             object : CombinedChart(context) {
-                private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(220, 255, 255, 255)
-                    strokeWidth = 1.5f
-                    pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
-                }
                 private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#ADB1B8")
                     textSize = context.resources.displayMetrics.density * 8f
@@ -4302,9 +4297,7 @@ fun MacdChart(
                     var hasVal = false
 
                     if (h != null) {
-                        val xPts = floatArrayOf(h.x, 0f)
-                        getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
-                        canvas.drawLine(xPts[0], viewPortHandler.contentTop(), xPts[0], viewPortHandler.contentBottom(), linePaint)
+                        // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
                         val idx = h.x.toInt()
                         val dif = currentState.macdDif.getValueAtCandleIndex(idx)
                         val dea = currentState.macdDea.getValueAtCandleIndex(idx)
@@ -4468,11 +4461,6 @@ fun TakerChart(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             object : BarChart(context) {
-                private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.argb(220, 255, 255, 255)
-                    strokeWidth = 1.5f
-                    pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
-                }
                 private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#ADB1B8")
                     textSize = context.resources.displayMetrics.density * 8f
@@ -4522,9 +4510,7 @@ fun TakerChart(
                     }
 
                     if (h != null) {
-                        val xPts = floatArrayOf(h.x, 0f)
-                        getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(xPts)
-                        canvas.drawLine(xPts[0], viewPortHandler.contentTop(), xPts[0], viewPortHandler.contentBottom(), linePaint)
+                        // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
                         val idx = h.x.toInt()
                         val buy = currentState.takerBuy.getValueAtCandleIndex(idx)
                         val sell = currentState.takerSell.getValueAtCandleIndex(idx)
