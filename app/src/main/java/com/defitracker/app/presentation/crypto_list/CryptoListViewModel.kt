@@ -76,6 +76,7 @@ class CryptoListViewModel @Inject constructor(
         getTrackedPairs()
         startPriceUpdates()
         startSparklineUpdates()
+        startLivePrices()
         loadAvailableSymbols()
         viewModelScope.launch {
             try {
@@ -140,6 +141,31 @@ class CryptoListViewModel @Inject constructor(
                     updateWidget()
                 }
             }
+        }
+    }
+
+    // sockets en vivo: pisan precio/% al instante, el REST de abajo queda de respaldo
+    private fun startLivePrices() {
+        viewModelScope.launch {
+            try {
+                repository.observeLivePrices().collect { quotes ->
+                    val pairs = state.value.pairs
+                    if (pairs.isEmpty() || quotes.isEmpty()) return@collect
+                    var changed = false
+                    val updated = pairs.map { pair ->
+                        val q = quotes[pairKey(pair.symbol, pair.source)]
+                        if (q != null && (q.price != pair.price || q.priceChangePercent != pair.priceChangePercent)) {
+                            changed = true
+                            pair.copy(price = q.price, priceChangePercent = q.priceChangePercent, isPositive = q.isPositive)
+                        } else pair
+                    }
+                    if (changed) _state.value = state.value.copy(pairs = updated)
+                    val vols = quotes.mapValues { it.value.quoteVolume }
+                    if (vols.isNotEmpty()) _volumes.value = _volumes.value + vols
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
         }
     }
 
@@ -298,8 +324,9 @@ class CryptoListViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "CryptoListVM"
-        const val PRICE_REFRESH_MS = 5_000L
-        const val WIDGET_REFRESH_TICKS = 12
+        // respaldo REST cada 30s (los sockets ya cubren Binance/MEXC al segundo)
+        const val PRICE_REFRESH_MS = 30_000L
+        const val WIDGET_REFRESH_TICKS = 2
         const val SPARK_REFRESH_MS = 300_000L
         const val SPARK_CHUNK_DELAY_MS = 60L
     }

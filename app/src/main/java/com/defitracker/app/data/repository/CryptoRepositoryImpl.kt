@@ -8,8 +8,10 @@ import com.defitracker.app.data.local.WalletDao
 import com.defitracker.app.data.local.WalletEntity
 import com.defitracker.app.data.remote.BinanceApi
 import com.defitracker.app.data.remote.BinanceFuturesApi
+import com.defitracker.app.data.remote.BinanceTickerStream
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
+import com.defitracker.app.data.remote.MexcTickerStream
 import com.defitracker.app.data.remote.tv.TradingViewClient
 import com.defitracker.app.data.remote.dto.CoinStatsBalanceDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionDto
@@ -18,6 +20,7 @@ import com.defitracker.app.data.remote.dto.CoinStatsTransactionSyncWalletDto
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
+import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import com.defitracker.app.domain.model.TakerVolume
 import com.defitracker.app.domain.repository.CryptoRepository
@@ -25,6 +28,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import retrofit2.HttpException
 import java.time.Instant
@@ -40,6 +45,8 @@ class CryptoRepositoryImpl @Inject constructor(
     private val coinStatsApi: CoinStatsApi,
     private val mexcFuturesApi: MexcFuturesApi,
     private val tradingViewClient: TradingViewClient,
+    private val binanceTickerStream: BinanceTickerStream,
+    private val mexcTickerStream: MexcTickerStream,
     private val trackedPairDao: TrackedPairDao,
     private val walletDao: WalletDao
 ) : CryptoRepository {
@@ -149,6 +156,40 @@ class CryptoRepositoryImpl @Inject constructor(
         } catch (_: Exception) {
             PairDetail(symbol, "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", true)
         }
+    }
+
+    // junta ambos sockets en un mapa key "$symbol-$source"; si un socket falla emite vacio
+    override fun observeLivePrices(): Flow<Map<String, LiveQuote>> {
+        val binance = binanceTickerStream.observe()
+            .map { batch ->
+                batch.mapNotNull { (symbol, t) ->
+                    if (t.close <= 0 || t.open24h <= 0) return@mapNotNull null
+                    val pct = (t.close - t.open24h) / t.open24h * 100.0
+                    "$symbol-Binance" to LiveQuote(
+                        price = formatPrice(t.close),
+                        priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+                        isPositive = pct >= 0,
+                        quoteVolume = t.quoteVolume
+                    )
+                }.toMap()
+            }
+            .catch { logNonFatal("Binance live stream failed", it); emit(emptyMap()) }
+        val mexc = mexcTickerStream.observe()
+            .map { batch ->
+                batch.mapNotNull { (symbol, t) ->
+                    if (t.lastPrice <= 0) return@mapNotNull null
+                    val pct = t.riseFallRate * 100.0
+                    "$symbol-MEXC" to LiveQuote(
+                        price = formatPrice(t.lastPrice),
+                        priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+                        isPositive = pct >= 0,
+                        // el push no trae amount24: precio*contratos como aprox, el REST lo corrige
+                        quoteVolume = t.lastPrice * t.volume24
+                    )
+                }.toMap()
+            }
+            .catch { logNonFatal("MEXC live stream failed", it); emit(emptyMap()) }
+        return combine(binance, mexc) { b, m -> b + m }
     }
 
     override suspend fun getKlines(

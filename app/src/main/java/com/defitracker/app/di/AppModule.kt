@@ -75,6 +75,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideBinanceTickerStream(): com.defitracker.app.data.remote.BinanceTickerStream {
+        return com.defitracker.app.data.remote.BinanceTickerStream()
+    }
+
+    @Provides
+    @Singleton
+    fun provideMexcTickerStream(): com.defitracker.app.data.remote.MexcTickerStream {
+        return com.defitracker.app.data.remote.MexcTickerStream()
+    }
+
+    @Provides
+    @Singleton
     fun provideAppDatabase(app: Application): AppDatabase {
         return Room.databaseBuilder(
             app,
@@ -120,12 +132,14 @@ object AppModule {
         coinStatsApi: CoinStatsApi,
         mexcFuturesApi: MexcFuturesApi,
         tradingViewClient: com.defitracker.app.data.remote.tv.TradingViewClient,
+        binanceTickerStream: com.defitracker.app.data.remote.BinanceTickerStream,
+        mexcTickerStream: com.defitracker.app.data.remote.MexcTickerStream,
         trackedPairDao: TrackedPairDao,
         walletDao: WalletDao
     ): CryptoRepository {
         return CryptoRepositoryImpl(
             binanceApi, binanceFuturesApi, coinStatsApi, mexcFuturesApi,
-            tradingViewClient, trackedPairDao, walletDao
+            tradingViewClient, binanceTickerStream, mexcTickerStream, trackedPairDao, walletDao
         )
     }
 }

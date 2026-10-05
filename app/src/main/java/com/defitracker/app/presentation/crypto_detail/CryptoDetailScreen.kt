@@ -256,7 +256,7 @@ fun CryptoDetailScreen(
                             (if (prefs.macdVisible) macdW else 0f) +
                             (if (prefs.takerVisible) takerW else 0f)
 
-                        Box(modifier = Modifier.weight(priceW).heightIn(min = 280.dp)) {
+                        Box(modifier = Modifier.weight(priceW).heightIn(min = 240.dp)) {
                             PriceChart(
                                 state = state,
                                 prefs = prefs,
@@ -305,10 +305,6 @@ fun CryptoDetailScreen(
                                 }
                             }
                         }
-                        IntervalRow(
-                            selected = state.selectedInterval,
-                            onPick = { viewModel.loadChartData(it) }
-                        )
                         // subs en contenedor propio: precio siempre visible, subs con scroll invisible si no entran
                         if (anySub) {
                             Box(modifier = Modifier.weight(subsTotalW)) {
@@ -321,8 +317,8 @@ fun CryptoDetailScreen(
                                         (if (prefs.macdVisible && prefs.rsiVisible) 1 else 0) +
                                         (if (prefs.macdVisible && prefs.stochVisible && !prefs.rsiVisible) 1 else 0) +
                                         (if (prefs.takerVisible && (prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible)) 1 else 0)
-                                    val tight = maxHeight < 120.dp * subN + 18.dp * subDivN
-                                    val sh = { w: Float -> (maxHeight * (w / subsTotalW)).coerceAtLeast(120.dp) }
+                                    val tight = maxHeight < 72.dp * subN + 10.dp * subDivN
+                                    val sh = { w: Float -> (maxHeight * (w / subsTotalW)).coerceAtLeast(72.dp) }
                                     fun androidx.compose.foundation.layout.ColumnScope.subMod(w: Float): Modifier =
                                         if (tight) Modifier.fillMaxWidth().height(sh(w)) else Modifier.weight(w)
                                     Column(
@@ -429,6 +425,11 @@ fun CryptoDetailScreen(
                                 }
                             }
                         }
+                        // TFs al fondo, stack pegado estilo OKX
+                        IntervalRow(
+                            selected = state.selectedInterval,
+                            onPick = { viewModel.loadChartData(it) }
+                        )
                     }
                     state.isLoading -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -3393,7 +3394,7 @@ fun PriceChart(
                 lastCandleInterval.value = state.selectedInterval
             }
             // panes con el mismo rect X para que la cruz del overlay calce en todos (OKX)
-            chart.alignViewportXWith(stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
+            chart.alignViewportXWith(isNewDataset, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
         }
     )
 
@@ -3422,7 +3423,7 @@ fun PriceChart(
                         Text(
                             text = "${maLegendLabel(ma)} ${formatAxisPrice(last, state.candles.lastOrNull()?.close ?: last, state.daySubDollar)}  ",
                             color = Color(ma.colorHex.toColorInt()),
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = Geist
                         )
@@ -3818,15 +3819,20 @@ fun StochRSIChart(
                 }
                 private val kPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#FF9800")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val dPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#E91E63")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                private val lvlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#ADB1B8")
+                    textSize = context.resources.displayMetrics.density * 8f
+                    textAlign = Paint.Align.RIGHT
                 }
                 private val panForwarder = SubPanForwarder()
 
@@ -3841,7 +3847,7 @@ fun StochRSIChart(
 
                     val density = context.resources.displayMetrics.density
                     val textX = viewPortHandler.contentLeft() + (density * 5f)
-                    val textY = viewPortHandler.contentTop() + (density * 14f)
+                    val textY = viewPortHandler.contentTop() + (density * 9f)
 
                     var kVal = 0.0
                     var dVal = 0.0
@@ -3874,6 +3880,14 @@ fun StochRSIChart(
                         val dText = "D: ${String.format(Locale.US, "%.2f", dVal)}"
                         canvas.drawText(dText, textX + kWidth, textY, dPaint)
                     }
+                    // niveles 80/20 a la derecha estilo OKX, sin etiquetas 100/0
+                    val lvlPts = floatArrayOf(0f, 80f)
+                    getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(lvlPts)
+                    val lvlX = viewPortHandler.contentRight() - (density * 2f)
+                    canvas.drawText("80", lvlX, lvlPts[1] - (density * 2f), lvlPaint)
+                    lvlPts[1] = 20f
+                    getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(lvlPts)
+                    canvas.drawText("20", lvlX, lvlPts[1] + lvlPaint.textSize, lvlPaint)
                 }
             }.apply {
                 setupCommonChartParams()
@@ -3885,9 +3899,21 @@ fun StochRSIChart(
                 axisLeft.apply {
                     axisMinimum = 0f
                     axisMaximum = 100f
-                    setLabelCount(3, true)
+                    setDrawLabels(false)
                     setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
+                    removeAllLimitLines()
+                    addLimitLine(LimitLine(80f, "").apply {
+                        lineColor = GraphicsColor.argb(120, 173, 177, 184)
+                        lineWidth = 1f
+                        enableDashedLine(10f, 6f, 0f)
+                    })
+                    addLimitLine(LimitLine(20f, "").apply {
+                        lineColor = GraphicsColor.argb(120, 173, 177, 184)
+                        lineWidth = 1f
+                        enableDashedLine(10f, 6f, 0f)
+                    })
                 }
+                applyCompactSubAxes()
                 chartRef.value = this
             }
         },
@@ -3924,7 +3950,7 @@ fun StochRSIChart(
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(it) }
+            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
         }
     )
 }
@@ -3951,13 +3977,13 @@ fun RsiChart(
                 }
                 private val rsiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#B39DDB")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val rsiMaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#FFD60A")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
@@ -3995,6 +4021,11 @@ fun RsiChart(
                     color = GraphicsColor.argb(220, 20, 21, 24)
                 }
                 private val divRect = RectF()
+                private val lvlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#ADB1B8")
+                    textSize = context.resources.displayMetrics.density * 8f
+                    textAlign = Paint.Align.RIGHT
+                }
                 private val panForwarder = SubPanForwarder()
 
                 override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
@@ -4008,7 +4039,7 @@ fun RsiChart(
 
                     val density = context.resources.displayMetrics.density
                     val textX = viewPortHandler.contentLeft() + (density * 5f)
-                    val textY = viewPortHandler.contentTop() + (density * 14f)
+                    val textY = viewPortHandler.contentTop() + (density * 9f)
 
                     var rsiVal = 0.0
                     var maVal = 0.0
@@ -4053,6 +4084,14 @@ fun RsiChart(
                             )
                         }
                     }
+                    // niveles 70/30 a la derecha estilo OKX, sin etiquetas 100/0
+                    val lvlPts = floatArrayOf(0f, 70f)
+                    getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(lvlPts)
+                    val lvlX = viewPortHandler.contentRight() - (density * 2f)
+                    canvas.drawText("70", lvlX, lvlPts[1] - (density * 2f), lvlPaint)
+                    lvlPts[1] = 30f
+                    getTransformer(YAxis.AxisDependency.LEFT).pointValuesToPixel(lvlPts)
+                    canvas.drawText("30", lvlX, lvlPts[1] + lvlPaint.textSize, lvlPaint)
 
                     // divergencias sobre pivotes confirmados, solo el rango visible
                     if (prefsRef.value.rsiDivVisible) {
@@ -4119,7 +4158,7 @@ fun RsiChart(
                 axisLeft.apply {
                     axisMinimum = 0f
                     axisMaximum = 100f
-                    setLabelCount(3, true)
+                    setDrawLabels(false)
                     setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
                     removeAllLimitLines()
                     addLimitLine(LimitLine(70f, "").apply {
@@ -4133,6 +4172,7 @@ fun RsiChart(
                         enableDashedLine(10f, 6f, 0f)
                     })
                 }
+                applyCompactSubAxes()
                 chartRef.value = this
             }
         },
@@ -4188,7 +4228,7 @@ fun RsiChart(
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(it) }
+            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
         }
     )
 }
@@ -4213,31 +4253,31 @@ fun MacdChart(
                 }
                 private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#ADB1B8")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val difPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#FFD60A")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val deaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#E91E63")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val histPosPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#0ECB81")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val histNegPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#F6465D")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
@@ -4254,7 +4294,7 @@ fun MacdChart(
 
                     val density = context.resources.displayMetrics.density
                     var textX = viewPortHandler.contentLeft() + (density * 5f)
-                    val textY = viewPortHandler.contentTop() + (density * 14f)
+                    val textY = viewPortHandler.contentTop() + (density * 11f)
 
                     var difVal = 0.0
                     var deaVal = 0.0
@@ -4311,6 +4351,7 @@ fun MacdChart(
                     setLabelCount(3, true)
                     setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
                 }
+                applyCompactSubAxes()
                 chartRef.value = this
             }
         },
@@ -4370,7 +4411,7 @@ fun MacdChart(
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(it) }
+            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
         }
     )
 }
@@ -4434,25 +4475,25 @@ fun TakerChart(
                 }
                 private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#ADB1B8")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val totalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.WHITE
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val buyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#0ECB81")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val sellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#F6465D")
-                    textSize = context.resources.displayMetrics.density * 10f
+                    textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
@@ -4469,7 +4510,7 @@ fun TakerChart(
 
                     val density = context.resources.displayMetrics.density
                     var textX = viewPortHandler.contentLeft() + (density * 5f)
-                    val textY = viewPortHandler.contentTop() + (density * 14f)
+                    val textY = viewPortHandler.contentTop() + (density * 11f)
                     val base = splitTradingPair(currentState.symbol, currentState.source).baseAsset
 
                     canvas.drawText("C/V del tomador  ", textX, textY, titlePaint)
@@ -4494,15 +4535,18 @@ fun TakerChart(
                             canvas.drawText("Sell($base) ${formatTakerCompact(sell)}", textX, textY, sellPaint)
                         }
                     } else {
-                        val totalBuy = currentState.takerBuy.sumOf { it.second }
-                        val totalSell = currentState.takerSell.sumOf { it.second }
-                        val totalText = "Total($base) ${formatTakerCompact(totalBuy + totalSell)}  "
-                        canvas.drawText(totalText, textX, textY, totalPaint)
-                        textX += totalPaint.measureText(totalText)
-                        val buyText = "Buy($base) ${formatTakerCompact(totalBuy)}  "
-                        canvas.drawText(buyText, textX, textY, buyPaint)
-                        textX += buyPaint.measureText(buyText)
-                        canvas.drawText("Sell($base) ${formatTakerCompact(totalSell)}", textX, textY, sellPaint)
+                        // sin cruz: C/V de la ultima vela, cambia solo cuando entra vela/tick nuevo
+                        val lastBuy = currentState.takerBuy.lastOrNull()?.second
+                        val lastSell = currentState.takerSell.lastOrNull()?.second
+                        if (lastBuy != null && lastSell != null) {
+                            val cvText = "C/V($base) ${formatTakerCompact(lastBuy + lastSell)}  "
+                            canvas.drawText(cvText, textX, textY, totalPaint)
+                            textX += totalPaint.measureText(cvText)
+                            val buyText = "Buy($base) ${formatTakerCompact(lastBuy)}  "
+                            canvas.drawText(buyText, textX, textY, buyPaint)
+                            textX += buyPaint.measureText(buyText)
+                            canvas.drawText("Sell($base) ${formatTakerCompact(lastSell)}", textX, textY, sellPaint)
+                        }
                     }
                 }
             }.apply {
@@ -4521,6 +4565,7 @@ fun TakerChart(
                         }
                     }
                 }
+                applyCompactSubAxes()
                 chartRef.value = this
             }
         },
@@ -4577,7 +4622,7 @@ fun TakerChart(
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(it) }
+            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
         }
     )
 }
@@ -4676,20 +4721,29 @@ private fun BarLineChartBase<*>.syncViewportFrom(source: BarLineChartBase<*>) {
 }
 
 // panes con el mismo rect X para que la cruz del overlay calce en todos (OKX)
-private fun BarLineChartBase<*>.alignViewportXWith(vararg others: BarLineChartBase<*>?) {
+private fun BarLineChartBase<*>.alignViewportXWith(force: Boolean = false, vararg others: BarLineChartBase<*>?) {
     val charts = listOf(this) + others.filterNotNull()
     if (charts.size < 2 || width <= 0) return
-    charts.forEach { it.resetViewPortOffsets(); it.calculateOffsets() }
+    // recalcular marcos solo con dataset nuevo: hacerlo en cada tick muta el rect
+    // a mitad de un gesto y los subs se borran/descolocan
+    if (force) {
+        charts.forEach { it.resetViewPortOffsets(); it.calculateOffsets() }
+    }
     val left = charts.maxOf { it.viewPortHandler.contentLeft() }
     val right = charts.maxOf { it.width.toFloat() - it.viewPortHandler.contentRight() }
     charts.forEach {
         val vph = it.viewPortHandler
         val w = it.width.toFloat()
-        if (w <= 0f) return@forEach
+        val h = it.height.toFloat()
+        if (w <= 0f || h <= 0f) return@forEach
         val curL = vph.contentLeft()
         val curR = w - vph.contentRight()
+        // setViewPortOffsets pide MARGENES: arriba/abajo se conservan los actuales,
+        // pasar contentBottom() (coordenada) como margen colapsa el rect a 0px
+        val curT = vph.contentTop()
+        val curB = h - vph.contentBottom()
         if (kotlin.math.abs(curL - left) > 0.5f || kotlin.math.abs(curR - right) > 0.5f) {
-            it.setViewPortOffsets(left, vph.contentTop(), right, vph.contentBottom())
+            it.setViewPortOffsets(left, curT, right, curB)
         }
     }
     charts.forEach { it.invalidate() }
@@ -4823,6 +4877,21 @@ private fun BarLineChartBase<*>.setupCommonChartParams() {
     axisLeft.gridColor = "#1A1D23".toColorInt()
     axisLeft.setDrawAxisLine(false)
     axisRight.isEnabled = false
+}
+
+// subs compactos estilo OKX: numeros chicos y poco aire vertical
+private fun BarLineChartBase<*>.applyCompactSubAxes() {
+    axisLeft.textSize = 8f
+    axisLeft.spaceTop = 5f
+    axisLeft.spaceBottom = 5f
+    axisRight.textSize = 8f
+    axisRight.spaceTop = 5f
+    axisRight.spaceBottom = 5f
+    xAxis.textSize = 8f
+    // marco de 1dp: el aire sobre/sub era el minOffset de 15dp de MPChart
+    setMinOffset(0f)
+    val d1 = context.resources.displayMetrics.density
+    setExtraOffsets(d1, d1, d1, d1)
 }
 
 // ─── DATASET HELPERS ─────────────────────────────────────────────────────────
@@ -5921,7 +5990,7 @@ private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             // visual delgado, toque amplio en toda la linea
-            .height(18.dp)
+            .height(10.dp)
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { active = true },

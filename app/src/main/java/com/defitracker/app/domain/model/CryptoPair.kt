@@ -32,6 +32,14 @@ data class PairDetail(
     val isPositive: Boolean
 )
 
+// cotizacion en vivo por socket, key "$symbol-$source" igual que pairKey del VM
+data class LiveQuote(
+    val price: String,
+    val priceChangePercent: String,
+    val isPositive: Boolean,
+    val quoteVolume: Double
+)
+
 // buy/sell del tomador (Binance Futuros), en moneda base
 data class TakerVolume(
     val timeMs: Long,

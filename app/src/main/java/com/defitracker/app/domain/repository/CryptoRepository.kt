@@ -5,6 +5,7 @@ import com.defitracker.app.data.remote.dto.CoinStatsBalanceDto
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
+import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import com.defitracker.app.domain.model.TakerVolume
 import kotlinx.coroutines.flow.Flow
@@ -14,6 +15,8 @@ interface CryptoRepository {
     suspend fun addTrackedPair(symbol: String, baseAsset: String, quoteAsset: String, source: String)
     suspend fun removeTrackedPair(symbol: String)
     suspend fun getPairDetail(symbol: String, source: String): PairDetail
+    // sockets en vivo (Binance ~1s, MEXC ~2s), key "$symbol-$source"; el REST queda de respaldo
+    fun observeLivePrices(): Flow<Map<String, LiveQuote>>
     suspend fun getKlines(symbol: String, interval: String, source: String, forceRefresh: Boolean = false): List<List<Any>>
     // sparkline liviana: 1 sola llamada, ultimos cierres 1h, cache propio 5min
     suspend fun getSparklineCloses(symbol: String, source: String, limit: Int = 30): List<Double>
