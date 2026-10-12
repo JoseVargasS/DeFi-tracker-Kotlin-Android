@@ -54,7 +54,9 @@ fun PriceAlertSheet(
 ) {
     var direction by remember { mutableStateOf("LONG") }
     var modeRange by remember { mutableStateOf(false) }
-    var priceTxt by remember(currentPrice) {
+    // sin llave: se prellena una vez al abrir y respeta lo que escribes
+    // (con remember(currentPrice) el tick en vivo lo reseteaba cada 2s)
+    var priceTxt by remember {
         mutableStateOf(if (currentPrice > 0) currentPrice.toString() else "")
     }
     var lowTxt by remember { mutableStateOf("") }
