@@ -2224,6 +2224,8 @@ fun PriceChart(
                     fibLinePaint.alpha = if (selected || selectedFibRef.value == null) 255 else 140
                     fibLabelPaint.color = GraphicsColor.WHITE
 
+                    // tags siempre visibles (tenues si no es el seleccionado), como las lineas
+                    fibLabelPaint.alpha = if (selected || selectedFibRef.value == null) 255 else 140
                     levels.forEach { ratio ->
                         // punto inicial siempre 1, final siempre 0
                         val price = fibLevelPrice(o.end.price, o.start.price, ratio)
@@ -2231,14 +2233,15 @@ fun PriceChart(
                         trans.pointValuesToPixel(pts)
                         val py = pts[1].coerceIn(contentTop, contentBottom)
                         canvas.drawLine(leftX, py, rightX, py, fibLinePaint)
-                        // nivel + precio entre parentesis a la izquierda de la linea, sin fondo
-                        if (selected) {
-                            val label = "${trimRatio(ratio)}(${formatAxisPrice(price, candles.lastOrNull()?.close ?: price, stateRef.value.daySubDollar)})"
-                            val w = fibLabelPaint.measureText(label)
-                            val lx = (leftX - 6f - w).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
-                            canvas.drawText(label, lx, py + fibLabelPaint.textSize * 0.35f, fibLabelPaint)
-                        }
+                        // nivel + precio entre parentesis a la derecha de la linea, sin fondo.
+                        // Si el final queda fuera de pantalla (fibo gigante en TF menor),
+                        // el tag se clava al borde derecho visible sobre su linea
+                        val label = "${trimRatio(ratio)}(${formatAxisPrice(price, candles.lastOrNull()?.close ?: price, stateRef.value.daySubDollar)})"
+                        val w = fibLabelPaint.measureText(label)
+                        val lx = (rightX + 6f).coerceIn(contentLeft, (contentRight - w).coerceAtLeast(contentLeft))
+                        canvas.drawText(label, lx, py - 6f, fibLabelPaint)
                     }
+                    fibLabelPaint.alpha = 255
 
                     // handles solo en el seleccionado, grises si esta candadeado
                     if (selected) {
