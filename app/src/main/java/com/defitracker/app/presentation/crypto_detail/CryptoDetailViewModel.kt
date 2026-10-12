@@ -28,6 +28,7 @@ import kotlin.math.sqrt
 class CryptoDetailViewModel @Inject constructor(
     private val repository: CryptoRepository,
     private val prefsRepo: IndicatorPrefsRepository,
+    private val priceAlertDao: com.defitracker.app.data.local.PriceAlertDao,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -128,6 +129,9 @@ class CryptoDetailViewModel @Inject constructor(
 
     private var refreshJob: Job? = null
     private var chartJob: Job? = null
+    // generacion del chart: cada cambio de TF sube el numero y los resultados viejos se descartan
+    private var chartGen = 0
+    private var lastTfPickMs = 0L
     // el loop es secuencial, el flag solo evita solapar tail con full load
     private var tailSyncing = false
     // si el tail no trae vela nueva 3 cierres seguidos, full load de respaldo
@@ -152,17 +156,16 @@ class CryptoDetailViewModel @Inject constructor(
                 _fibOverlays.value = stored.ifEmpty {
                     prefsRepo.migrateLegacyFib(symbol) ?: emptyList()
                 }
-                _selectedFibId.value = _fibOverlays.value.lastOrNull()?.id
+                _selectedFibId.value = null
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
-            // dibujos del simbolo, si hay uno visible se selecciona
+            // dibujos del simbolo, al entrar no se selecciona nada:
+            // la barrita flotante solo aparece cuando tocas un dibujo
             try {
                 _drawOverlays.value = prefsRepo.drawOverlaysFlow(symbol).first()
-                if (_drawOverlays.value.any { !it.hidden }) {
-                    _selectedDrawId.value = _drawOverlays.value.lastOrNull { !it.hidden }?.id
-                    _selectedFibId.value = null
-                }
+                _selectedDrawId.value = null
+                _selectedFibId.value = null
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
@@ -183,6 +186,7 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
+    fun toggleOverlaysHidden() = updatePrefs { it.copy(overlaysHidden = !it.overlaysHidden) }
     fun toggleBB() = updatePrefs { it.copy(bbVisible = !it.bbVisible) }
     fun toggleProfile() = updatePrefs { it.copy(profileVisible = !it.profileVisible) }
     fun toggleVolumeSub() = updatePrefs { it.copy(volumeVisible = !it.volumeVisible) }
@@ -537,6 +541,43 @@ class CryptoDetailViewModel @Inject constructor(
         persistDraws()
     }
 
+    // ─── ALERTAS DE PRECIO (LONG/SHORT por par) ───
+    fun priceAlertsFlow(): kotlinx.coroutines.flow.Flow<List<com.defitracker.app.data.local.PriceAlertEntity>> =
+        priceAlertDao.observeForPair(symbol, source)
+
+    fun addPriceAlert(direction: String, target: Double, low: Double, high: Double) {
+        val dir = direction.uppercase().takeIf { it == "SHORT" } ?: "LONG"
+        viewModelScope.launch {
+            try {
+                priceAlertDao.upsert(
+                    com.defitracker.app.data.local.PriceAlertEntity(
+                        id = java.util.UUID.randomUUID().toString(),
+                        symbol = symbol,
+                        source = source,
+                        direction = dir,
+                        targetPrice = target,
+                        low = low,
+                        high = high
+                    )
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun deletePriceAlert(id: String) {
+        viewModelScope.launch {
+            try { priceAlertDao.delete(id) } catch (_: Exception) {}
+        }
+    }
+
+    fun togglePriceAlert(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            try { priceAlertDao.setEnabled(id, enabled) } catch (_: Exception) {}
+        }
+    }
+
     // ─── SMC ───
     fun toggleSmcStructure() = updatePrefs { it.copy(smcStructure = !it.smcStructure) }
     fun toggleSmcOrderBlocks() = updatePrefs { it.copy(smcOrderBlocks = !it.smcOrderBlocks) }
@@ -545,7 +586,13 @@ class CryptoDetailViewModel @Inject constructor(
     fun toggleSmcEqhl() = updatePrefs { it.copy(smcEqhl = !it.smcEqhl) }
     fun toggleSmcLiquidity() = updatePrefs { it.copy(smcLiquidity = !it.smcLiquidity) }
 
-    private fun loadDetail() {
+    // jalar-para-actualizar: detalle + chart fresco sin pelear con el loop automatico
+    fun refreshAll() {
+        loadDetail()
+        loadChartData(_state.value.selectedInterval, force = true)
+    }
+
+    fun loadDetail() {
         viewModelScope.launch {
             _state.value = state.value.copy(isLoading = true)
             try {
@@ -562,6 +609,8 @@ class CryptoDetailViewModel @Inject constructor(
         refreshJob = viewModelScope.launch {
             while (true) {
                 delay(DETAIL_REFRESH_MS)
+                // mientras el chart esta cargando (cambio de TF / pull), el tick no pisa
+                if (_state.value.isLoading) continue
                 try {
                     val detail = repository.getPairDetail(symbol, source)
                     val currentPrice = detail.price.toDoubleOrNull() ?: 0.0
@@ -655,10 +704,17 @@ class CryptoDetailViewModel @Inject constructor(
     fun loadChartData(interval: String, force: Boolean = false) {
         val normalizedInterval = interval.trim()
         if (!force && normalizedInterval == state.value.selectedInterval && state.value.candles.isNotEmpty()) return
+        // debounce: toques locos de TF no encolan cargas, solo vale el ultimo
+        val now = System.currentTimeMillis()
+        if (!force && now - lastTfPickMs < 250L) return
+        lastTfPickMs = now
         noNewCandleStreak = 0
+        chartGen += 1
+        val gen = chartGen
 
         chartJob?.cancel()
         chartJob = viewModelScope.launch {
+            // si entro otro TF mientras se pintaba, este ya no pisa nada
             _state.value = state.value.copy(selectedInterval = normalizedInterval, isLoading = true, error = "", takerBuy = emptyList(), takerSell = emptyList())
             try {
                 val masSnapshot = _prefs.value.mas
@@ -698,9 +754,11 @@ class CryptoDetailViewModel @Inject constructor(
                     }
                 }
                 val rawKlines = rawKlinesDeferred.await()
+                if (gen != chartGen) return@launch
                 extrasDeferred.awaitAll().forEach { (tf, candles) ->
                     if (candles.isNotEmpty()) extraTfCandles[tf] = candles
                 }
+                if (gen != chartGen) return@launch
                 val chartData = withContext(Dispatchers.Default) {
                     val candles = rawKlines.toCandles().let {
                         if (source == "MEXC") it else it.aggregateForInterval(normalizedInterval)
@@ -712,6 +770,8 @@ class CryptoDetailViewModel @Inject constructor(
 
                     candles.toChartComputation(normalizedInterval, masSnapshot, extraTfCandles.toMap())
                 }
+                // llego tarde: otro TF ya mando, no se pinta nada viejo
+                if (gen != chartGen || _state.value.selectedInterval != normalizedInterval) return@launch
 
                 _state.value = state.value.copy(
                     candles = chartData.candles,
@@ -732,13 +792,16 @@ class CryptoDetailViewModel @Inject constructor(
                     isLoading = false
                 )
                 // extras ya traidos en paralelo arriba; solo refresca analisis
+                if (gen != chartGen) return@launch
                 refreshAnalysis()
                 syncTaker(500)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 logNonFatal("Chart data load failed for $symbol/$normalizedInterval", e)
-                _state.value = state.value.copy(isLoading = false, error = e.message ?: "Error")
+                if (gen == chartGen) {
+                    _state.value = state.value.copy(isLoading = false, error = e.message ?: "Error")
+                }
             }
         }
     }

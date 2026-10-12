@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -59,6 +60,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
@@ -117,6 +119,47 @@ fun CryptoDetailScreen(
     val prefs = viewModel.prefs.value
     val showIndicators = remember { mutableStateOf(false) }
     val showMaList = remember { mutableStateOf(false) }
+    val showPriceAlerts = remember { mutableStateOf(false) }
+    val priceAlerts by viewModel.priceAlertsFlow().collectAsState(initial = emptyList())
+    // jalar-para-actualizar manual (sin libreria): arrastra desde el header,
+    // dispara al llegar al punto con el dedo abajo (no depende del vuelo al soltar)
+    var pullPx by remember { mutableFloatStateOf(0f) }
+    var pullBusy by remember { mutableStateOf(false) }
+    val pullConn = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.Drag && available.y > 0 && !pullBusy) {
+                    pullPx = (pullPx + available.y * 0.5f).coerceAtMost(220f)
+                    if (pullPx >= com.defitracker.app.presentation.components.PULL_TRIGGER_PX) {
+                        pullPx = 0f
+                        pullBusy = true
+                        try { viewModel.refreshAll() } catch (_: Exception) {}
+                        return available
+                    }
+                    if (pullPx > 24f) return available
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+            override suspend fun onPostFling(
+                consumed: androidx.compose.ui.unit.Velocity,
+                available: androidx.compose.ui.unit.Velocity
+            ): androidx.compose.ui.unit.Velocity {
+                if (pullPx > 120f && !pullBusy) {
+                    pullBusy = true
+                    try { viewModel.refreshAll() } catch (_: Exception) {}
+                }
+                pullPx = 0f
+                return super.onPostFling(consumed, available)
+            }
+        }
+    }
+    // cuando termina la carga se libera el jalon para el siguiente
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading) pullBusy = false
+    }
     // modo expandir, el chart manda y los TFs bajan
     val chartExpanded = remember { mutableStateOf(true) }
     val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
@@ -161,7 +204,34 @@ fun CryptoDetailScreen(
                         }
                     }
                 },
-                actions = {},
+                actions = {
+                    // campanita de alertas LONG/SHORT de este par
+                    Box(contentAlignment = Alignment.Center) {
+                        IconButton(onClick = { showPriceAlerts.value = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Alertas de precio",
+                                tint = Color.White
+                            )
+                        }
+                        val activeCount = priceAlerts.count { it.enabled }
+                        if (activeCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .background(Color(0xFF1ECB81), CircleShape)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = activeCount.toString(),
+                                    color = Color.Black,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF000000),
                     titleContentColor = Color.White
@@ -170,12 +240,14 @@ fun CryptoDetailScreen(
         },
         containerColor = Color(0xFF000000)
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(Color(0xFF000000))
+                .nestedScroll(pullConn)
         ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             // header compacto, el chart manda
             state.detail?.let { detail ->
                 val stickyExt = state.daySubDollar
@@ -433,17 +505,30 @@ fun CryptoDetailScreen(
                     }
                     state.isLoading -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Color(0xFF1ECB81))
+                            com.defitracker.app.presentation.components.OctopusLoader(message = "Cargando…")
                         }
                     }
-                    state.error.isNotBlank() -> {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    state.error.isNotBlank() && state.candles.isEmpty() -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                             Text(state.error, color = Color.Gray, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { viewModel.refreshAll() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1ECB81),
+                                    contentColor = Color.Black
+                                )
+                            ) { Text("Reintentar", fontWeight = FontWeight.Bold) }
                         }
                     }
+                    // sin velas y sin error = todavia cargando, nunca el mensaje en ingles
                     else -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No chart data available", color = Color.Gray, fontSize = 13.sp)
+                            com.defitracker.app.presentation.components.OctopusLoader(message = "Cargando…")
                         }
                     }
                 }
@@ -497,6 +582,32 @@ fun CryptoDetailScreen(
                     )
                 }
             }
+
+            // campanita: alertas LONG/SHORT de este par
+            if (showPriceAlerts.value) {
+                ModalBottomSheet(
+                    onDismissRequest = { showPriceAlerts.value = false },
+                    containerColor = SheetBg
+                ) {
+                    PriceAlertSheet(
+                        symbol = state.detail?.symbol ?: state.symbol,
+                        currentPrice = state.detail?.price?.toDoubleOrNull() ?: 0.0,
+                        alerts = priceAlerts,
+                        onAdd = { dir, target, lo, hi -> viewModel.addPriceAlert(dir, target, lo, hi) },
+                        onDelete = { viewModel.deletePriceAlert(it) },
+                        onToggle = { id, on -> viewModel.togglePriceAlert(id, on) }
+                    )
+                }
+            }
+        }
+        // circulito de jalar-para-actualizar, arriba de todo sin tapar el chart
+        com.defitracker.app.presentation.components.PullSpinner(
+            fraction = pullPx / com.defitracker.app.presentation.components.PULL_TRIGGER_PX,
+            refreshing = state.isLoading,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp)
+        )
         }
     }
 }
@@ -1760,6 +1871,7 @@ fun PriceChart(
                 private fun fibHitTest(x: Float, y: Float): Triple<String, Int, Boolean>? {
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null
+                    if (prefsRef.value.overlaysHidden) return null
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
                     var best: Triple<String, Int, Boolean>? = null
                     var bestDist = Float.MAX_VALUE
@@ -1861,6 +1973,7 @@ fun PriceChart(
                 // 1 = handle inicio, 2 = handle fin, 3 = cuerpo
                 private fun drawHitTest(x: Float, y: Float): Triple<String, Int, Boolean>? {
                     if (stateRef.value.candles.isEmpty()) return null
+                    if (prefsRef.value.overlaysHidden) return null
                     val contentLeft = viewPortHandler.contentLeft()
                     val contentRight = viewPortHandler.contentRight()
                     var best: Triple<String, Int, Boolean>? = null
@@ -2906,7 +3019,9 @@ fun PriceChart(
                         drawFixedRangeVolumeProfile(canvas, entries, visibleStart, visibleEnd)
                     }
                     drawVolumeOverlay(canvas, entries, visibleStart, visibleEnd)
-                    drawSmcBackground(canvas, entries, visibleStart, visibleEnd)
+                    if (!prefsRef.value.overlaysHidden) {
+                        drawSmcBackground(canvas, entries, visibleStart, visibleEnd)
+                    }
                     super.onDraw(canvas)
 
                     var maxIndex = visibleStart
@@ -2959,12 +3074,14 @@ fun PriceChart(
                     }
 
                     drawPriceRangeSelection(canvas, entries)
-                    drawFibOverlays(canvas, entries)
-                    drawDrawOverlays(canvas, entries)
-                    drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
+                    if (!prefsRef.value.overlaysHidden) {
+                        drawFibOverlays(canvas, entries)
+                        drawDrawOverlays(canvas, entries)
+                        drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
+                        drawMaTfTags(canvas, entries)
+                    }
                     drawPinnedYLabels(canvas, entries)
                     drawLastPriceTag(canvas, entries)
-                    drawMaTfTags(canvas, entries)
 
                     // --- Draw Crosshair Lines Manually (Exact Y, Snapped X) ---
                     val h = highlighted?.getOrNull(0)
@@ -3277,7 +3394,8 @@ fun PriceChart(
                     )
                 }
                 val combinedData = CombinedData()
-                if (prefs.bbVisible && state.bbUpper.isNotEmpty()) {
+                val showLines = !prefs.overlaysHidden
+                if (showLines && prefs.bbVisible && state.bbUpper.isNotEmpty()) {
                     val upperEntries = ArrayList<Entry>(state.bbUpper.size)
                     state.bbUpper.forEachIndexed { index, value ->
                         val offsetIndex = index + (state.candles.size - state.bbUpper.size)
@@ -3331,7 +3449,7 @@ fun PriceChart(
                     lineData.addDataSet(createBBLineDataSet(upperEntries, "Upper", bbColor, axisDependency = YAxis.AxisDependency.RIGHT))
                     lineData.addDataSet(createBBLineDataSet(lowerEntries, "Lower", bbColor, axisDependency = YAxis.AxisDependency.RIGHT))
                     lineData.addDataSet(createBBLineDataSet(middleEntries, "Middle", middleColor, 1.2f, axisDependency = YAxis.AxisDependency.RIGHT))
-                    prefs.mas.filter { it.visible }.forEach { ma ->
+                    if (showLines) prefs.mas.filter { it.visible }.forEach { ma ->
                         maLineDataSet(ma, state.maLines[ma.id] ?: emptyList())?.let {
                             lineData.addDataSet(it)
                         }
@@ -3340,7 +3458,7 @@ fun PriceChart(
                 } else {
                     combinedData.setData(CandleData(createCandleDataSet(candleEntries)))
                     val maOnly = LineData()
-                    prefs.mas.filter { it.visible }.forEach { ma ->
+                    if (showLines) prefs.mas.filter { it.visible }.forEach { ma ->
                         maLineDataSet(ma, state.maLines[ma.id] ?: emptyList())?.let {
                             maOnly.addDataSet(it)
                         }
@@ -3417,7 +3535,7 @@ fun PriceChart(
             FlowRow(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                prefs.mas.filter { it.visible }.forEach { ma ->
+                if (!prefs.overlaysHidden) prefs.mas.filter { it.visible }.forEach { ma ->
                     val last = state.maLines[ma.id]?.lastOrNull()?.second
                     if (last != null) {
                         Text(
@@ -3432,6 +3550,24 @@ fun PriceChart(
             }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // ojo: oculta lineas/medias/dibujos sobre el precio, velas y volumen intactos
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = if (prefs.overlaysHidden) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable { viewModel.toggleOverlaysHidden() }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (prefs.overlaysHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = "Ocultar dibujos",
+                    tint = if (prefs.overlaysHidden) Color.Black else Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
             Box(
                 modifier = Modifier
                     .background(
@@ -3471,9 +3607,9 @@ fun PriceChart(
             }
         }
 
-        // barra del fibo seleccionado, visible aunque no estes en modo dibujo
+        // barra del fibo seleccionado, solo cuando tocas uno (al entrar no hay seleccion)
         val selectedFib = fibOverlays.firstOrNull { it.id == selectedFibId }
-        if (selectedFib != null) {
+        if (selectedFib != null && !prefs.overlaysHidden) {
             OverlayEditBar(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -3508,7 +3644,7 @@ fun PriceChart(
 
         // barra del dibujo seleccionado, sin niveles
         val selectedDraw = drawOverlays.firstOrNull { it.id == selectedDrawId }
-        if (selectedDraw != null) {
+        if (selectedDraw != null && !prefs.overlaysHidden) {
             OverlayEditBar(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -3943,10 +4079,11 @@ fun StochRSIChart(
 
             chart.xAxis.applyTimeAxis(state)
             chart.xAxis.setDrawLabels(false)
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
+            val firstMount = lastRenderedDataKey.value == null
+            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
+            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
+            priceChartRef.value?.let { chart.syncViewportFrom(it) }
             if (isNewDataset) {
-                // al montar, hereda el rango visible del principal
-                priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
@@ -4221,10 +4358,11 @@ fun RsiChart(
 
             chart.xAxis.applyTimeAxis(state)
             chart.xAxis.setDrawLabels(false)
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
+            val firstMount = lastRenderedDataKey.value == null
+            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
+            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
+            priceChartRef.value?.let { chart.syncViewportFrom(it) }
             if (isNewDataset) {
-                // al montar, hereda el rango visible del principal
-                priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
@@ -4397,10 +4535,11 @@ fun MacdChart(
 
             chart.xAxis.applyTimeAxis(state)
             chart.xAxis.setDrawLabels(false)
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = isNewDataset, skipPositioning = isNewDataset)
+            val firstMount = lastRenderedDataKey.value == null
+            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
+            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
+            priceChartRef.value?.let { chart.syncViewportFrom(it) }
             if (isNewDataset) {
-                // al montar, hereda el rango visible del principal
-                priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
@@ -4601,10 +4740,11 @@ fun TakerChart(
 
             chart.xAxis.applyTimeAxis(state)
             chart.xAxis.setDrawLabels(false)
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = needsBuild, skipPositioning = needsBuild)
+            val firstTakerMount = lastTakerKey.value == null
+            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstTakerMount, skipPositioning = !firstTakerMount, preserveTouchX = true)
+            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
+            priceChartRef.value?.let { chart.syncViewportFrom(it) }
             if (needsBuild) {
-                // al montar, hereda el rango visible del principal
-                priceChartRef.value?.let { chart.syncViewportFrom(it) }
                 lastRenderedDataKey.value = viewportKey
             }
             // mismo rect X que el principal para que la cruz calce (OKX)
@@ -4628,6 +4768,9 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
     resetCustomY: Boolean = false,
     // encuadre inicial solo con velas: las MAs de otro TF no aplanan el chart
     fitYToCandles: Boolean = false,
+    // subs: con dataset ya visible no reposicionar; el reseteo a zoom inicial
+    // descuadra el pan al redimensionar (y en cada tick)
+    preserveTouchX: Boolean = false,
     onPositioned: (() -> Unit)? = null
 ) {
     if (data.isEmpty()) return
@@ -4652,6 +4795,11 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
             }
         }
         if (!skipPositioning) {
+            if (preserveTouchX && !resetViewport) {
+                isAutoScaleMinMaxEnabled = !fitYToCandles
+                invalidate()
+                return
+            }
             post {
                 // vista fresca con Y ajustado, se congela con el primer pan
                 if (resetCustomY && !fitYToCandles) {

@@ -51,11 +51,13 @@ data class IndicatorPrefs(
     val smcFvg: Boolean = false,
     val smcPremium: Boolean = false,
     val smcEqhl: Boolean = false,
-    val smcLiquidity: Boolean = false
+    val smcLiquidity: Boolean = false,
+    // ojo global: oculta lineas/medias/dibujos sobre el precio (velas y subs intactos)
+    val overlaysHidden: Boolean = false
 ) {
     // cambia si cambia cualquier ajuste -> el chart reconstruye sin resetear zoom
     fun prefsKey(): String = buildString {
-        append(bbVisible).append(profileVisible).append(volumeVisible).append(stochVisible).append(rsiVisible).append(macdVisible).append(takerVisible).append(rsiDivVisible).append(rsiDivHidden)
+        append(bbVisible).append(profileVisible).append(volumeVisible).append(overlaysHidden).append(stochVisible).append(rsiVisible).append(macdVisible).append(takerVisible).append(rsiDivVisible).append(rsiDivHidden)
         mas.forEach { append(it.id).append(it.type).append(it.period).append(it.timeframe).append(it.visible).append(it.colorHex).append(it.width) }
         append(fib.colorHex).append(fib.width).append(fib.hidden).append(fib.enabledLevels.sorted().joinToString(","))
         append(smcStructure).append(smcOrderBlocks).append(smcFvg).append(smcPremium).append(smcEqhl).append(smcLiquidity)
@@ -112,6 +114,7 @@ class IndicatorPrefsRepository @Inject constructor(
             smcPremium = p[booleanPreferencesKey("smc_premium")] ?: false,
             smcEqhl = p[booleanPreferencesKey("smc_eqhl")] ?: false,
             smcLiquidity = p[booleanPreferencesKey("smc_liq")] ?: false,
+            overlaysHidden = p[booleanPreferencesKey("overlays_hidden")] ?: false,
             // lista de MAs (id|tipo|periodo|color|grosor|visible|tf), migra las 5 fijas una vez
             mas = decodeMas(p[stringPreferencesKey("mas_json")]) ?: IndicatorPrefs.MA_PERIODS.map { period ->
                 val d = defaults.mas.first { it.period == period }
@@ -209,6 +212,7 @@ class IndicatorPrefsRepository @Inject constructor(
             e[booleanPreferencesKey("smc_premium")] = prefs.smcPremium
             e[booleanPreferencesKey("smc_eqhl")] = prefs.smcEqhl
             e[booleanPreferencesKey("smc_liq")] = prefs.smcLiquidity
+            e[booleanPreferencesKey("overlays_hidden")] = prefs.overlaysHidden
             prefs.mas.forEach { ma ->
                 e[booleanPreferencesKey("ma_${ma.period}_visible")] = ma.visible
                 e[stringPreferencesKey("ma_${ma.period}_color")] = ma.colorHex
