@@ -1,6 +1,8 @@
 package com.defitracker.app.presentation.crypto_detail
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.graphics.Canvas
 import android.graphics.Color as GraphicsColor
 import android.graphics.DashPathEffect
@@ -116,6 +118,16 @@ fun CryptoDetailScreen(
 ) {
     val state = viewModel.state.value
     val prefs = viewModel.prefs.value
+    // giro bloqueado en vertical solo aqui: sin recreate no hay parpadeo al rotar
+    val context = androidx.compose.ui.platform.LocalContext.current
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        val prev = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            if (activity != null && prev != null) activity.requestedOrientation = prev
+        }
+    }
     val showIndicators = remember { mutableStateOf(false) }
     val showMaList = remember { mutableStateOf(false) }
     val showPriceAlerts = remember { mutableStateOf(false) }
