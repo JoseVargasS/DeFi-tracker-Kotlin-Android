@@ -60,7 +60,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
@@ -121,45 +120,6 @@ fun CryptoDetailScreen(
     val showMaList = remember { mutableStateOf(false) }
     val showPriceAlerts = remember { mutableStateOf(false) }
     val priceAlerts by viewModel.priceAlertsFlow().collectAsState(initial = emptyList())
-    // jalar-para-actualizar manual (sin libreria): arrastra desde el header,
-    // dispara al llegar al punto con el dedo abajo (no depende del vuelo al soltar)
-    var pullPx by remember { mutableFloatStateOf(0f) }
-    var pullBusy by remember { mutableStateOf(false) }
-    val pullConn = remember {
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
-            override fun onPreScroll(
-                available: androidx.compose.ui.geometry.Offset,
-                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
-            ): androidx.compose.ui.geometry.Offset {
-                if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.Drag && available.y > 0 && !pullBusy) {
-                    pullPx = (pullPx + available.y * 0.5f).coerceAtMost(220f)
-                    if (pullPx >= com.defitracker.app.presentation.components.PULL_TRIGGER_PX) {
-                        pullPx = 0f
-                        pullBusy = true
-                        try { viewModel.refreshAll() } catch (_: Exception) {}
-                        return available
-                    }
-                    if (pullPx > 24f) return available
-                }
-                return androidx.compose.ui.geometry.Offset.Zero
-            }
-            override suspend fun onPostFling(
-                consumed: androidx.compose.ui.unit.Velocity,
-                available: androidx.compose.ui.unit.Velocity
-            ): androidx.compose.ui.unit.Velocity {
-                if (pullPx > 120f && !pullBusy) {
-                    pullBusy = true
-                    try { viewModel.refreshAll() } catch (_: Exception) {}
-                }
-                pullPx = 0f
-                return super.onPostFling(consumed, available)
-            }
-        }
-    }
-    // cuando termina la carga se libera el jalon para el siguiente
-    LaunchedEffect(state.isLoading) {
-        if (!state.isLoading) pullBusy = false
-    }
     // modo expandir, el chart manda y los TFs bajan
     val chartExpanded = remember { mutableStateOf(true) }
     val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
@@ -245,7 +205,6 @@ fun CryptoDetailScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .background(Color(0xFF000000))
-                .nestedScroll(pullConn)
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // header compacto, el chart manda
@@ -600,14 +559,6 @@ fun CryptoDetailScreen(
                 }
             }
         }
-        // circulito de jalar-para-actualizar, arriba de todo sin tapar el chart
-        com.defitracker.app.presentation.components.PullSpinner(
-            fraction = pullPx / com.defitracker.app.presentation.components.PULL_TRIGGER_PX,
-            refreshing = state.isLoading,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 8.dp)
-        )
         }
     }
 }
@@ -622,35 +573,18 @@ fun IntervalRow(selected: String, onPick: (String) -> Unit) {
             .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // orden ascendente estilo OKX, cortos a la izq
-        val intervals = listOf(
-            "1m" to "1m",
-            "5m" to "5m",
-            "15m" to "15m",
-            "30m" to "30m",
-            "1h" to "1h",
-            "2h" to "2h",
-            "4h" to "4h",
-            "6h" to "6h",
-            "12h" to "12h",
-            "1d" to "1d",
-            "3d" to "3d",
-            "5d" to "5d",
-            "1w" to "1w",
-            "2w" to "2w",
-            "1mo" to "1mo"
-        )
-        intervals.forEach { interval ->
-            val isSelected = selected == interval.second
+        // orden ascendente estilo OKX, cortos a la izq (misma lista del monitor)
+        com.defitracker.app.alerts.DivMonitorPrefs.ALL_INTERVALS.forEach { tf ->
+            val isSelected = selected == tf
             Box(
                 modifier = Modifier
                     .width(42.dp)
                     .height(28.dp)
-                    .clickable { onPick(interval.second) },
+                    .clickable { onPick(tf) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = interval.first,
+                    text = tf,
                     color = if (isSelected) Color.White else Color.Gray,
                     fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -734,25 +668,6 @@ enum class DrawingTool {
 }
 
 // duracion de cada vela para el countdown al cierre
-private fun intervalDurationMs(interval: String): Long = when (interval) {
-    "1m" -> 60_000L
-    "5m" -> 300_000L
-    "15m" -> 900_000L
-    "30m" -> 1_800_000L
-    "1h" -> 3_600_000L
-    "2h" -> 7_200_000L
-    "4h" -> 14_400_000L
-    "6h" -> 21_600_000L
-    "12h" -> 43_200_000L
-    "1d" -> 86_400_000L
-    "3d" -> 259_200_000L
-    "5d" -> 432_000_000L
-    "1w" -> 604_800_000L
-    "2w" -> 1_209_600_000L
-    "1mo" -> 2_592_000_000L
-    else -> 0L
-}
-
 // velas virtuales a la derecha para que el fibo pase la ultima vela
 private const val FIB_VIRTUAL_EXTEND = 50
 
@@ -761,7 +676,7 @@ private fun fibStepMs(candles: List<CandleData>, interval: String): Long {
         val s = candles.last().time - candles[candles.size - 2].time
         if (s > 0L) return s
     }
-    return intervalDurationMs(interval)
+    return candleDurationMs(interval)
 }
 
 private fun fibIndexToTime(candles: List<CandleData>, idx: Int, interval: String): Long {
@@ -783,7 +698,7 @@ private fun fibTimeToIndexVirtual(candles: List<CandleData>, time: Long, interva
 }
 
 private fun formatCandleCountdown(interval: String, candleTime: Long): String {
-    val dur = intervalDurationMs(interval)
+    val dur = candleDurationMs(interval)
     if (dur <= 0L) return "--:--"
     val now = System.currentTimeMillis()
     // al cerrar la vela se rola al siguiente borde, nunca se clava en 00:00
@@ -1493,7 +1408,7 @@ fun PriceChart(
                         // prefiere arriba del punto, abajo si no hay aire
                         var cy = t.py - (th + minGap)
                         if (cy < contentTop + th / 2f) cy = t.py + (th + minGap)
-                        cy = cy.coerceIn(contentTop + th / 2f, contentBottom - th / 2f)
+                        cy = cy.coerceIn(contentTop + th / 2f, (contentBottom - th / 2f).coerceAtLeast(contentTop + th / 2f))
                         if (cy < cursor) cy = cursor
                         cy = min(cy, contentBottom - th / 2f)
                         cursor = cy + minGap
@@ -1683,7 +1598,7 @@ fun PriceChart(
                     val labelWidth = selectionTextPaint.measureText(label) + paddingX * 2f
                     val labelHeight = selectionTextPaint.textSize + paddingY * 2f
                     val labelLeft = (contentRight - labelWidth - 6f).coerceAtLeast(contentLeft + 6f)
-                    val labelTop = (pocY - labelHeight - 4f).coerceIn(contentTop + 4f, contentBottom - labelHeight - 4f)
+                    val labelTop = (pocY - labelHeight - 4f).coerceIn(contentTop + 4f, (contentBottom - labelHeight - 4f).coerceAtLeast(contentTop + 4f))
                     yTagRect.set(labelLeft, labelTop, labelLeft + labelWidth, labelTop + labelHeight)
                     canvas.drawRoundRect(yTagRect, 5f, 5f, selectionLabelPaint)
                     canvas.drawText(label, labelLeft + paddingX, labelTop + labelHeight - paddingY - 4f, selectionTextPaint)
@@ -1712,8 +1627,8 @@ fun PriceChart(
                         val label = "Toca fin"
                         val labelWidth = selectionTextPaint.measureText(label) + 18f
                         val labelHeight = selectionTextPaint.textSize + 12f
-                        val labelLeft = (x + 8f).coerceIn(contentLeft + 4f, contentRight - labelWidth - 4f)
-                        val labelTop = (y - labelHeight - 8f).coerceIn(contentTop + 4f, contentBottom - labelHeight - 4f)
+                        val labelLeft = (x + 8f).coerceIn(contentLeft + 4f, (contentRight - labelWidth - 4f).coerceAtLeast(contentLeft + 4f))
+                        val labelTop = (y - labelHeight - 8f).coerceIn(contentTop + 4f, (contentBottom - labelHeight - 4f).coerceAtLeast(contentTop + 4f))
                         yTagRect.set(labelLeft, labelTop, labelLeft + labelWidth, labelTop + labelHeight)
                         canvas.drawRoundRect(yTagRect, 5f, 5f, selectionLabelPaint)
                         canvas.drawText(label, labelLeft + 9f, labelTop + labelHeight - 8f, selectionTextPaint)
@@ -1778,8 +1693,8 @@ fun PriceChart(
                     val label = "${if (changePct >= 0.0) "+" else ""}${String.format(Locale.US, "%.2f", changePct)}%  $bars velas"
                     val labelWidth = selectionTextPaint.measureText(label) + 18f
                     val labelHeight = selectionTextPaint.textSize + 12f
-                    val labelLeft = (rightX - labelWidth).coerceIn(contentLeft + 4f, contentRight - labelWidth - 4f)
-                    val labelTop = (adjustedTop - labelHeight - 6f).coerceIn(contentTop + 4f, contentBottom - labelHeight - 4f)
+                    val labelLeft = (rightX - labelWidth).coerceIn(contentLeft + 4f, (contentRight - labelWidth - 4f).coerceAtLeast(contentLeft + 4f))
+                    val labelTop = (adjustedTop - labelHeight - 6f).coerceIn(contentTop + 4f, (contentBottom - labelHeight - 4f).coerceAtLeast(contentTop + 4f))
                     yTagRect.set(labelLeft, labelTop, labelLeft + labelWidth, labelTop + labelHeight)
                     canvas.drawRoundRect(yTagRect, 5f, 5f, selectionLabelPaint)
                     canvas.drawText(label, labelLeft + 9f, labelTop + labelHeight - 8f, selectionTextPaint)
@@ -2288,8 +2203,8 @@ fun PriceChart(
                     val label = "Toca fin"
                     val lw2 = selectionTextPaint.measureText(label) + 18f
                     val lh2 = selectionTextPaint.textSize + 12f
-                    val ll = (p[0] + 10f).coerceIn(contentLeft + 4f, contentRight - lw2 - 4f)
-                    val lt = (p[1] - lh2 - 10f).coerceIn(contentTop + 4f, contentBottom - lh2 - 4f)
+                    val ll = (p[0] + 10f).coerceIn(contentLeft + 4f, (contentRight - lw2 - 4f).coerceAtLeast(contentLeft + 4f))
+                    val lt = (p[1] - lh2 - 10f).coerceIn(contentTop + 4f, (contentBottom - lh2 - 4f).coerceAtLeast(contentTop + 4f))
                     yTagRect.set(ll, lt, ll + lw2, lt + lh2)
                     canvas.drawRoundRect(yTagRect, 5f, 5f, selectionLabelPaint)
                     canvas.drawText(label, ll + 9f, lt + lh2 - 8f, selectionTextPaint)
@@ -2384,7 +2299,7 @@ fun PriceChart(
                                     canvas.drawText(
                                         "FVG·${stateRef.value.selectedInterval}",
                                         yTagRect.left + 4f,
-                                        (yTagRect.top + 20f).coerceIn(contentTop + 16f, contentBottom),
+                                        (yTagRect.top + 20f).coerceIn(contentTop + 16f, contentBottom.coerceAtLeast(contentTop + 16f)),
                                         smcFvgTagPaint
                                     )
                                 }
@@ -3012,6 +2927,14 @@ fun PriceChart(
                     val visibleStart = lowestVisibleX.toInt().coerceIn(0, entries.size - 1)
                     val visibleEnd = highestVisibleX.toInt().coerceIn(0, entries.size - 1)
                     if (visibleStart >= visibleEnd) {
+                        super.onDraw(canvas)
+                        return
+                    }
+                    // rect degenerado (ancho/alto cero en layout o cambio de TF):
+                    // ningun coerceIn de etiquetas abajo puede reventar
+                    if (viewPortHandler.contentRight() <= viewPortHandler.contentLeft() ||
+                        viewPortHandler.contentBottom() <= viewPortHandler.contentTop()
+                    ) {
                         super.onDraw(canvas)
                         return
                     }
@@ -3980,6 +3903,10 @@ fun StochRSIChart(
                     super.onDraw(canvas)
                     val h = highlighted?.getOrNull(0)
                     val currentState = stateRef.value
+                    // rect degenerado: sin overlays esta pasada
+                    if (viewPortHandler.contentRight() <= viewPortHandler.contentLeft() ||
+                        viewPortHandler.contentBottom() <= viewPortHandler.contentTop()
+                    ) return
 
                     val density = context.resources.displayMetrics.density
                     val textX = viewPortHandler.contentLeft() + (density * 5f)
@@ -4077,17 +4004,7 @@ fun StochRSIChart(
                 updateLastStochInPlace(chart, state)
             }
 
-            chart.xAxis.applyTimeAxis(state)
-            chart.xAxis.setDrawLabels(false)
-            val firstMount = lastRenderedDataKey.value == null
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
-            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
-            priceChartRef.value?.let { chart.syncViewportFrom(it) }
-            if (isNewDataset) {
-                lastRenderedDataKey.value = viewportKey
-            }
-            // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
+            chart.syncSubFrame(state, priceChartRef, lastRenderedDataKey, viewportKey, isNewDataset)
         }
     )
 }
@@ -4173,6 +4090,10 @@ fun RsiChart(
                     super.onDraw(canvas)
                     val h = highlighted?.getOrNull(0)
                     val currentState = stateRef.value
+                    // rect degenerado: sin overlays esta pasada
+                    if (viewPortHandler.contentRight() <= viewPortHandler.contentLeft() ||
+                        viewPortHandler.contentBottom() <= viewPortHandler.contentTop()
+                    ) return
 
                     val density = context.resources.displayMetrics.density
                     val textX = viewPortHandler.contentLeft() + (density * 5f)
@@ -4356,17 +4277,7 @@ fun RsiChart(
                 updateLastRsiInPlace(chart, state)
             }
 
-            chart.xAxis.applyTimeAxis(state)
-            chart.xAxis.setDrawLabels(false)
-            val firstMount = lastRenderedDataKey.value == null
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
-            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
-            priceChartRef.value?.let { chart.syncViewportFrom(it) }
-            if (isNewDataset) {
-                lastRenderedDataKey.value = viewportKey
-            }
-            // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
+            chart.syncSubFrame(state, priceChartRef, lastRenderedDataKey, viewportKey, isNewDataset)
         }
     )
 }
@@ -4424,6 +4335,10 @@ fun MacdChart(
                     super.onDraw(canvas)
                     val h = highlighted?.getOrNull(0)
                     val currentState = stateRef.value
+                    // rect degenerado: sin overlays esta pasada
+                    if (viewPortHandler.contentRight() <= viewPortHandler.contentLeft() ||
+                        viewPortHandler.contentBottom() <= viewPortHandler.contentTop()
+                    ) return
 
                     val density = context.resources.displayMetrics.density
                     var textX = viewPortHandler.contentLeft() + (density * 5f)
@@ -4533,17 +4448,7 @@ fun MacdChart(
                 updateLastMacdInPlace(chart, state)
             }
 
-            chart.xAxis.applyTimeAxis(state)
-            chart.xAxis.setDrawLabels(false)
-            val firstMount = lastRenderedDataKey.value == null
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
-            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
-            priceChartRef.value?.let { chart.syncViewportFrom(it) }
-            if (isNewDataset) {
-                lastRenderedDataKey.value = viewportKey
-            }
-            // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
+            chart.syncSubFrame(state, priceChartRef, lastRenderedDataKey, viewportKey, isNewDataset)
         }
     )
 }
@@ -4634,6 +4539,10 @@ fun TakerChart(
                     super.onDraw(canvas)
                     val h = highlighted?.getOrNull(0)
                     val currentState = stateRef.value
+                    // rect degenerado: sin overlays esta pasada
+                    if (viewPortHandler.contentRight() <= viewPortHandler.contentLeft() ||
+                        viewPortHandler.contentBottom() <= viewPortHandler.contentTop()
+                    ) return
 
                     val density = context.resources.displayMetrics.density
                     var textX = viewPortHandler.contentLeft() + (density * 5f)
@@ -4738,17 +4647,10 @@ fun TakerChart(
                 lastTakerKey.value = takerKey
             }
 
-            chart.xAxis.applyTimeAxis(state)
-            chart.xAxis.setDrawLabels(false)
-            val firstTakerMount = lastTakerKey.value == null
-            chart.applySyncAndInitialZoom(state.candles, resetViewport = firstTakerMount, skipPositioning = !firstTakerMount, preserveTouchX = true)
-            // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
-            priceChartRef.value?.let { chart.syncViewportFrom(it) }
-            if (needsBuild) {
-                lastRenderedDataKey.value = viewportKey
-            }
-            // mismo rect X que el principal para que la cruz calce (OKX)
-            priceChartRef.value?.let { chart.alignViewportXWith(isNewDataset, it) }
+            chart.syncSubFrame(
+                state, priceChartRef, lastRenderedDataKey, viewportKey, isNewDataset,
+                firstMount = lastTakerKey.value == null, storeKey = needsBuild
+            )
         }
     )
 }
@@ -4822,6 +4724,28 @@ private fun BarLineChartBase<*>.applySyncAndInitialZoom(
             invalidate()
         }
     }
+}
+
+// cola identica de los 4 updates de subs: eje, zoom inicial, clavado al precio y cruz OKX
+private fun BarLineChartBase<*>.syncSubFrame(
+    state: CryptoDetailState,
+    priceChartRef: MutableState<CombinedChart?>,
+    lastRenderedDataKey: MutableState<String?>,
+    viewportKey: String,
+    isNewDataset: Boolean,
+    firstMount: Boolean = lastRenderedDataKey.value == null,
+    storeKey: Boolean = isNewDataset
+) {
+    xAxis.applyTimeAxis(state)
+    xAxis.setDrawLabels(false)
+    applySyncAndInitialZoom(state.candles, resetViewport = firstMount, skipPositioning = !firstMount, preserveTouchX = true)
+    // sub clavado al precio en cada pasada: resize/ticks/vela nueva no lo mueven
+    priceChartRef.value?.let { syncViewportFrom(it) }
+    if (storeKey) {
+        lastRenderedDataKey.value = viewportKey
+    }
+    // mismo rect X que el principal para que la cruz calce (OKX)
+    priceChartRef.value?.let { alignViewportXWith(isNewDataset, it) }
 }
 
 private fun syncSubCharts(priceChart: CombinedChart, stochChart: LineChart?, rsiChart: LineChart?, macdChart: BarLineChartBase<*>? = null, takerChart: BarLineChartBase<*>? = null) {

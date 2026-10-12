@@ -6,8 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.defitracker.app.data.remote.tv.tvResolution
+import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.domain.model.PairDetail
-import com.defitracker.app.domain.repository.CryptoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,7 @@ import kotlin.math.sqrt
 
 @HiltViewModel
 class CryptoDetailViewModel @Inject constructor(
-    private val repository: CryptoRepository,
+    private val repository: CryptoRepositoryImpl,
     private val prefsRepo: IndicatorPrefsRepository,
     private val priceAlertDao: com.defitracker.app.data.local.PriceAlertDao,
     savedStateHandle: SavedStateHandle
@@ -294,25 +295,7 @@ class CryptoDetailViewModel @Inject constructor(
     private val extraTfCandles = mutableMapOf<String, List<CandleData>>()
 
     private fun intervalForSource(tf: String): String =
-        if (source == "MEXC") tf else if (source == "TV") tvResolutionFor(tf) else tf.toBinanceInterval()
-
-    private fun tvResolutionFor(tf: String): String = when (tf.trim()) {
-        "1m" -> "1"
-        "3m" -> "3"
-        "5m" -> "5"
-        "15m" -> "15"
-        "30m" -> "30"
-        "1h" -> "60"
-        "2h" -> "120"
-        "4h" -> "240"
-        "6h" -> "360"
-        "12h" -> "720"
-        "1d", "5d" -> "1D"
-        "3d" -> "3D"
-        "1w", "2w" -> "1W"
-        "1mo" -> "1M"
-        else -> "60"
-    }
+        if (source == "MEXC") tf else if (source == "TV") tvResolution(tf) else tf.toBinanceInterval()
 
     // trae las velas de los TFs que piden las MAs visibles, luego re-alinea sin tocar zoom
     fun refreshExtraMas(force: Boolean = false) {
@@ -348,7 +331,7 @@ class CryptoDetailViewModel @Inject constructor(
         val rows = repository.getKlines(symbol, intervalForSource(tf), source, forceRefresh = force)
         if (rows.isEmpty()) return emptyList()
         return withContext(Dispatchers.Default) {
-            rows.toCandles().let { list ->
+            rows.toCandleList().let { list ->
                 if (source == "MEXC") list else list.aggregateForInterval(tf)
             }
         }
@@ -652,23 +635,7 @@ class CryptoDetailViewModel @Inject constructor(
                         // si cambiaste de TF a mitad del calculo, este tick ya no sirve
                         if (_state.value.selectedInterval != tickInterval) continue
 
-                        _state.value = _state.value.copy(
-                            detail = detail,
-                            candles = chartData.candles,
-                            bbUpper = chartData.bbUpper,
-                            bbMiddle = chartData.bbMiddle,
-                            bbLower = chartData.bbLower,
-                            stochK = chartData.stochK,
-                            stochD = chartData.stochD,
-                            maLines = chartData.maLines,
-                            rsi = chartData.rsi,
-                            rsiMa = chartData.rsiMa,
-                            macdDif = chartData.macdDif,
-                            macdDea = chartData.macdDea,
-                            macdHist = chartData.macdHist,
-                            smc = chartData.smc,
-                            rsiDiv = chartData.rsiDiv
-                        )
+                        _state.value = _state.value.withComputation(chartData).copy(detail = detail)
                         refreshAnalysis()
                         // taker en vivo solo si el sub va visible (peso 0, 1 llamada liviana)
                         syncTaker(10)
@@ -760,7 +727,7 @@ class CryptoDetailViewModel @Inject constructor(
                 }
                 if (gen != chartGen) return@launch
                 val chartData = withContext(Dispatchers.Default) {
-                    val candles = rawKlines.toCandles().let {
+                    val candles = rawKlines.toCandleList().let {
                         if (source == "MEXC") it else it.aggregateForInterval(normalizedInterval)
                     }
 
@@ -773,21 +740,7 @@ class CryptoDetailViewModel @Inject constructor(
                 // llego tarde: otro TF ya mando, no se pinta nada viejo
                 if (gen != chartGen || _state.value.selectedInterval != normalizedInterval) return@launch
 
-                _state.value = state.value.copy(
-                    candles = chartData.candles,
-                    bbUpper = chartData.bbUpper,
-                    bbMiddle = chartData.bbMiddle,
-                    bbLower = chartData.bbLower,
-                    stochK = chartData.stochK,
-                    stochD = chartData.stochD,
-                    maLines = chartData.maLines,
-                    rsi = chartData.rsi,
-                    rsiMa = chartData.rsiMa,
-                    macdDif = chartData.macdDif,
-                    macdDea = chartData.macdDea,
-                    macdHist = chartData.macdHist,
-                    smc = chartData.smc,
-                            rsiDiv = chartData.rsiDiv,
+                _state.value = state.value.withComputation(chartData).copy(
                     daySubDollar = daySubDollarDeferred.await(),
                     isLoading = false
                 )
@@ -825,7 +778,7 @@ class CryptoDetailViewModel @Inject constructor(
         // si cambiaste de TF mientras viajaba la red, esa cola ya no sirve
         if (_state.value.selectedInterval != interval) return
         val fresh = withContext(Dispatchers.Default) {
-            rows.toCandles().let {
+            rows.toCandleList().let {
                 if (source == "MEXC") it else it.aggregateForInterval(interval)
             }
         }
@@ -853,61 +806,27 @@ class CryptoDetailViewModel @Inject constructor(
         val chartData = withContext(Dispatchers.Default) {
             merged.toChartComputation(interval, _prefs.value.mas, extraTfCandles.toMap())
         }
-        _state.value = _state.value.copy(
-            candles = chartData.candles,
-            bbUpper = chartData.bbUpper,
-            bbMiddle = chartData.bbMiddle,
-            bbLower = chartData.bbLower,
-            stochK = chartData.stochK,
-            stochD = chartData.stochD,
-            maLines = chartData.maLines,
-            rsi = chartData.rsi,
-            rsiMa = chartData.rsiMa,
-            macdDif = chartData.macdDif,
-            macdDea = chartData.macdDea,
-            macdHist = chartData.macdHist,
-            smc = chartData.smc,
-                            rsiDiv = chartData.rsiDiv
-        )
+        _state.value = _state.value.withComputation(chartData)
         refreshAnalysis()
     }
 
-    private fun List<List<Any>>.toCandles(): List<CandleData> {
-        val candles = ArrayList<CandleData>(size)
-        forEach { row ->
-            val time = row.getOrNull(0).toLongValue()
-            if (time > 0L) {
-                candles.add(
-                    CandleData(
-                        time = time,
-                        open = row.getOrNull(1).toDoubleValue(),
-                        high = row.getOrNull(2).toDoubleValue(),
-                        low = row.getOrNull(3).toDoubleValue(),
-                        close = row.getOrNull(4).toDoubleValue(),
-                        volume = row.getOrNull(5).toDoubleValue(),
-                        takerBuyVol = row.getOrNull(9).toDoubleValue()
-                    )
-                )
-            }
-        }
-        return candles
-    }
-
-    private fun Any?.toLongValue(): Long {
-        return when (this) {
-            is Number -> toLong()
-            is String -> toLongOrNull() ?: toDoubleOrNull()?.toLong() ?: 0L
-            else -> toString().toLongOrNull() ?: toString().toDoubleOrNull()?.toLong() ?: 0L
-        }
-    }
-
-    private fun Any?.toDoubleValue(): Double {
-        return when (this) {
-            is Number -> toDouble()
-            is String -> toDoubleOrNull() ?: 0.0
-            else -> toString().toDoubleOrNull() ?: 0.0
-        }
-    }
+    // el mismo volcado de computo en tick, full load y tail: un solo lugar pa' los 15 campos
+    private fun CryptoDetailState.withComputation(c: ChartComputation) = copy(
+        candles = c.candles,
+        bbUpper = c.bbUpper,
+        bbMiddle = c.bbMiddle,
+        bbLower = c.bbLower,
+        stochK = c.stochK,
+        stochD = c.stochD,
+        maLines = c.maLines,
+        rsi = c.rsi,
+        rsiMa = c.rsiMa,
+        macdDif = c.macdDif,
+        macdDea = c.macdDea,
+        macdHist = c.macdHist,
+        smc = c.smc,
+        rsiDiv = c.rsiDiv
+    )
 
     private fun List<CandleData>.toChartComputation(
         interval: String = "",
@@ -1104,23 +1023,8 @@ class CryptoDetailViewModel @Inject constructor(
     private fun calculateRSI(candles: List<CandleData>): List<Double> =
         calculateRsi(candles, STOCH_RSI_PERIOD)
 
-    private fun calculateSMA(values: List<Double>): List<Double> {
-        val period = STOCH_SMOOTH_PERIOD
-        val sma = ArrayList<Double>(values.size)
-        var rollingSum = 0.0
-        for (i in values.indices) {
-            rollingSum += values[i]
-            if (i >= period) {
-                rollingSum -= values[i - period]
-            }
-            if (i >= period - 1) {
-                sma.add(rollingSum / period)
-            } else {
-                sma.add(values[i])
-            }
-        }
-        return sma
-    }
+    // suavizado 3 del stoch: identico a rsiMaOf con periodo 3
+    private fun calculateSMA(values: List<Double>): List<Double> = rsiMaOf(values, 3)
 
     private fun String.toBinanceInterval(): String {
         return when (this) {
@@ -1166,12 +1070,11 @@ class CryptoDetailViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "CryptoDetailVM"
-        const val DETAIL_REFRESH_MS = 5_000L
+        const val DETAIL_REFRESH_MS = 2_000L
         // nota: gracia post-cierre pa' que el exchange publique la vela antes del tail
         const val CLOSE_SYNC_GRACE_MS = 1_200L
         const val DEFAULT_CHART_INTERVAL = "5m"
         const val STOCH_RSI_PERIOD = 14
-        const val STOCH_SMOOTH_PERIOD = 3
         // pulso: throttle entre recomputos + TTL de las 15m
         const val ANALYSIS_THROTTLE_MS = 15_000L
         const val ANALYSIS_TF_TTL_MS = 300_000L
@@ -1179,25 +1082,6 @@ class CryptoDetailViewModel @Inject constructor(
         const val WEEK_ANCHOR_MS = 1_578_182_400_000L
     }
 
-    // espejo de intervalDurationMs del chart pa' detectar el cierre sin acoplar
-    private fun candleDurationMs(interval: String): Long = when (interval.trim()) {
-        "1m" -> 60_000L
-        "5m" -> 300_000L
-        "15m" -> 900_000L
-        "30m" -> 1_800_000L
-        "1h" -> 3_600_000L
-        "2h" -> 7_200_000L
-        "4h" -> 14_400_000L
-        "6h" -> 21_600_000L
-        "12h" -> 43_200_000L
-        "1d" -> 86_400_000L
-        "3d" -> 259_200_000L
-        "5d" -> 432_000_000L
-        "1w" -> 604_800_000L
-        "2w" -> 1_209_600_000L
-        "1mo" -> 2_592_000_000L
-        else -> 0L
-    }
 }
 
 data class CryptoDetailState(
