@@ -7,7 +7,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -41,6 +44,41 @@ class DivAlertNotifier @Inject constructor(
         )
     }
 
+    // canal propio de alertas de precio con el tono elegido.
+    // El sonido se fija al crear el canal: si cambio, se borra y recrea.
+    fun ensurePriceChannel(soundUri: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        val sound = resolveSound(soundUri)
+        if (nm.getNotificationChannel(CHANNEL_PRICE)?.sound == sound) return
+        nm.deleteNotificationChannel(CHANNEL_PRICE)
+        nm.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_PRICE, "Alertas de precio",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Avisos LONG/SHORT cuando el precio toca tu zona"
+                setSound(
+                    sound,
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .build()
+                )
+            }
+        )
+    }
+
+    private fun resolveSound(soundUri: String): Uri {
+        if (soundUri.isBlank()) return Settings.System.DEFAULT_NOTIFICATION_URI
+        return try {
+            Uri.parse(soundUri).takeIf {
+                it != Uri.EMPTY && (it.scheme == "content" || it.scheme == "android.resource")
+            } ?: Settings.System.DEFAULT_NOTIFICATION_URI
+        } catch (_: Exception) {
+            Settings.System.DEFAULT_NOTIFICATION_URI
+        }
+    }
+
     fun serviceNotification(): android.app.Notification {
         ensureChannels()
         val intent = Intent(context, MainActivity::class.java)
@@ -69,6 +107,7 @@ class DivAlertNotifier @Inject constructor(
         title: String,
         content: String,
         big: String,
+        channel: String = CHANNEL_ALERTS,
         putExtras: Intent.() -> Unit
     ) {
         if (ActivityCompat.checkSelfPermission(
@@ -85,7 +124,7 @@ class DivAlertNotifier @Inject constructor(
             context, alertIdHash, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val noti = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+        val noti = NotificationCompat.Builder(context, channel)
             // flecha arriba/abajo, color verde/rojo segun direccion
             .setSmallIcon(
                 if (bullish) R.drawable.ic_arrow_up_bold
@@ -140,7 +179,8 @@ class DivAlertNotifier @Inject constructor(
         direction: String,
         touchedPrice: Double,
         targetTxt: String,
-        alertIdHash: Int
+        alertIdHash: Int,
+        soundUri: String = ""
     ) {
         val displaySymbol = symbol.replace("_", "")
         val dir = direction.uppercase().takeIf { it == "SHORT" } ?: "LONG"
@@ -148,10 +188,12 @@ class DivAlertNotifier @Inject constructor(
         val title = "$displaySymbol llegó a tu zona de $dir!"
         val text = "Objetivo $targetTxt · tocó $priceTxt · Toca para ver la gráfica"
         val bullish = dir == "LONG"
+        ensurePriceChannel(soundUri)
         post(
             alertIdHash, bullish,
             if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt(),
-            title, text, text
+            title, text, text,
+            channel = CHANNEL_PRICE
         ) {
             putExtra(MainActivity.EXTRA_ALERT_SYMBOL, symbol)
             putExtra(MainActivity.EXTRA_ALERT_SOURCE, source)
@@ -181,6 +223,7 @@ class DivAlertNotifier @Inject constructor(
 
     companion object {
         const val CHANNEL_ALERTS = "div_alerts"
+        const val CHANNEL_PRICE = "price_alerts"
         const val CHANNEL_SERVICE = "div_monitor_min"
         // canal legacy LOW que ya quedo creado en instalaciones previas
         const val CHANNEL_SERVICE_LEGACY = "div_monitor"

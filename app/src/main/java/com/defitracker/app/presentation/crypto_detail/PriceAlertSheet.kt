@@ -1,5 +1,11 @@
 package com.defitracker.app.presentation.crypto_detail
 
+import android.app.Activity
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -48,9 +55,11 @@ fun PriceAlertSheet(
     symbol: String,
     currentPrice: Double,
     alerts: List<PriceAlertEntity>,
+    soundUri: String,
     onAdd: (direction: String, target: Double, low: Double, high: Double) -> Unit,
     onDelete: (String) -> Unit,
-    onToggle: (String, Boolean) -> Unit
+    onToggle: (String, Boolean) -> Unit,
+    onSoundPicked: (String) -> Unit
 ) {
     var direction by remember { mutableStateOf("LONG") }
     var modeRange by remember { mutableStateOf(false) }
@@ -76,6 +85,61 @@ fun PriceAlertSheet(
             fontFamily = Geist
         )
         Spacer(Modifier.height(10.dp))
+        // tono de la noti de alerta de precio (picker del sistema, suena al elegir ahi mismo)
+        val context = LocalContext.current
+        val soundName = remember(soundUri) {
+            if (soundUri.isBlank()) "Predeterminado"
+            else try {
+                RingtoneManager.getRingtone(context, Uri.parse(soundUri))?.getTitle(context)
+                    ?: "Predeterminado"
+            } catch (_: Exception) {
+                "Predeterminado"
+            }
+        }
+        val soundPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val picked: Uri? =
+                    result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                onSoundPicked(picked?.toString().orEmpty())
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1A1D23), RoundedCornerShape(8.dp))
+                .clickable {
+                    val current = if (soundUri.isBlank()) null else try {
+                        Uri.parse(soundUri)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    soundPicker.launch(
+                        Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Sonido de alerta de precio")
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                            if (current != null) {
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, current)
+                            }
+                        }
+                    )
+                }
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Sonido",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontFamily = Geist,
+                modifier = Modifier.weight(1f)
+            )
+            Text(soundName, color = Color.Gray, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("LONG", "SHORT").forEach { d ->
                 val on = direction == d

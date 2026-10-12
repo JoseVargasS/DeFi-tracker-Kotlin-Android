@@ -18,7 +18,9 @@ data class DivMonitorConfig(
     val enabled: Boolean = true,
     val intervals: Set<String> = setOf("5m", "15m", "30m", "1h"),
     val confluence: Boolean = true,
-    val signals: Set<String> = setOf("MA_REJECT", "FVG_TAP", "SWEEP")
+    val signals: Set<String> = setOf("MA_REJECT", "FVG_TAP", "SWEEP"),
+    // uri del tono de alerta de precio, vacio = default del sistema
+    val priceSoundUri: String = ""
 )
 
 @Singleton
@@ -34,7 +36,8 @@ class DivMonitorPrefs @Inject constructor(
             confluence = p[booleanPreferencesKey("confluence")] ?: true,
             signals = p[stringPreferencesKey("signals")]
                 ?.split(",").orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                ?: DivMonitorConfig().signals
+                ?: DivMonitorConfig().signals,
+            priceSoundUri = p[stringPreferencesKey("price_sound")] ?: ""
         )
     }
 
@@ -56,6 +59,10 @@ class DivMonitorPrefs @Inject constructor(
 
     suspend fun setSignals(signals: Set<String>) {
         context.divMonitorDataStore.edit { it[stringPreferencesKey("signals")] = signals.joinToString(",") }
+    }
+
+    suspend fun setPriceSoundUri(uri: String) {
+        context.divMonitorDataStore.edit { it[stringPreferencesKey("price_sound")] = uri.trim() }
     }
 
     companion object {

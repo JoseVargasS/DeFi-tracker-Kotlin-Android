@@ -48,7 +48,8 @@ data class SmcConfluenceBand(
     val bottom: Double,
     val startIdx: Int,
     val endIdx: Int,
-    val tfLabel: String
+    val tfs: Set<String> = emptySet(),
+    val hasOb: Boolean = false
 )
 
 data class SmcData(
@@ -303,7 +304,7 @@ fun computeSmc(candles: List<CandleData>, interval: String = ""): SmcData {
         zones = zones,
         eqLevels = detectEqLevels(candles, swings),
         premium = detectPremium(candles),
-        confluence = detectFvgConfluence(candles, fvgZones, interval),
+        confluence = detectFvgConfluence(candles, fvgZones, interval, obZones),
         liquidity = detectLiquidity(candles, swings)
     )
 }
@@ -436,7 +437,12 @@ fun higherTfLabel(interval: String, factor: Int): String {
 }
 
 // FVG de TFs mayores (x4, x16) solapados con tus zonas = bandas grises
-fun detectFvgConfluence(candles: List<CandleData>, ownFvg: List<SmcZone>, interval: String): List<SmcConfluenceBand> {
+fun detectFvgConfluence(
+    candles: List<CandleData>,
+    ownFvg: List<SmcZone>,
+    interval: String,
+    ownOb: List<SmcZone> = emptyList()
+): List<SmcConfluenceBand> {
     val mine = ownFvg.filter { it.kind == SmcZoneKind.FVG && !it.mitigated }
     if (mine.isEmpty() || candles.size < 32) return emptyList()
     val bands = ArrayList<SmcConfluenceBand>()
@@ -450,22 +456,72 @@ fun detectFvgConfluence(candles: List<CandleData>, ownFvg: List<SmcZone>, interv
                 val top = min(z.top, m.top)
                 val bottom = max(z.bottom, m.bottom)
                 if (top > bottom) {
-                    bands.add(SmcConfluenceBand(top, bottom, m.startIdx, m.endIdx, label))
+                    bands.add(SmcConfluenceBand(top, bottom, m.startIdx, m.endIdx, setOf(label)))
                 }
             }
         }
     }
-    // fusiona bandas que se pisan del mismo TF para no apilar grises
-    val sorted = bands.sortedWith(compareBy({ it.tfLabel }, { it.bottom }, { it.top }))
+    return mergeConfluenceBands(markObOverlap(bands, ownOb))
+}
+// FVG reales de TFs superiores (mismo exchange, por red) solapados con tus FVG = bandas grises.
+// TFs importantes; bajo 1h se salta 12h para que entre 1d en el tope de 5.
+private val SMC_CONFLUENCE_CANON = listOf("5m", "15m", "30m", "1h", "4h", "12h", "1d", "1w")
+
+fun higherConfluenceTfs(current: String): List<String> {
+    val idx = SMC_CONFLUENCE_CANON.indexOf(current.trim())
+    if (idx < 0) return emptyList()
+    val skip12 = idx < SMC_CONFLUENCE_CANON.indexOf("1h")
+    return SMC_CONFLUENCE_CANON.subList(idx + 1, SMC_CONFLUENCE_CANON.size)
+        .filter { !(skip12 && it == "12h") }
+        .take(5)
+}
+
+fun detectFvgConfluenceMultiTF(
+    ownFvg: List<SmcZone>,
+    higher: Map<String, List<CandleData>>
+): List<SmcConfluenceBand> {
+    val mine = ownFvg.filter { it.kind == SmcZoneKind.FVG && !it.mitigated }
+    if (mine.isEmpty() || higher.isEmpty()) return emptyList()
+    val bands = ArrayList<SmcConfluenceBand>()
+    higher.forEach { (label, candles) ->
+        if (candles.size < 8) return@forEach
+        detectFvg(candles).filter { !it.mitigated }.forEach { z ->
+            // el precio es absoluto, no hay que mapear tiempo
+            mine.forEach { m ->
+                val top = min(z.top, m.top)
+                val bottom = max(z.bottom, m.bottom)
+                if (top > bottom) {
+                    bands.add(SmcConfluenceBand(top, bottom, m.startIdx, m.endIdx, setOf(label)))
+                }
+            }
+        }
+    }
+    return mergeConfluenceBands(markObOverlap(bands, ownFvg))
+}
+
+// marca las bandas que ademas pisan un OB vigente
+private fun markObOverlap(bands: List<SmcConfluenceBand>, zones: List<SmcZone>): List<SmcConfluenceBand> {
+    val obs = zones.filter { it.kind == SmcZoneKind.ORDER_BLOCK && !it.mitigated }
+    if (obs.isEmpty()) return bands
+    return bands.map { b ->
+        if (!b.hasOb && obs.any { o -> min(o.top, b.top) > max(o.bottom, b.bottom) }) b.copy(hasOb = true) else b
+    }
+}
+
+// fusiona bandas que se pisan sin importar el TF, uniendo etiquetas
+private fun mergeConfluenceBands(bands: List<SmcConfluenceBand>): List<SmcConfluenceBand> {
+    val sorted = bands.sortedWith(compareBy({ it.bottom }, { it.top }))
     val merged = ArrayList<SmcConfluenceBand>()
     sorted.forEach { b ->
         val last = merged.lastOrNull()
-        if (last != null && last.tfLabel == b.tfLabel && b.bottom <= last.top) {
+        if (last != null && b.bottom <= last.top) {
             merged[merged.size - 1] = last.copy(
                 top = max(last.top, b.top),
                 bottom = min(last.bottom, b.bottom),
                 startIdx = min(last.startIdx, b.startIdx),
-                endIdx = max(last.endIdx, b.endIdx)
+                endIdx = max(last.endIdx, b.endIdx),
+                tfs = last.tfs + b.tfs,
+                hasOb = last.hasOb || b.hasOb
             )
         } else {
             merged.add(b)
@@ -473,3 +529,11 @@ fun detectFvgConfluence(candles: List<CandleData>, ownFvg: List<SmcZone>, interv
     }
     return merged.take(10)
 }
+
+// ordena TFs de menor a mayor para el tag compuesto
+private val SMC_TF_ORDER = listOf(
+    "1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "5d", "1w", "2w", "1mo"
+)
+
+fun sortTfsForTag(tfs: Set<String>): List<String> =
+    tfs.sortedBy { SMC_TF_ORDER.indexOf(it).let { i -> if (i < 0) Int.MAX_VALUE else i } }

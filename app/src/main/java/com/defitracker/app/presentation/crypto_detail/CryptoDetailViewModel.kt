@@ -18,6 +18,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -30,6 +31,7 @@ class CryptoDetailViewModel @Inject constructor(
     private val repository: CryptoRepositoryImpl,
     private val prefsRepo: IndicatorPrefsRepository,
     private val priceAlertDao: com.defitracker.app.data.local.PriceAlertDao,
+    private val monitorPrefs: com.defitracker.app.alerts.DivMonitorPrefs,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -293,6 +295,15 @@ class CryptoDetailViewModel @Inject constructor(
 
     // velas cacheadas por TF para MAs de otra temporalidad (plan A, respeta source)
     private val extraTfCandles = mutableMapOf<String, List<CandleData>>()
+    // velas de TFs superiores para confluencia FVG real (mismo exchange que el chart)
+    private val extraSmcCandles = mutableMapOf<String, List<CandleData>>()
+
+    // bandas reales si hay cache de TFs superiores, null = deja el fallback sintetico
+    private fun overlaySmcConfluence(smc: SmcData): SmcData? {
+        val higher = extraSmcCandles.toMap()
+        if (higher.values.none { it.isNotEmpty() }) return null
+        return smc.copy(confluence = detectFvgConfluenceMultiTF(smc.zones, higher))
+    }
 
     private fun intervalForSource(tf: String): String =
         if (source == "MEXC") tf else if (source == "TV") tvResolution(tf) else tf.toBinanceInterval()
@@ -561,6 +572,16 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
+    // tono de la noti de alerta de precio (global, picker del sistema)
+    fun priceSoundFlow(): kotlinx.coroutines.flow.Flow<String> =
+        monitorPrefs.configFlow.map { it.priceSoundUri }
+
+    fun setPriceSound(uri: String) {
+        viewModelScope.launch {
+            try { monitorPrefs.setPriceSoundUri(uri) } catch (_: Exception) {}
+        }
+    }
+
     // ─── SMC ───
     fun toggleSmcStructure() = updatePrefs { it.copy(smcStructure = !it.smcStructure) }
     fun toggleSmcOrderBlocks() = updatePrefs { it.copy(smcOrderBlocks = !it.smcOrderBlocks) }
@@ -587,6 +608,11 @@ class CryptoDetailViewModel @Inject constructor(
         }
     }
 
+    // tick sin cambios = sin reconstruccion (mata el parpadeo en laterales)
+    private var lastTickPrice = Double.NaN
+    private var lastTickCandleKey = ""
+    private var lastTvDetailAt = 0L
+
     private fun startUpdates() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
@@ -595,7 +621,16 @@ class CryptoDetailViewModel @Inject constructor(
                 // mientras el chart esta cargando (cambio de TF / pull), el tick no pisa
                 if (_state.value.isLoading) continue
                 try {
-                    val detail = repository.getPairDetail(symbol, source)
+                    val nowLoop = System.currentTimeMillis()
+                    val cached = _state.value.detail
+                    // TV no tiene stream intradiario: su fresco real es el memo de ~15s
+                    val detail = if (source == "TV" && cached != null && lastTickPrice.isFinite() &&
+                        nowLoop - lastTvDetailAt < TV_DETAIL_MS
+                    ) {
+                        cached
+                    } else {
+                        repository.getPairDetail(symbol, source).also { lastTvDetailAt = nowLoop }
+                    }
                     val currentPrice = detail.price.toDoubleOrNull() ?: 0.0
 
                     // al cerrar la vela se mergea la cola fresca, nunca full reload
@@ -615,7 +650,15 @@ class CryptoDetailViewModel @Inject constructor(
                     
                     if (currentPrice > 0.0) {
                         val tickInterval = _state.value.selectedInterval
-                        val updatedCandles = _state.value.candles.toMutableList()
+                        val tickCandles = _state.value.candles
+                        val tickLast = tickCandles.lastOrNull()
+                        val tickKey = if (tickLast == null) "empty"
+                        else "${tickLast.time}:${tickLast.open}:${tickLast.high}:${tickLast.low}:$currentPrice:${tickCandles.size}"
+                        // nada se movio: ni recalculo ni estado nuevo, el chart ni se entera
+                        if (currentPrice == lastTickPrice && tickKey == lastTickCandleKey) continue
+                        lastTickPrice = currentPrice
+                        lastTickCandleKey = tickKey
+                        val updatedCandles = tickCandles.toMutableList()
                         if (updatedCandles.isNotEmpty()) {
                             val lastCandle = updatedCandles.last()
                             val newLastCandle = lastCandle.copy(
@@ -629,7 +672,10 @@ class CryptoDetailViewModel @Inject constructor(
                         val chartData = withContext(Dispatchers.Default) {
                             val mas = _prefs.value.mas
                             val extras = extraTfCandles.toMap()
-                            updatedCandles.toChartComputation(_state.value.selectedInterval, mas, extras)
+                            val comp = updatedCandles.toChartComputation(_state.value.selectedInterval, mas, extras)
+                            // confluencia real desde cache, sin red en el tick
+                            val smcReal = overlaySmcConfluence(comp.smc)
+                            if (smcReal != null) comp.copy(smc = smcReal) else comp
                         }
 
                         // si cambiaste de TF a mitad del calculo, este tick ya no sirve
@@ -710,6 +756,19 @@ class CryptoDetailViewModel @Inject constructor(
                         }
                     }
                 }
+                // TFs superiores para confluencia FVG real, mismo exchange (fetchExtraCandles respeta source)
+                val neededSmcTfs = if (_prefs.value.smcFvg) higherConfluenceTfs(normalizedInterval) else emptyList()
+                val smcDeferred = neededSmcTfs.map { tf ->
+                    async(Dispatchers.IO) {
+                        tf to try {
+                            fetchExtraCandles(tf, force = false)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
                 // referencia de precision: alguna vela diaria < $1 en ~45 dias (cache 5 min del repo)
                 val daySubDollarDeferred = async(Dispatchers.IO) {
                     try {
@@ -724,6 +783,10 @@ class CryptoDetailViewModel @Inject constructor(
                 if (gen != chartGen) return@launch
                 extrasDeferred.awaitAll().forEach { (tf, candles) ->
                     if (candles.isNotEmpty()) extraTfCandles[tf] = candles
+                }
+                extraSmcCandles.keys.retainAll(neededSmcTfs.toSet())
+                smcDeferred.awaitAll().forEach { (tf, candles) ->
+                    if (candles.isNotEmpty()) extraSmcCandles[tf] = candles
                 }
                 if (gen != chartGen) return@launch
                 val chartData = withContext(Dispatchers.Default) {
@@ -740,7 +803,11 @@ class CryptoDetailViewModel @Inject constructor(
                 // llego tarde: otro TF ya mando, no se pinta nada viejo
                 if (gen != chartGen || _state.value.selectedInterval != normalizedInterval) return@launch
 
+                val smcReal = withContext(Dispatchers.Default) {
+                    overlaySmcConfluence(chartData.smc)
+                }
                 _state.value = state.value.withComputation(chartData).copy(
+                    smc = smcReal ?: chartData.smc,
                     daySubDollar = daySubDollarDeferred.await(),
                     isLoading = false
                 )
@@ -794,6 +861,12 @@ class CryptoDetailViewModel @Inject constructor(
             if (c.time > oldLast) merged.add(c)
         }
         if (merged.size == current.candles.size && merged.lastOrNull()?.time == oldLast) {
+            // TV es snapshot: su ultima barra no avanza al ritmo del tick.
+            // Recargar ahi es quemar red y flashear el chart en loop, se sale sin strike.
+            if (source == "TV") {
+                noNewCandleStreak = 0
+                return
+            }
             // el exchange aun no publica la vela; al tercer cierre, full load
             noNewCandleStreak++
             if (noNewCandleStreak >= 3) {
@@ -804,7 +877,10 @@ class CryptoDetailViewModel @Inject constructor(
         }
         noNewCandleStreak = 0
         val chartData = withContext(Dispatchers.Default) {
-            merged.toChartComputation(interval, _prefs.value.mas, extraTfCandles.toMap())
+            val comp = merged.toChartComputation(interval, _prefs.value.mas, extraTfCandles.toMap())
+            // confluencia real desde cache, sin red en el tail
+            val smcReal = overlaySmcConfluence(comp.smc)
+            if (smcReal != null) comp.copy(smc = smcReal) else comp
         }
         _state.value = _state.value.withComputation(chartData)
         refreshAnalysis()
@@ -1071,6 +1147,8 @@ class CryptoDetailViewModel @Inject constructor(
     private companion object {
         const val TAG = "CryptoDetailVM"
         const val DETAIL_REFRESH_MS = 2_000L
+        // TV sin stream intradiario: el detalle se relee a ritmo de su memo
+        const val TV_DETAIL_MS = 15_000L
         // nota: gracia post-cierre pa' que el exchange publique la vela antes del tail
         const val CLOSE_SYNC_GRACE_MS = 1_200L
         const val DEFAULT_CHART_INTERVAL = "5m"

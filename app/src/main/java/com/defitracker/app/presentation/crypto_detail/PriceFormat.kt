@@ -2,9 +2,12 @@ package com.defitracker.app.presentation.crypto_detail
 
 import kotlin.math.abs
 
-// bandas compartidas: 0, sub-$1, $1-10 y miles. null si no calza ninguna
+// bandas compartidas: 0, sub-$1, $1-10, miles y billones/trillones estilo TV (796.75B).
+// Solo B/T son compactos: ningun precio normal llega a 1M, asi los pares quedan intactos.
 private fun formatAdaptive(value: Double, extended: Boolean): String? = when {
     value == 0.0 -> "0.00"
+    abs(value) >= 1_000_000_000_000.0 -> String.format(java.util.Locale.US, "%.2fT", value / 1_000_000_000_000.0)
+    abs(value) >= 1_000_000_000.0 -> String.format(java.util.Locale.US, "%.2fB", value / 1_000_000_000.0)
     extended && abs(value) < 1.0 -> String.format(java.util.Locale.US, "%.6f", value)
     extended && value >= 1.0 && value < 10.0 -> String.format(java.util.Locale.US, "%.4f", value)
     abs(value) >= 1000.0 -> String.format(java.util.Locale.US, "%,.2f", value)

@@ -154,6 +154,7 @@ class DivScanService : Service() {
             throw e
         } catch (_: Exception) { return }
         if (alerts.isEmpty()) return
+        val soundUri = try { monitorPrefs.current().priceSoundUri } catch (_: Exception) { "" }
         val now = System.currentTimeMillis()
         for (a in alerts) {
             if (!scope.isActive) return
@@ -176,7 +177,7 @@ class DivScanService : Service() {
                     } else {
                         a.targetPrice.toString()
                     }
-                    notifier.notifyPriceAlert(a.symbol, a.source, a.direction, price, targetTxt, a.id.hashCode())
+                    notifier.notifyPriceAlert(a.symbol, a.source, a.direction, price, targetTxt, a.id.hashCode(), soundUri)
                     try { priceAlertDao.markNotified(a.id, now) } catch (_: Exception) {}
                 }
             } catch (e: CancellationException) {

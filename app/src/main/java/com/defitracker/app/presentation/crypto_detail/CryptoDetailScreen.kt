@@ -135,6 +135,7 @@ fun CryptoDetailScreen(
     val showMaList = remember { mutableStateOf(false) }
     val showPriceAlerts = remember { mutableStateOf(false) }
     val priceAlerts by viewModel.priceAlertsFlow().collectAsState(initial = emptyList())
+    val priceSound by viewModel.priceSoundFlow().collectAsState(initial = "")
     // velo liviano: mientras carga se atenua el chart viejo + barrita, sin desmontar nada.
     // El cooldown cubre el reencuadre (post) que llega 1-2 frames despues de la data
     var cooling by remember { mutableStateOf(false) }
@@ -616,9 +617,11 @@ fun CryptoDetailScreen(
                         symbol = state.detail?.symbol ?: state.symbol,
                         currentPrice = state.detail?.price?.toDoubleOrNull() ?: 0.0,
                         alerts = priceAlerts,
+                        soundUri = priceSound,
                         onAdd = { dir, target, lo, hi -> viewModel.addPriceAlert(dir, target, lo, hi) },
                         onDelete = { viewModel.deletePriceAlert(it) },
-                        onToggle = { id, on -> viewModel.togglePriceAlert(id, on) }
+                        onToggle = { id, on -> viewModel.togglePriceAlert(id, on) },
+                        onSoundPicked = { viewModel.setPriceSound(it) }
                     )
                 }
             }
@@ -2329,10 +2332,12 @@ fun PriceChart(
                     val contentBottom = viewPortHandler.contentBottom()
 
                     if (smcPrefs.smcOrderBlocks || smcPrefs.smcFvg) {
+                        var lastZoneTagY = Float.NEGATIVE_INFINITY
                         smc.zones.forEach { z ->
                             val wantOb = smcPrefs.smcOrderBlocks && z.kind == SmcZoneKind.ORDER_BLOCK
                             val wantFvg = smcPrefs.smcFvg && z.kind == SmcZoneKind.FVG
                             if (!wantOb && !wantFvg) return@forEach
+                            if (z.mitigated) return@forEach
                             if (z.endIdx < visibleStart || z.startIdx > visibleEnd) return@forEach
                             val s = max(z.startIdx, 0)
                             val e = min(z.endIdx, candles.size - 1)
@@ -2352,26 +2357,25 @@ fun PriceChart(
                                 max(top[1], bot[1])
                             )
                             val paint = when {
-                                z.mitigated -> smcObMitPaint
                                 z.kind == SmcZoneKind.ORDER_BLOCK && z.bullish -> smcObBullPaint
                                 z.kind == SmcZoneKind.ORDER_BLOCK -> smcObBearPaint
                                 z.bullish -> smcFvgBullPaint
                                 else -> smcFvgBearPaint
                             }
                             canvas.drawRect(yTagRect, paint)
-                            // borde punteado del lado + tag FVG solo si sigue vigente
-                            if (!z.mitigated) {
-                                val edge = if (z.bullish) smcObBullEdge else smcObBearEdge
-                                canvas.drawRect(yTagRect, edge)
-                                if (z.kind == SmcZoneKind.FVG) {
-                                    canvas.drawText(
-                                        "FVG·${stateRef.value.selectedInterval}",
-                                        yTagRect.left + 4f,
-                                        (yTagRect.top + 20f).coerceIn(contentTop + 16f, contentBottom.coerceAtLeast(contentTop + 16f)),
-                                        smcFvgTagPaint
-                                    )
-                                }
+                            // borde punteado del lado + tag a la derecha, texto pelado
+                            val edge = if (z.bullish) smcObBullEdge else smcObBearEdge
+                            canvas.drawRect(yTagRect, edge)
+                            val tagPrefix = if (z.kind == SmcZoneKind.FVG) "FVG" else "OB"
+                            val tag = "$tagPrefix·${stateRef.value.selectedInterval}"
+                            val tw = smcFvgTagPaint.measureText(tag)
+                            val lx = (contentRight - tw - 4f).coerceIn(contentLeft, (contentRight - tw).coerceAtLeast(contentLeft))
+                            var ly = (yTagRect.top + 20f).coerceIn(contentTop + 16f, contentBottom.coerceAtLeast(contentTop + 16f))
+                            if (abs(ly - lastZoneTagY) < 24f) {
+                                ly = (lastZoneTagY + 24f).coerceAtMost(contentBottom - 4f)
                             }
+                            lastZoneTagY = ly
+                            canvas.drawText(tag, lx, ly, smcFvgTagPaint)
                         }
                     }
 
@@ -2445,8 +2449,8 @@ fun PriceChart(
                             if (showTag) {
                                 val label = when {
                                     liq.swept -> "SWEEP"
-                                    liq.isBuySide -> "BSL"
-                                    else -> "SSL"
+                                    liq.isBuySide -> "LIQ↓"
+                                    else -> "LIQ↑"
                                 }
                                 val labelPaint = when {
                                     liq.swept -> smcSweepLabelPaint
@@ -2472,6 +2476,8 @@ fun PriceChart(
 
                     // bandas grises donde el FVG de otro TF pisa tu zona
                     if (smcPrefs.smcFvg) {
+                        // pasada 1: rectangulos (el orden da igual, misma pintura)
+                        val confTags = ArrayList<Triple<Float, Float, List<String>>>(smc.confluence.size)
                         smc.confluence.forEach { band ->
                             val top = floatArrayOf(0f, band.top.toFloat())
                             trans.pointValuesToPixel(top)
@@ -2489,7 +2495,43 @@ fun PriceChart(
                                 max(top[1], bot[1])
                             )
                             canvas.drawRect(yTagRect, smcConfluencePaint)
-                            drawSmcChip(canvas, band.tfLabel, smcConfluenceTagPaint, xs[0], min(top[1], bot[1]), true, contentLeft, contentRight, contentTop, contentBottom)
+                            // tag compuesto: una linea si entra, dos si es largo, texto pelado
+                            val ownTf = stateRef.value.selectedInterval
+                            val confLine1 = "FVG·$ownTf"
+                            val confLine2 = buildString {
+                                sortTfsForTag(band.tfs).forEach { append("+").append(it) }
+                                if (band.hasOb) append(" +OB")
+                            }.toString()
+                            val fullTag = "$confLine1$confLine2"
+                            val availRight = (contentRight - yTagRect.right - 8f).coerceAtLeast(0f)
+                            val confLines = if (confLine2.isBlank() ||
+                                smcConfluenceTagPaint.measureText(fullTag) <= availRight
+                            ) {
+                                listOf(fullTag)
+                            } else {
+                                listOf(confLine1, confLine2)
+                            }
+                            val centerY = (min(top[1], bot[1]) + max(top[1], bot[1])) / 2f
+                            confTags.add(Triple(centerY, yTagRect.right, confLines))
+                        }
+                        // pasada 2: tags de arriba hacia abajo para que el stagger no haga cascada
+                        var lastConfBottom = Float.NEGATIVE_INFINITY
+                        confTags.sortedBy { it.first }.forEach { (center, rectRight, confLines) ->
+                            val confH = smcConfluenceTagPaint.textSize + 4f
+                            val blockH = confLines.size * confH
+                            // centrado vertical al costado de su propio rectangulo + stagger por bloque
+                            var centerY = center
+                            if (centerY - blockH / 2f < lastConfBottom + 4f) {
+                                centerY = lastConfBottom + 4f + blockH / 2f
+                            }
+                            lastConfBottom = centerY + blockH / 2f
+                            val maxW = confLines.maxOf { smcConfluenceTagPaint.measureText(it) }
+                            val confLx = (rectRight + 4f).coerceIn(contentLeft, (contentRight - maxW).coerceAtLeast(contentLeft))
+                            var confTy = (centerY - blockH / 2f).coerceIn(contentTop, (contentBottom - blockH).coerceAtLeast(contentTop))
+                            confLines.forEach { ln ->
+                                canvas.drawText(ln, confLx, confTy + confH - 4f, smcConfluenceTagPaint)
+                                confTy += confH
+                            }
                         }
                     }
                 }
