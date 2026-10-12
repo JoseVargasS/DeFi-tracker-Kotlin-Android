@@ -10,16 +10,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeout
 
 class TradingViewClient(
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val okHttpClient: OkHttpClient
 ) {
     // memo chico para que el tick del detalle (5s) no abra un socket por llamado
     private val memo = ConcurrentHashMap<String, Memoed>()
@@ -180,4 +176,23 @@ class TradingViewClient(
         const val MEMO_TTL_MS = 15_000L
         const val FETCH_TIMEOUT_MS = 12_000L
     }
+}
+
+// TF del chart a resolucion TV, compartido por repo y ViewModel
+fun tvResolution(interval: String): String = when (interval.trim()) {
+    "1m" -> "1"
+    "3m" -> "3"
+    "5m" -> "5"
+    "15m" -> "15"
+    "30m" -> "30"
+    "1h" -> "60"
+    "2h" -> "120"
+    "4h" -> "240"
+    "6h" -> "360"
+    "12h" -> "720"
+    "1d", "5d" -> "1D"
+    "3d" -> "3D"
+    "1w", "2w" -> "1W"
+    "1mo" -> "1M"
+    else -> "60"
 }

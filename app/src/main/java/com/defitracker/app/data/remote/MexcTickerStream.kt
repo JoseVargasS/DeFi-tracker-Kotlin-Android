@@ -13,16 +13,12 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 // tick crudo de MEXC futuros (push.tickers): ultimo precio, tasa 24h y volumen en contratos
 data class MexcTick(val lastPrice: Double, val riseFallRate: Double, val volume24: Double)
 
 class MexcTickerStream(
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS)
-        .build()
+    private val okHttpClient: OkHttpClient
 ) {
     // mapa simbolo (BTC_USDT) -> tick, una emision por push del server (~2s)
     fun observe(): Flow<Map<String, MexcTick>> = callbackFlow {

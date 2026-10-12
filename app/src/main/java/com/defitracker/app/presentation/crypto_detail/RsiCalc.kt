@@ -17,6 +17,25 @@ fun rsiMaOf(values: List<Double>, period: Int = RSI_MA_PERIOD): List<Double> {
     return out
 }
 
+// EMA con semilla SMA y NaN en warm-up, compartida por señales y MACD
+fun emaSeries(values: List<Double>, period: Int): List<Double> {
+    val out = ArrayList<Double>(values.size)
+    if (values.size < period) return out
+    val k = 2.0 / (period + 1)
+    var ema = values.take(period).average()
+    for (i in values.indices) {
+        if (i < period - 1) {
+            out.add(Double.NaN)
+        } else if (i == period - 1) {
+            out.add(ema)
+        } else {
+            ema = values[i] * k + ema * (1 - k)
+            out.add(ema)
+        }
+    }
+    return out
+}
+
 fun calculateRsi(candles: List<CandleData>, period: Int = 14): List<Double> {
     val rsi = mutableListOf<Double>()
     if (candles.size <= period) return emptyList()

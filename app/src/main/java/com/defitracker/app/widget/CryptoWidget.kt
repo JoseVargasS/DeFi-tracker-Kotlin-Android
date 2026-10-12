@@ -15,7 +15,7 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import com.defitracker.app.domain.model.CryptoPair
-import com.defitracker.app.domain.repository.CryptoRepository
+import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
 import dagger.hilt.EntryPoint
@@ -39,7 +39,7 @@ class CryptoWidget : GlanceAppWidget() {
     @EntryPoint
     @InstallIn(SingletonComponent::class)
     interface CryptoWidgetEntryPoint {
-        fun repository(): CryptoRepository
+        fun repository(): CryptoRepositoryImpl
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {

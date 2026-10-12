@@ -8,11 +8,12 @@ import android.util.Log
 import com.defitracker.app.data.local.DivAlertDao
 import com.defitracker.app.data.local.DivAlertEntity
 import com.defitracker.app.data.local.TrackedPairDao
-import com.defitracker.app.domain.repository.CryptoRepository
+import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.presentation.crypto_detail.CandleData
 import com.defitracker.app.presentation.crypto_detail.RSI_DIV_EARLY_LOOKBACK
 import com.defitracker.app.presentation.crypto_detail.RsiDiv
 import com.defitracker.app.presentation.crypto_detail.calculateRsi
+import com.defitracker.app.presentation.crypto_detail.candleDurationMs
 import com.defitracker.app.presentation.crypto_detail.detectFvgTap
 import com.defitracker.app.presentation.crypto_detail.detectMaWickRejection
 import com.defitracker.app.presentation.crypto_detail.detectRsiDivergences
@@ -34,7 +35,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class DivScanService : Service() {
 
-    @Inject lateinit var repository: CryptoRepository
+    @Inject lateinit var repository: CryptoRepositoryImpl
     @Inject lateinit var trackedPairDao: TrackedPairDao
     @Inject lateinit var divAlertDao: DivAlertDao
     @Inject lateinit var priceAlertDao: com.defitracker.app.data.local.PriceAlertDao
@@ -266,13 +267,13 @@ class DivScanService : Service() {
             try {
                 if (divAlertDao.countSince(symbol, kind, now - CONF_COOLDOWN_MS) > 0) return@forEach
             } catch (_: Exception) { return@forEach }
-            val best = tfs.maxByOrNull { tfDurationMs(it) } ?: tfs.first()
+            val best = tfs.maxByOrNull { candleDurationMs(it) } ?: tfs.first()
             val candleTime = fresh.filter { it.second.bullish == bull }.maxOfOrNull { it.third } ?: now
             val id = "$symbol|CONF|${if (bull) "BULL" else "BEAR"}|$candleTime"
             try {
                 if (divAlertDao.getById(id) != null) return@forEach
                 val dir = if (bull) "alcista" else "bajista"
-                val tfLabel = tfs.sortedBy { tfDurationMs(it) }.joinToString("+")
+                val tfLabel = tfs.sortedBy { candleDurationMs(it) }.joinToString("+")
                 val message = "¡🔥 Doble confirmación $dir $tfLabel en $displaySymbol!"
                 divAlertDao.insert(
                     DivAlertEntity(
@@ -365,29 +366,10 @@ class DivScanService : Service() {
 
     // pres/confirmadas del mismo evento con el pivote hasta 2 velas corrido
     private suspend fun findNearby(symbol: String, interval: String, kind: String, candleTime: Long, status: String): DivAlertEntity? {
-        val step = tfDurationMs(interval)
+        val step = candleDurationMs(interval)
         if (step <= 0L) return null
         val span = 2 * step
         return divAlertDao.findNearby(symbol, interval, kind, candleTime - span, candleTime + span, status)
-    }
-
-    private fun tfDurationMs(interval: String): Long = when (interval.trim()) {
-        "1m" -> 60_000L
-        "5m" -> 300_000L
-        "15m" -> 900_000L
-        "30m" -> 1_800_000L
-        "1h" -> 3_600_000L
-        "2h" -> 7_200_000L
-        "4h" -> 14_400_000L
-        "6h" -> 21_600_000L
-        "12h" -> 43_200_000L
-        "1d" -> 86_400_000L
-        "3d" -> 259_200_000L
-        "5d" -> 432_000_000L
-        "1w" -> 604_800_000L
-        "2w" -> 1_209_600_000L
-        "1mo" -> 2_592_000_000L
-        else -> 0L
     }
 
     private fun kindLabelEs(kind: String): String = when (kind) {

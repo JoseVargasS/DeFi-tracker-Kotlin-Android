@@ -20,24 +20,6 @@ private fun smaSeries(values: List<Double>, period: Int): List<Double> {
     return out
 }
 
-private fun emaSeries(values: List<Double>, period: Int): List<Double> {
-    val out = ArrayList<Double>(values.size)
-    if (values.size < period) return out
-    val k = 2.0 / (period + 1)
-    var ema = values.take(period).average()
-    for (i in values.indices) {
-        if (i < period - 1) {
-            out.add(Double.NaN)
-        } else if (i == period - 1) {
-            out.add(ema)
-        } else {
-            ema = values[i] * k + ema * (1 - k)
-            out.add(ema)
-        }
-    }
-    return out
-}
-
 // mechazo en media: mecha >=40% del rango perfora SMA/EMA y cierra de vuelta, ultima cerrada
 fun detectMaWickRejection(candles: List<CandleData>): TradeSignal? {
     if (candles.size < 52) return null

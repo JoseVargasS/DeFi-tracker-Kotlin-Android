@@ -6,7 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.defitracker.app.data.local.WalletEntity
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
-import com.defitracker.app.domain.repository.CryptoRepository
+import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -30,7 +30,7 @@ data class TransactionsState(
 
 @HiltViewModel
 class TransactionsViewModel @Inject constructor(
-    private val repository: CryptoRepository
+    private val repository: CryptoRepositoryImpl
 ) : ViewModel() {
 
     private val _state = mutableStateOf(TransactionsState())

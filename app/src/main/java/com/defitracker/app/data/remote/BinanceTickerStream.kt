@@ -13,17 +13,12 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 // tick crudo de Binance spot (!miniTicker@arr): precio, open 24h y volumen quote
 data class BinanceTick(val close: Double, val open24h: Double, val quoteVolume: Double)
 
 class BinanceTickerStream(
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
-        .build()
+    private val okHttpClient: OkHttpClient
 ) {
     // mapa simbolo -> tick, una emision por push del server (~1s)
     fun observe(): Flow<Map<String, BinanceTick>> = callbackFlow {

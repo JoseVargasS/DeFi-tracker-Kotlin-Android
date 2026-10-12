@@ -13,6 +13,7 @@ import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.remote.MexcTickerStream
 import com.defitracker.app.data.remote.tv.TradingViewClient
+import com.defitracker.app.data.remote.tv.tvResolution
 import com.defitracker.app.data.remote.dto.CoinStatsBalanceDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionDto
 import com.defitracker.app.data.remote.dto.CoinStatsTransactionSyncRequest
@@ -23,7 +24,6 @@ import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import com.defitracker.app.domain.model.TakerVolume
-import com.defitracker.app.domain.repository.CryptoRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -49,7 +49,7 @@ class CryptoRepositoryImpl @Inject constructor(
     private val mexcTickerStream: MexcTickerStream,
     private val trackedPairDao: TrackedPairDao,
     private val walletDao: WalletDao
-) : CryptoRepository {
+) {
 
     private fun logNonFatal(context: String, throwable: Throwable) {
         Log.w(TAG, context, throwable)
@@ -78,10 +78,10 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getSparklineCloses(symbol: String, source: String, limit: Int): List<Double> =
+    suspend fun getSparklineCloses(symbol: String, source: String, limit: Int = 30): List<Double> =
         recentCloses(symbol, source, "1h", limit.coerceIn(2, 100))
 
-    override suspend fun getRecentCloses(symbol: String, source: String, interval: String, limit: Int): List<Double> =
+    suspend fun getRecentCloses(symbol: String, source: String, interval: String, limit: Int = 260): List<Double> =
         recentCloses(symbol, source, interval, limit.coerceIn(2, 1000))
 
     private suspend fun recentCloses(symbol: String, source: String, interval: String, cleanLimit: Int): List<Double> {
@@ -113,7 +113,7 @@ class CryptoRepositoryImpl @Inject constructor(
                 ?: row.getOrNull(4)?.toString()?.toDoubleOrNull()
         }.takeLast(limit)
 
-    override fun getTrackedPairs(): Flow<List<CryptoPair>> {
+    fun getTrackedPairs(): Flow<List<CryptoPair>> {
         return trackedPairDao.getAllTrackedPairs().map { entities ->
             entities.map {
                 CryptoPair(
@@ -129,7 +129,7 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun addTrackedPair(symbol: String, baseAsset: String, quoteAsset: String, source: String) {
+    suspend fun addTrackedPair(symbol: String, baseAsset: String, quoteAsset: String, source: String) {
         trackedPairDao.insertTrackedPair(
             TrackedPairEntity(
                 symbol = symbol,
@@ -140,11 +140,11 @@ class CryptoRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun removeTrackedPair(symbol: String) {
+    suspend fun removeTrackedPair(symbol: String) {
         trackedPairDao.deleteTrackedPairBySymbol(symbol)
     }
 
-    override suspend fun getPairDetail(symbol: String, source: String): PairDetail {
+    suspend fun getPairDetail(symbol: String, source: String): PairDetail {
         return try {
             when (source) {
                 "MEXC" -> getMexcFuturesPairDetail(symbol)
@@ -159,7 +159,7 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // junta ambos sockets en un mapa key "$symbol-$source"; si un socket falla emite vacio
-    override fun observeLivePrices(): Flow<Map<String, LiveQuote>> {
+    fun observeLivePrices(): Flow<Map<String, LiveQuote>> {
         val binance = binanceTickerStream.observe()
             .map { batch ->
                 batch.mapNotNull { (symbol, t) ->
@@ -192,11 +192,11 @@ class CryptoRepositoryImpl @Inject constructor(
         return combine(binance, mexc) { b, m -> b + m }
     }
 
-    override suspend fun getKlines(
+    suspend fun getKlines(
         symbol: String,
         interval: String,
         source: String,
-        forceRefresh: Boolean
+        forceRefresh: Boolean = false
     ): List<List<Any>> {
         val cacheKey = "$source:$symbol:$interval"
         // el rollover no puede comer cache o la vela nueva nunca aparece
@@ -223,12 +223,12 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // cola liviana sin cache pa' syncTail, 1 sola llamada, sin paginado
-    override suspend fun getLatestKlines(
+    suspend fun getLatestKlines(
         symbol: String,
         interval: String,
         source: String,
-        sinceTimeMs: Long,
-        limit: Int
+        sinceTimeMs: Long = 0L,
+        limit: Int = 10
     ): List<List<Any>> {
         return try {
             when (source) {
@@ -255,11 +255,11 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // nota: taker siempre de Binance Futuros (peso 0, sin auth); MEXC se mapea quitando el "_"
-    override suspend fun getTakerVolumes(
+    suspend fun getTakerVolumes(
         symbol: String,
         interval: String,
         source: String,
-        limit: Int
+        limit: Int = 500
     ): List<TakerVolume> {
         if (interval.trim() !in TAKER_NATIVE_INTERVALS) return emptyList()
         if (source == "TV") return emptyList()
@@ -285,7 +285,7 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getAvailableSymbols(source: String): List<AvailableCryptoPair> {
+    suspend fun getAvailableSymbols(source: String = "Binance"): List<AvailableCryptoPair> {
         return when (source) {
             "MEXC" -> getMexcFuturesSymbols()
             else -> getBinanceSymbols()
@@ -358,19 +358,19 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // Wallets implementation
-    override fun getSavedWallets(): Flow<List<WalletEntity>> = walletDao.getWallets()
+    fun getSavedWallets(): Flow<List<WalletEntity>> = walletDao.getWallets()
 
-    override suspend fun saveWallet(address: String, name: String) {
+    suspend fun saveWallet(address: String, name: String) {
         walletDao.insertWallet(WalletEntity(address, name))
     }
 
-    override suspend fun deleteWallet(address: String) {
+    suspend fun deleteWallet(address: String) {
         walletDao.getWalletByAddress(address)?.let {
             walletDao.deleteWallet(it)
         }
     }
 
-    override suspend fun getWalletBalances(address: String): Map<String, List<CoinStatsBalanceDto>> = coroutineScope {
+    suspend fun getWalletBalances(address: String): Map<String, List<CoinStatsBalanceDto>> = coroutineScope {
         val results = linkedMapOf<String, List<CoinStatsBalanceDto>>()
 
         walletBalanceChains.forEachIndexed { index, chain ->
@@ -408,10 +408,10 @@ class CryptoRepositoryImpl @Inject constructor(
         results
     }
 
-    override suspend fun getWalletTransactions(
+    suspend fun getWalletTransactions(
         address: String,
-        limit: Int,
-        forceRefresh: Boolean
+        limit: Int = 5,
+        forceRefresh: Boolean = true
     ): List<EtherscanTransactionDto> = coroutineScope {
         val allTransactions = mutableListOf<EtherscanTransactionDto>()
         val normalizedLimit = limit.coerceIn(TRANSACTION_MIN_DISPLAY_LIMIT, TRANSACTION_MAX_DISPLAY_LIMIT)
@@ -578,24 +578,6 @@ class CryptoRepositoryImpl @Inject constructor(
 
     private fun tvTicker(symbol: String) =
         if (symbol.startsWith("CRYPTOCAP:")) symbol else "CRYPTOCAP:$symbol"
-
-    private fun tvResolution(interval: String): String = when (interval.trim()) {
-        "1m" -> "1"
-        "3m" -> "3"
-        "5m" -> "5"
-        "15m" -> "15"
-        "30m" -> "30"
-        "1h" -> "60"
-        "2h" -> "120"
-        "4h" -> "240"
-        "6h" -> "360"
-        "12h" -> "720"
-        "1d", "5d" -> "1D"
-        "3d" -> "3D"
-        "1w", "2w" -> "1W"
-        "1mo" -> "1M"
-        else -> "60"
-    }
 
     private fun tvCountbackFor(interval: String): Int = when (interval) {
         "1m", "5m", "15m" -> 3000

@@ -33,8 +33,8 @@ fun encodeDrawOverlays(overlays: List<DrawOverlay>): String = overlays.joinToStr
         o.end.price.toString(),
         o.colorHex,
         o.width.toString(),
-        if (o.hidden) "1" else "0",
-        if (o.locked) "1" else "0"
+        bool01(o.hidden),
+        bool01(o.locked)
     ).joinToString(";")
 }
 
@@ -48,19 +48,19 @@ fun decodeDrawOverlays(raw: String?): List<DrawOverlay> {
         } catch (_: Exception) {
             return@mapNotNull null
         }
-        val sTime = p[2].toLongOrNull() ?: return@mapNotNull null
-        val sPrice = p[3].toDoubleOrNull() ?: return@mapNotNull null
-        val eTime = p[4].toLongOrNull() ?: return@mapNotNull null
-        val ePrice = p[5].toDoubleOrNull() ?: return@mapNotNull null
+        val sTime = p.reqLong(2) ?: return@mapNotNull null
+        val sPrice = p.reqDouble(3) ?: return@mapNotNull null
+        val eTime = p.reqLong(4) ?: return@mapNotNull null
+        val ePrice = p.reqDouble(5) ?: return@mapNotNull null
         DrawOverlay(
             id = p[0].ifBlank { return@mapNotNull null },
             kind = kind,
             start = FibAnchor(sTime, sPrice),
             end = FibAnchor(eTime, ePrice),
             colorHex = p[6].ifBlank { "#FFD60A" },
-            width = p[7].toFloatOrNull()?.coerceIn(0.5f, 3f) ?: 1f,
-            hidden = p[8] == "1",
-            locked = p[9] == "1"
+            width = p.reqWidth(7),
+            hidden = p.flag(8),
+            locked = p.flag(9)
         )
     }.take(MAX_DRAWS_PER_SYMBOL)
 }

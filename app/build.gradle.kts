@@ -76,7 +76,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     // pull-to-refresh estandar de la lista (artesanal descartado: iba a saltos)
@@ -88,10 +87,10 @@ dependencies {
     //noinspection GradleDependency
     implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
 
-    // Material Components
+    // Material Components (aporta Theme.Material3.* para el tema de la Activity en themes.xml)
     //noinspection GradleDependency
     implementation("com.google.android.material:material:1.11.0")
-    
+
     // Retrofit
     //noinspection GradleDependency
     implementation("com.squareup.retrofit2:retrofit:2.9.0")

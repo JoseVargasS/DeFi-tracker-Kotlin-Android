@@ -9,7 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
-import com.defitracker.app.domain.repository.CryptoRepository
+import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.widget.CryptoWidget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -27,7 +27,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class CryptoListViewModel @Inject constructor(
-    private val repository: CryptoRepository,
+    private val repository: CryptoRepositoryImpl,
     private val pairOrderRepo: PairOrderRepository,
     application: Application
 ) : AndroidViewModel(application) {
@@ -57,7 +57,7 @@ class CryptoListViewModel @Inject constructor(
             try {
                 refreshPrices()
                 // jalar reintenta MEXC aunque antes haya fallado
-                symbolsBySource.remove("combined")
+                symbolsCache = null
                 fetchAvailableSymbols()
             } catch (e: CancellationException) {
                 throw e
@@ -67,8 +67,8 @@ class CryptoListViewModel @Inject constructor(
             }
         }
     }
-    // simbolos por fuente con cache para no refetchear al alternar
-    private val symbolsBySource = mutableMapOf<String, List<AvailableCryptoPair>>()
+    // cache de la lista combinada para no refetchear en cada recomposicion
+    private var symbolsCache: List<AvailableCryptoPair>? = null
 
     // sparkline 24 cierres 1h + volumen 24h por par, key "symbol-source"
     private val _sparklines = mutableStateOf<Map<String, List<Double>>>(emptyMap())
@@ -109,7 +109,7 @@ class CryptoListViewModel @Inject constructor(
     }
 
     private fun loadAvailableSymbols() {
-        symbolsBySource["combined"]?.let { cached ->
+        symbolsCache?.let { cached ->
             _state.value = state.value.copy(availableSymbols = cached, symbolsError = "")
             return
         }
@@ -130,18 +130,12 @@ class CryptoListViewModel @Inject constructor(
             } catch (_: Exception) {}
         }
         // solo cachea la lista completa; si MEXC fallo, el proximo refresh reintenta
-        if (mexcOk) symbolsBySource["combined"] = all
+        if (mexcOk) symbolsCache = all
         _state.value = state.value.copy(
             availableSymbols = all,
             symbolsError = if (all.isEmpty()) "Could not load symbols. Check your connection." else "",
             mexcAvailable = mexcOk
         )
-    }
-
-    fun selectSource(source: String) {
-        if (state.value.selectedSource == source) return
-        _state.value = state.value.copy(selectedSource = source)
-        loadAvailableSymbols()
     }
 
     private fun getTrackedPairs() {
@@ -352,9 +346,10 @@ class CryptoListViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "CryptoListVM"
-        // respaldo REST cada 30s (los sockets ya cubren Binance/MEXC al segundo)
-        const val PRICE_REFRESH_MS = 30_000L
-        const val WIDGET_REFRESH_TICKS = 2
+        // respaldo REST cada 2s (los sockets ya cubren Binance/MEXC al segundo)
+        const val PRICE_REFRESH_MS = 2_000L
+        // widget sigue a ~60s para no spamearlo (30 ticks de 2s)
+        const val WIDGET_REFRESH_TICKS = 30
         const val SPARK_REFRESH_MS = 300_000L
         const val SPARK_CHUNK_DELAY_MS = 60L
     }
@@ -367,7 +362,6 @@ enum class SortMode {
 data class CryptoListState(
     val pairs: List<CryptoPair> = emptyList(),
     val availableSymbols: List<AvailableCryptoPair> = emptyList(),
-    val selectedSource: String = "Binance",
     val isLoading: Boolean = false,
     val error: String = "",
     val symbolsError: String = "",

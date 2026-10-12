@@ -12,7 +12,6 @@ import com.defitracker.app.data.remote.BinanceFuturesApi
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
-import com.defitracker.app.domain.repository.CryptoRepository
 import com.defitracker.app.presentation.crypto_detail.IndicatorPrefsRepository
 import dagger.Module
 import dagger.Provides
@@ -67,22 +66,39 @@ object AppModule {
             .create(MexcFuturesApi::class.java)
     }
 
+    // un solo pool de conexiones para los 3 websockets (streams + TV con su propio timeout)
     @Provides
     @Singleton
-    fun provideTradingViewClient(): com.defitracker.app.data.remote.tv.TradingViewClient {
-        return com.defitracker.app.data.remote.tv.TradingViewClient()
+    fun provideOkHttpClient(): okhttp3.OkHttpClient {
+        return okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+            .pingInterval(20, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
     }
 
     @Provides
     @Singleton
-    fun provideBinanceTickerStream(): com.defitracker.app.data.remote.BinanceTickerStream {
-        return com.defitracker.app.data.remote.BinanceTickerStream()
+    fun provideTradingViewClient(
+        okHttpClient: okhttp3.OkHttpClient
+    ): com.defitracker.app.data.remote.tv.TradingViewClient {
+        return com.defitracker.app.data.remote.tv.TradingViewClient(okHttpClient)
     }
 
     @Provides
     @Singleton
-    fun provideMexcTickerStream(): com.defitracker.app.data.remote.MexcTickerStream {
-        return com.defitracker.app.data.remote.MexcTickerStream()
+    fun provideBinanceTickerStream(
+        okHttpClient: okhttp3.OkHttpClient
+    ): com.defitracker.app.data.remote.BinanceTickerStream {
+        return com.defitracker.app.data.remote.BinanceTickerStream(okHttpClient)
+    }
+
+    @Provides
+    @Singleton
+    fun provideMexcTickerStream(
+        okHttpClient: okhttp3.OkHttpClient
+    ): com.defitracker.app.data.remote.MexcTickerStream {
+        return com.defitracker.app.data.remote.MexcTickerStream(okHttpClient)
     }
 
     @Provides
@@ -141,7 +157,7 @@ object AppModule {
         mexcTickerStream: com.defitracker.app.data.remote.MexcTickerStream,
         trackedPairDao: TrackedPairDao,
         walletDao: WalletDao
-    ): CryptoRepository {
+    ): CryptoRepositoryImpl {
         return CryptoRepositoryImpl(
             binanceApi, binanceFuturesApi, coinStatsApi, mexcFuturesApi,
             tradingViewClient, binanceTickerStream, mexcTickerStream, trackedPairDao, walletDao

@@ -46,17 +46,3 @@ fun calculateMacd(
     }
     return MacdData(dif, deaOut, hist)
 }
-
-// EMA alineada por indice (NaN antes del warm-up), semilla SMA como emaOf del ViewModel
-private fun emaSeries(values: List<Double>, period: Int): DoubleArray {
-    val out = DoubleArray(values.size) { Double.NaN }
-    if (values.size < period) return out
-    val k = 2.0 / (period + 1)
-    var ema = values.take(period).average()
-    out[period - 1] = ema
-    for (i in period until values.size) {
-        ema = values[i] * k + ema * (1 - k)
-        out[i] = ema
-    }
-    return out
-}

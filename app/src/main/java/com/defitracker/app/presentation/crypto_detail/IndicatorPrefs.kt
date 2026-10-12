@@ -230,7 +230,7 @@ class IndicatorPrefsRepository @Inject constructor(
 // una MA por segmento id|tipo|periodo|color|grosor|visible|tf, ";" entre MAs
 private fun encodeMas(mas: List<MaConfig>): String =
     mas.take(IndicatorPrefs.MAX_MAS).joinToString(";") {
-        listOf(it.id, it.type.name, it.period.toString(), it.colorHex, it.width.toString(), if (it.visible) "1" else "0", it.timeframe).joinToString("|")
+        listOf(it.id, it.type.name, it.period.toString(), it.colorHex, it.width.toString(), bool01(it.visible), it.timeframe).joinToString("|")
     }
 
 private fun decodeMas(raw: String?): List<MaConfig>? {
@@ -249,7 +249,7 @@ private fun decodeMas(raw: String?): List<MaConfig>? {
                 timeframe = tf,
                 colorHex = p[3].ifBlank { "#FFFFFF" },
                 width = p[4].toFloatOrNull()?.coerceIn(0.5f, 3f) ?: 1.2f,
-                visible = p[5] == "1"
+                visible = p.flag(5)
             )
         }.ifEmpty { null }?.take(IndicatorPrefs.MAX_MAS)
     } catch (_: Exception) {
