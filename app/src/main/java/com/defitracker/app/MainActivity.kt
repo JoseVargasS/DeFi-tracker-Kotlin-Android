@@ -235,6 +235,16 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
         }
         composable(
             route = "crypto_detail/{symbol}/{source}?interval={interval}&analysis={analysis}",
+            // solo fade al entrar al grafico: el slide compite con el revelado interno
+            enterTransition = { fadeIn(animationSpec = tween(180)) },
+            exitTransition = { fadeOut(animationSpec = tween(140)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(180)) },
+            popExitTransition = {
+                fadeOut(animationSpec = tween(90)) + slideOutOfContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(220)
+                )
+            },
             arguments = listOf(
                 navArgument("symbol") { type = NavType.StringType },
                 navArgument("source") { type = NavType.StringType },

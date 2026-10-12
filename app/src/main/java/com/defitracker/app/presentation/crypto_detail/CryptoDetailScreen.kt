@@ -11,6 +11,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.widget.TextView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +57,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.PathEffect
@@ -132,6 +135,32 @@ fun CryptoDetailScreen(
     val showMaList = remember { mutableStateOf(false) }
     val showPriceAlerts = remember { mutableStateOf(false) }
     val priceAlerts by viewModel.priceAlertsFlow().collectAsState(initial = emptyList())
+    // velo liviano: mientras carga se atenua el chart viejo + barrita, sin desmontar nada.
+    // El cooldown cubre el reencuadre (post) que llega 1-2 frames despues de la data
+    var cooling by remember { mutableStateOf(false) }
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading) {
+            cooling = true
+            kotlinx.coroutines.delay(150)
+            cooling = false
+        }
+    }
+    val chartDim = state.candles.isNotEmpty() && (state.isLoading || cooling)
+    // revelado del primer encuadre: el chart nace invisible y aparece ya posicionado.
+    // El watchdog evita invisible eterno si la señal no llegara
+    var revealed by remember { mutableStateOf(false) }
+    LaunchedEffect(state.candles.isNotEmpty()) {
+        if (state.candles.isNotEmpty()) {
+            kotlinx.coroutines.delay(1500)
+            revealed = true
+        } else {
+            revealed = false
+        }
+    }
+    val revealAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (revealed) 1f else 0f,
+        animationSpec = tween(250)
+    )
     // modo expandir, el chart manda y los TFs bajan
     val chartExpanded = remember { mutableStateOf(true) }
     val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
@@ -278,27 +307,46 @@ fun CryptoDetailScreen(
                         }
                     }
             ) {
+                // refs y altos viven aqui: sobreviven al cambio de rama en cada carga de TF
+                // Shared chart references for sync
+                val priceChartRef = remember { mutableStateOf<CombinedChart?>(null) }
+                val stochChartRef = remember { mutableStateOf<LineChart?>(null) }
+                val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
+                val macdChartRef = remember { mutableStateOf<CombinedChart?>(null) }
+                val takerChartRef = remember { mutableStateOf<BarChart?>(null) }
+                val subRefs = remember { SubChartRefs(stochChartRef, rsiChartRef, macdChartRef, takerChartRef) }
+                // altos arrastrables, subs mas altos por defecto
+                var priceW by remember { mutableFloatStateOf(4f) }
+                var stochW by remember { mutableFloatStateOf(0.7f) }
+                var rsiW by remember { mutableFloatStateOf(0.7f) }
+                var macdW by remember { mutableFloatStateOf(0.7f) }
+                var takerW by remember { mutableFloatStateOf(0.7f) }
+                val anySub = prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible || prefs.takerVisible
+                val subsTotalW = (if (prefs.stochVisible) stochW else 0f) +
+                    (if (prefs.rsiVisible) rsiW else 0f) +
+                    (if (prefs.macdVisible) macdW else 0f) +
+                    (if (prefs.takerVisible) takerW else 0f)
                 when {
                     state.candles.isNotEmpty() -> {
-                        // Shared chart references for sync
-                        val priceChartRef = remember { mutableStateOf<CombinedChart?>(null) }
-                        val stochChartRef = remember { mutableStateOf<LineChart?>(null) }
-                        val rsiChartRef = remember { mutableStateOf<LineChart?>(null) }
-                        val macdChartRef = remember { mutableStateOf<CombinedChart?>(null) }
-                        val takerChartRef = remember { mutableStateOf<BarChart?>(null) }
-                        val subRefs = remember { SubChartRefs(stochChartRef, rsiChartRef, macdChartRef, takerChartRef) }
-                        // altos arrastrables, subs mas altos por defecto
-                        var priceW by remember { mutableFloatStateOf(4f) }
-                        var stochW by remember { mutableFloatStateOf(0.7f) }
-                        var rsiW by remember { mutableFloatStateOf(0.7f) }
-                        var macdW by remember { mutableFloatStateOf(0.7f) }
-                        var takerW by remember { mutableFloatStateOf(0.7f) }
-                        val anySub = prefs.stochVisible || prefs.rsiVisible || prefs.macdVisible || prefs.takerVisible
-                        val subsTotalW = (if (prefs.stochVisible) stochW else 0f) +
-                            (if (prefs.rsiVisible) rsiW else 0f) +
-                            (if (prefs.macdVisible) macdW else 0f) +
-                            (if (prefs.takerVisible) takerW else 0f)
-
+                        // fade al montar: suaviza la entrada sin tapar el layout.
+                        // En carga no se desmonta (cero churn de vistas): solo se atenua + barrita
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = fadeIn(animationSpec = tween(300)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .alpha((if (chartDim) 0.35f else 1f) * revealAlpha)
+                        ) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                        if (state.isLoading) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp),
+                                color = Color(0xFF1ECB81),
+                                trackColor = Color(0xFF1A1D23)
+                            )
+                        }
                         Box(modifier = Modifier.weight(priceW).heightIn(min = 240.dp)) {
                             PriceChart(
                                 state = state,
@@ -311,7 +359,8 @@ fun CryptoDetailScreen(
                                 rsiChartRef = rsiChartRef,
                                 macdChartRef = macdChartRef,
                                 takerChartRef = takerChartRef,
-                                crossX = crossX
+                                crossX = crossX,
+                                onPositioned = { revealed = true }
                             )
                         }
                         if (anySub) {
@@ -469,10 +518,8 @@ fun CryptoDetailScreen(
                             }
                         }
                         // TFs al fondo, stack pegado estilo OKX
-                        IntervalRow(
-                            selected = state.selectedInterval,
-                            onPick = { viewModel.loadChartData(it) }
-                        )
+                        } // inner Column
+                        } // AnimatedVisibility
                     }
                     state.isLoading -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -503,6 +550,11 @@ fun CryptoDetailScreen(
                         }
                     }
                 }
+                // TFs al fondo, stack pegado estilo OKX (siempre visible, ni en carga se esconde)
+                IntervalRow(
+                    selected = state.selectedInterval,
+                    onPick = { viewModel.loadChartData(it) }
+                )
             }
             }
 
@@ -786,7 +838,8 @@ fun PriceChart(
     rsiChartRef: MutableState<LineChart?>,
     macdChartRef: MutableState<CombinedChart?> = mutableStateOf(null),
     takerChartRef: MutableState<BarChart?> = mutableStateOf(null),
-    crossX: MutableFloatState = mutableFloatStateOf(-1f)
+    crossX: MutableFloatState = mutableFloatStateOf(-1f),
+    onPositioned: () -> Unit = {}
 ) {
     val stateRef = remember { mutableStateOf(state) }
     // onDraw del chart es closure de fabrica, lee prefs via ref o queda stale
@@ -3085,26 +3138,22 @@ fun PriceChart(
                 extraBottomOffset = 18f
                 marker = OKXChartMarker(context) { stateRef.value }
                 // etiquetas del canvas con Geist semibold, numeros mas definidos
-                try {
-                    androidx.core.content.res.ResourcesCompat.getFont(
-                        context, com.defitracker.app.R.font.geist_semibold
-                    )?.let { tf ->
-                        labelPaint.typeface = tf
-                        selectionTextPaint.typeface = tf
-                        tagTextPaint.typeface = tf
-                        lastPriceTextPaint.typeface = tf
-                        fibLabelPaint.typeface = tf
-                        smcBullLabelPaint.typeface = tf
-                        smcBearLabelPaint.typeface = tf
-                        smcEqLabelPaint.typeface = tf
-                        smcFvgTagPaint.typeface = tf
-                        smcConfluenceTagPaint.typeface = tf
-                        smcBslLabelPaint.typeface = tf
-                        smcSslLabelPaint.typeface = tf
-                        smcSweepLabelPaint.typeface = tf
-                        maTagTextPaint.typeface = tf
-                    }
-                } catch (_: Exception) {}
+                chartTypeface(context)?.let { tf ->
+                    labelPaint.typeface = tf
+                    selectionTextPaint.typeface = tf
+                    tagTextPaint.typeface = tf
+                    lastPriceTextPaint.typeface = tf
+                    fibLabelPaint.typeface = tf
+                    smcBullLabelPaint.typeface = tf
+                    smcBearLabelPaint.typeface = tf
+                    smcEqLabelPaint.typeface = tf
+                    smcFvgTagPaint.typeface = tf
+                    smcConfluenceTagPaint.typeface = tf
+                    smcBslLabelPaint.typeface = tf
+                    smcSslLabelPaint.typeface = tf
+                    smcSweepLabelPaint.typeface = tf
+                    maTagTextPaint.typeface = tf
+                }
 
                 // eje a la derecha SOBRE el grafico, las velas pasan por detras
                 // labels nativos off, se dibujan fijos a pantalla (drawPinnedYLabels)
@@ -3433,6 +3482,7 @@ fun PriceChart(
                     // primera carga o TF nuevo: Y solo con velas, las MAs no mandan
                     chart.applySyncAndInitialZoom(state.candles, resetViewport = true, resetCustomY = false, fitYToCandles = true, onPositioned = {
                         syncSubCharts(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
+                        onPositioned()
                     })
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                 }
@@ -4909,19 +4959,26 @@ private class TwoLineXAxisRenderer(
     }
 }
 
+// la fuente se lee de disco una sola vez por proceso, no en cada montaje de chart
+private var cachedChartTypeface: android.graphics.Typeface? = null
+private fun chartTypeface(context: android.content.Context): android.graphics.Typeface? {
+    if (cachedChartTypeface == null) {
+        cachedChartTypeface = try {
+            androidx.core.content.res.ResourcesCompat.getFont(context, com.defitracker.app.R.font.geist_semibold)
+        } catch (_: Exception) { null }
+    }
+    return cachedChartTypeface
+}
+
 private fun BarLineChartBase<*>.setupCommonChartParams() {
     description.isEnabled = false
     legend.isEnabled = false
     // numeros del chart en Geist semibold estilo OKX, con fallback silencioso
-    try {
-        androidx.core.content.res.ResourcesCompat.getFont(
-            context, com.defitracker.app.R.font.geist_semibold
-        )?.let { tf ->
-            xAxis.typeface = tf
-            axisLeft.typeface = tf
-            axisRight.typeface = tf
-        }
-    } catch (_: Exception) {}
+    chartTypeface(context)?.let { tf ->
+        xAxis.typeface = tf
+        axisLeft.typeface = tf
+        axisRight.typeface = tf
+    }
     setTouchEnabled(true)
     isDragEnabled = true
     setScaleEnabled(true)
