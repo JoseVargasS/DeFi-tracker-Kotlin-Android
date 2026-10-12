@@ -295,8 +295,8 @@ class CryptoRepositoryImpl @Inject constructor(
     // solo futuros USDT; la API devuelve contratos spot/coin-m/futuros mezclados
     private suspend fun getMexcFuturesSymbols(): List<AvailableCryptoPair> {
         if (cachedMexcSymbols.isNotEmpty()) return cachedMexcSymbols
-        return try {
-            cachedMexcSymbols = mexcFuturesApi.getContracts().data
+        try {
+            val fromDetail = mexcFuturesApi.getContracts().data
                 .filter { it.futureType == 1 && it.state == 0 && it.quoteCoin == "USDT" }
                 .map {
                     AvailableCryptoPair(
@@ -305,10 +305,35 @@ class CryptoRepositoryImpl @Inject constructor(
                         quoteAsset = it.quoteCoin
                     )
                 }
-            cachedMexcSymbols
+            if (fromDetail.isNotEmpty()) {
+                cachedMexcSymbols = fromDetail
+                return fromDetail
+            }
+            logNonFatal("MEXC contract/detail vacio, usando respaldo ticker", Exception("detail-vacio"))
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            logNonFatal("MEXC contract/detail fallo, usando respaldo ticker", e)
+        }
+        // respaldo: otro endpoint (ticker) por si detail se cae o lo bloquean,
+        // el buscador nunca se queda sin MEXC en silencio
+        return try {
+            val fromTicker = mexcFuturesApi.getAllTickers().data
+                .mapNotNull { t ->
+                    val sym = t.symbol
+                    if (!sym.endsWith("_USDT")) return@mapNotNull null
+                    AvailableCryptoPair(
+                        symbol = sym,
+                        baseAsset = sym.substringBeforeLast("_"),
+                        quoteAsset = "USDT"
+                    )
+                }
+            if (fromTicker.isNotEmpty()) cachedMexcSymbols = fromTicker
+            fromTicker
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logNonFatal("MEXC respaldo ticker tambien fallo", e)
             emptyList()
         }
     }

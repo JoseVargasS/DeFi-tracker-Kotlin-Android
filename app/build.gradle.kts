@@ -79,6 +79,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // pull-to-refresh estandar de la lista (artesanal descartado: iba a saltos)
+    implementation("androidx.compose.material:material")
     
     // Navigation
     //noinspection GradleDependency

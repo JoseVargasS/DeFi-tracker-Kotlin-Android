@@ -31,6 +31,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -52,7 +55,11 @@ import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+    androidx.compose.material.ExperimentalMaterialApi::class
+)
 @Composable
 fun CryptoListScreen(
     onNavigateToDetail: (String, String, String) -> Unit,
@@ -87,13 +94,28 @@ fun CryptoListScreen(
     val filteredSymbols = remember(searchQuery, state.availableSymbols) {
         val query = searchQuery.trim()
         if (query.isEmpty()) emptyList()
-        else (state.availableSymbols + tvIndexSymbols).filter {
-            it.symbol.contains(query, ignoreCase = true) ||
-            it.baseAsset.contains(query, ignoreCase = true) ||
-            it.quoteAsset.contains(query, ignoreCase = true) ||
-            it.displayName.contains(query, ignoreCase = true) ||
-            it.keywords.contains(query, ignoreCase = true)
-        }.take(10)
+        else {
+            val matches = (state.availableSymbols + tvIndexSymbols).filter {
+                it.symbol.contains(query, ignoreCase = true) ||
+                it.baseAsset.contains(query, ignoreCase = true) ||
+                it.quoteAsset.contains(query, ignoreCase = true) ||
+                it.displayName.contains(query, ignoreCase = true) ||
+                it.keywords.contains(query, ignoreCase = true)
+            }
+            // intercalado por fuente: Binance ya no entierra a MEXC en el top 10
+            val bySource = matches.groupBy { it.source ?: "Binance" }
+            val out = mutableListOf<AvailableCryptoPair>()
+            var i = 0
+            while (out.size < 12) {
+                var added = false
+                for (list in bySource.values) {
+                    list.getOrNull(i)?.let { out.add(it); added = true }
+                }
+                if (!added) break
+                i++
+            }
+            out
+        }
     }
 
     val showSymbolError = state.availableSymbols.isEmpty() && state.symbolsError.isNotEmpty()
@@ -134,6 +156,13 @@ fun CryptoListScreen(
         SortMode.CHG_DESC -> "Ordenar por Cambio 24h ↓"
         SortMode.CHG_ASC -> "Ordenar por Cambio 24h ↑"
     }
+    // jalar-para-actualizar con el componente estandar: baja/crece/gira fluido,
+    // dispara solo al soltar pasado el punto, reversa cancela con animacion
+    val manualRefreshing = viewModel.manualRefreshing.value
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = manualRefreshing,
+        onRefresh = { viewModel.manualRefresh() }
+    )
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
@@ -145,7 +174,12 @@ fun CryptoListScreen(
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .pullRefresh(pullRefreshState)
+        ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -258,6 +292,16 @@ fun CryptoListScreen(
                                         }
                                     }
                                 } else {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                    // si MEXC no cargo, se avisa en vez de esconderlo
+                                    if (!state.mexcAvailable) {
+                                        Text(
+                                            text = "MEXC no disponible ahorita — jala la lista para reintentar",
+                                            color = Color(0xFFFFD60A),
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                        )
+                                    }
                                     LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                         items(
                                             items = filteredSymbols,
@@ -290,6 +334,7 @@ fun CryptoListScreen(
                                             )
                                             Divider(color = MaterialTheme.colorScheme.outlineVariant)
                                         }
+                                    }
                                     }
                                 }
                             }
@@ -442,6 +487,14 @@ fun CryptoListScreen(
                     }
                 )
             }
+            // indicador estandar: baja con tu dedo, al soltar pasado el punto recarga
+            PullRefreshIndicator(
+                refreshing = manualRefreshing,
+                state = pullRefreshState,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
+                backgroundColor = Color(0xFF1A1D23),
+                contentColor = Color(0xFF1ECB81)
+            )
         }
     }
 }

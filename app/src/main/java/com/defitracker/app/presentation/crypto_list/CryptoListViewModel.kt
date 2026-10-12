@@ -46,6 +46,27 @@ class CryptoListViewModel @Inject constructor(
     private var refreshJob: Job? = null
     private var sparkJob: Job? = null
     private var isRefreshing = false
+    // jalar-para-actualizar manual (la lista ya se refresca sola cada 30s, esto es extra)
+    private val _manualRefreshing = mutableStateOf(false)
+    val manualRefreshing: State<Boolean> = _manualRefreshing
+
+    fun manualRefresh() {
+        if (_manualRefreshing.value) return
+        viewModelScope.launch {
+            _manualRefreshing.value = true
+            try {
+                refreshPrices()
+                // jalar reintenta MEXC aunque antes haya fallado
+                symbolsBySource.remove("combined")
+                fetchAvailableSymbols()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            } finally {
+                _manualRefreshing.value = false
+            }
+        }
+    }
     // simbolos por fuente con cache para no refetchear al alternar
     private val symbolsBySource = mutableMapOf<String, List<AvailableCryptoPair>>()
 
@@ -92,22 +113,29 @@ class CryptoListViewModel @Inject constructor(
             _state.value = state.value.copy(availableSymbols = cached, symbolsError = "")
             return
         }
-        viewModelScope.launch {
-            val all = mutableListOf<AvailableCryptoPair>()
-            // buscador unificado: spot + futuros + TV, cada entrada etiquetada con su fuente
-            for (source in listOf("Binance", "MEXC")) {
-                try {
-                    all += repository.getAvailableSymbols(source).map { it.copy(source = source) }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {}
-            }
-            symbolsBySource["combined"] = all
-            _state.value = state.value.copy(
-                availableSymbols = all,
-                symbolsError = if (all.isEmpty()) "Could not load symbols. Check your connection." else ""
-            )
+        viewModelScope.launch { fetchAvailableSymbols() }
+    }
+
+    private suspend fun fetchAvailableSymbols() {
+        val all = mutableListOf<AvailableCryptoPair>()
+        var mexcOk = false
+        // buscador unificado: spot + futuros + TV, cada entrada etiquetada con su fuente
+        for (source in listOf("Binance", "MEXC")) {
+            try {
+                val syms = repository.getAvailableSymbols(source).map { it.copy(source = source) }
+                all += syms
+                if (source == "MEXC") mexcOk = syms.isNotEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
         }
+        // solo cachea la lista completa; si MEXC fallo, el proximo refresh reintenta
+        if (mexcOk) symbolsBySource["combined"] = all
+        _state.value = state.value.copy(
+            availableSymbols = all,
+            symbolsError = if (all.isEmpty()) "Could not load symbols. Check your connection." else "",
+            mexcAvailable = mexcOk
+        )
     }
 
     fun selectSource(source: String) {
@@ -342,5 +370,7 @@ data class CryptoListState(
     val selectedSource: String = "Binance",
     val isLoading: Boolean = false,
     val error: String = "",
-    val symbolsError: String = ""
+    val symbolsError: String = "",
+    // si MEXC no cargo, el buscador lo avisa en vez de callarse
+    val mexcAvailable: Boolean = true
 )
