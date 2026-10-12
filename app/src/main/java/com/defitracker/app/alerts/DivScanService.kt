@@ -37,6 +37,7 @@ class DivScanService : Service() {
     @Inject lateinit var repository: CryptoRepository
     @Inject lateinit var trackedPairDao: TrackedPairDao
     @Inject lateinit var divAlertDao: DivAlertDao
+    @Inject lateinit var priceAlertDao: com.defitracker.app.data.local.PriceAlertDao
     @Inject lateinit var monitorPrefs: DivMonitorPrefs
     @Inject lateinit var notifier: DivAlertNotifier
 
@@ -66,6 +67,7 @@ class DivScanService : Service() {
                 val config = monitorPrefs.current()
                 if (config.enabled) {
                     scanOnce(config)
+                    checkPriceAlerts()
                     // poda notis de mas de 30 dias
                     try {
                         divAlertDao.pruneOlderThan(System.currentTimeMillis() - PRUNE_MS)
@@ -139,6 +141,49 @@ class DivScanService : Service() {
                 delay(PAIR_TF_DELAY_MS)
             }
             processConfluence(pair.symbol, fresh, config.confluence)
+        }
+    }
+
+    // alertas de precio LONG/SHORT: secuencial con pausa, renotifica cada 5 min.
+    // Mismo id de noti por alerta: si la anterior sigue en la barra solo se actualiza.
+    private suspend fun checkPriceAlerts() {
+        val alerts = try {
+            priceAlertDao.getEnabled()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) { return }
+        if (alerts.isEmpty()) return
+        val now = System.currentTimeMillis()
+        for (a in alerts) {
+            if (!scope.isActive) return
+            if (now - a.lastNotifiedAt < PRICE_RENOTIFY_MS) continue
+            try {
+                val detail = repository.getPairDetail(a.symbol, a.source)
+                val price = detail.price.toDoubleOrNull() ?: 0.0
+                if (price <= 0.0) continue
+                // hiteo exacto, sin banda de tolerancia: en SUI 0.01 ya es bastante.
+                // LONG = el precio bajo hasta tu objetivo, SHORT = subio hasta el
+                val dir = a.direction.uppercase()
+                val hit = if (a.low > 0 && a.high > 0 && a.high > a.low) {
+                    price in a.low..a.high
+                } else if (a.targetPrice > 0) {
+                    if (dir == "SHORT") price >= a.targetPrice else price <= a.targetPrice
+                } else false
+                if (hit) {
+                    val targetTxt = if (a.low > 0 && a.high > 0 && a.high > a.low) {
+                        "${a.low}–${a.high}"
+                    } else {
+                        a.targetPrice.toString()
+                    }
+                    notifier.notifyPriceAlert(a.symbol, a.source, a.direction, price, targetTxt, a.id.hashCode())
+                    try { priceAlertDao.markNotified(a.id, now) } catch (_: Exception) {}
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Price alert check failed ${a.symbol}", e)
+            }
+            delay(PRICE_ALERT_DELAY_MS)
         }
     }
 
@@ -364,6 +409,9 @@ class DivScanService : Service() {
         private const val MIN_SIGNAL_CANDLES = 55
         private const val SIGNAL_COOLDOWN_MS = 4L * 60 * 60 * 1000
         private const val CONF_COOLDOWN_MS = 24L * 60 * 60 * 1000
+        // precio: retoca cada 5 min si ya quitaste la noti de la barra
+        private const val PRICE_RENOTIFY_MS = 5L * 60 * 1000
+        private const val PRICE_ALERT_DELAY_MS = 800L
 
         fun start(context: Context) {
             val intent = Intent(context, DivScanService::class.java)

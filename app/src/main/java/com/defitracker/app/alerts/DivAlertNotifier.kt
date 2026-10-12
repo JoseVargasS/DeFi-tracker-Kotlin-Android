@@ -114,6 +114,55 @@ class DivAlertNotifier @Inject constructor(
         NotificationManagerCompat.from(context).notify(alertIdHash, noti)
     }
 
+    // alerta de precio LONG/SHORT: mismo id por alerta, si la noti sigue en la barra
+    // solo se actualiza, no duplica. El throttle de 5 min vive en el service.
+    fun notifyPriceAlert(
+        symbol: String,
+        source: String,
+        direction: String,
+        touchedPrice: Double,
+        targetTxt: String,
+        alertIdHash: Int
+    ) {
+        if (ActivityCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return
+        ensureChannels()
+        val displaySymbol = symbol.replace("_", "")
+        val dir = direction.uppercase().takeIf { it == "SHORT" } ?: "LONG"
+        val priceTxt = if (touchedPrice > 0) touchedPrice.toString() else "tu zona"
+        val title = "$displaySymbol llegó a tu zona de $dir!"
+        val text = "Objetivo $targetTxt · tocó $priceTxt · Toca para ver la gráfica"
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_OPEN_ALERT
+            putExtra(MainActivity.EXTRA_ALERT_SYMBOL, symbol)
+            putExtra(MainActivity.EXTRA_ALERT_SOURCE, source)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            context, alertIdHash, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val bullish = dir == "LONG"
+        val noti = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(
+                if (bullish) R.drawable.ic_arrow_up_bold
+                else R.drawable.ic_arrow_down_bold
+            )
+            .setColor(if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt())
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(false)
+            .setContentIntent(pi)
+            .build()
+        NotificationManagerCompat.from(context).notify(alertIdHash, noti)
+    }
+
     fun notifySignal(
         symbol: String,
         source: String,

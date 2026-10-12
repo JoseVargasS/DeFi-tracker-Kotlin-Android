@@ -92,7 +92,8 @@ object AppModule {
             app,
             AppDatabase::class.java,
             Constants.DATABASE_NAME
-        ).fallbackToDestructiveMigration()
+        ).addMigrations(com.defitracker.app.data.local.MIGRATION_5_6)
+            .fallbackToDestructiveMigration()
             .build()
     }
 
@@ -107,6 +108,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideDivAlertDao(db: AppDatabase) = db.divAlertDao
+
+    @Provides
+    @Singleton
+    fun providePriceAlertDao(db: AppDatabase) = db.priceAlertDao
 
     @Provides
     @Singleton
