@@ -28,6 +28,7 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.defitracker.app.presentation.crypto_detail.CryptoDetailScreen
 import com.defitracker.app.presentation.crypto_detail.DetailSeed
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import com.defitracker.app.presentation.crypto_list.CryptoListScreen
 import androidx.compose.ui.res.painterResource
 import com.defitracker.app.presentation.wallet.WalletScreen
@@ -222,7 +223,7 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
                     // semilla: la lista ya trae precio/%/vol, el header pinta al instante
                     val params = buildList {
                         if (interval.isNotEmpty()) add("interval=$interval")
-                        if (seed != null && (seed.price.toDoubleOrNull() ?: 0.0) > 0.0) {
+                        if (seed != null && (seed.price.toDoubleValue()) > 0.0) {
                             add("price=${seed.price}&pct=${seed.pct}&pos=${if (seed.pos) "1" else "0"}&vol=${seed.vol}")
                         }
                     }

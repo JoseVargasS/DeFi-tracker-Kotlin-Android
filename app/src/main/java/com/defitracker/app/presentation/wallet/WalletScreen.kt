@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.defitracker.app.R
+import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
 import com.defitracker.app.ui.theme.AppGold
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
@@ -294,7 +295,7 @@ fun WalletScreen(
                         Text("${allAssets.size} assets", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
                     Text(
-                        text = "$${String.format("%,.2f", totalWorth)}",
+                        text = "$${formatPriceForChart(totalWorth)}",
                         color = Color.White,
                         fontSize = 36.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -320,7 +321,7 @@ fun WalletScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Row {
                         Text(text = "Assets: ", color = AppGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Text(text = "$${String.format("%,.2f", totalWorth)}", color = AppGold, fontSize = 14.sp)
+                        Text(text = "$${formatPriceForChart(totalWorth)}", color = AppGold, fontSize = 14.sp)
                         Text(text = "  |  ", color = Color.Gray, fontSize = 14.sp)
                         Text(text = "DeFi: ", color = AppGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text(text = "$0", color = AppGold, fontSize = 14.sp)
@@ -427,7 +428,7 @@ fun ChainCard(chainName: String, assets: List<com.defitracker.app.data.remote.dt
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -482,7 +483,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
 
         // Price
         Text(
-            text = "$${if ((asset.price ?: 0.0) < 1.0) String.format("%.4f", asset.price) else String.format("%,.2f", asset.price)}",
+            text = "$${formatPriceForChart(asset.price ?: 0.0)}",
             color = Color.White,
             fontSize = 12.sp,
             style = GeistTnum,
@@ -492,7 +493,7 @@ fun AssetRow(asset: com.defitracker.app.data.remote.dto.CoinStatsBalanceDto) {
 
         // Total
         Text(
-            text = "$${String.format("%,.2f", total)}",
+            text = "$${formatPriceForChart(total)}",
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,

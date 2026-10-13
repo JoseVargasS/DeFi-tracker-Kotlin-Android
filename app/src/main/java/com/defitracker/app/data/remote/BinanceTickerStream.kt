@@ -12,6 +12,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import org.json.JSONObject
 
 // tick crudo de Binance spot (!miniTicker@arr): precio, open 24h y volumen quote
@@ -55,7 +56,7 @@ class BinanceTickerStream(
                         if (symbol.isEmpty()) continue
                         val close = t.optString("c").toDoubleOrNull() ?: continue
                         val open = t.optString("o").toDoubleOrNull() ?: continue
-                        out[symbol] = BinanceTick(close, open, t.optString("q").toDoubleOrNull() ?: 0.0)
+                        out[symbol] = BinanceTick(close, open, t.optString("q").toDoubleValue())
                     }
                     if (out.isNotEmpty()) onBatch(out)
                 } catch (_: Exception) {}

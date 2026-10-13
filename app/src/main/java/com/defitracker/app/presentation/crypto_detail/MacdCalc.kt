@@ -1,6 +1,6 @@
 package com.defitracker.app.presentation.crypto_detail
 
-// MACD(12, 26, 9) clasico: DIF = EMA12 - EMA26, DEA = EMA9(DIF), histograma = 2 * (DIF - DEA)
+// MACD(12, 26, 9) clasico fijo: DIF = EMA12 - EMA26, DEA = EMA9(DIF), histograma = 2 * (DIF - DEA)
 
 data class MacdData(
     val dif: List<Pair<Long, Double>> = emptyList(),
@@ -8,12 +8,10 @@ data class MacdData(
     val hist: List<Pair<Long, Double>> = emptyList()
 )
 
-fun calculateMacd(
-    candles: List<CandleData>,
-    fast: Int = 12,
-    slow: Int = 26,
-    signal: Int = 9
-): MacdData {
+fun calculateMacd(candles: List<CandleData>): MacdData {
+    val fast = 12
+    val slow = 26
+    val signal = 9
     if (candles.size < slow + signal - 1) return MacdData()
     val closes = candles.map { it.close }
     val fastEma = emaSeries(closes, fast)

@@ -49,6 +49,9 @@ import androidx.compose.ui.unit.sp
 import com.defitracker.app.R
 import com.defitracker.app.data.local.PriceAlertEntity
 import com.defitracker.app.presentation.components.SheetSectionTitle
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.ui.theme.Geist
 
 // campanita del chart: alerta puntual o rango, LONG/SHORT.
@@ -113,7 +116,7 @@ fun PriceAlertSheet(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF1A1D23), RoundedCornerShape(8.dp))
+                .background(CardBg, RoundedCornerShape(8.dp))
                 .clickable {
                     val current = if (soundUri.isBlank()) null else try {
                         Uri.parse(soundUri)
@@ -158,8 +161,8 @@ fun PriceAlertSheet(
                     modifier = Modifier
                         .weight(1f)
                         .background(
-                            if (on) (if (d == "LONG") Color(0xFF1ECB81) else Color(0xFFF6465D))
-                            else Color(0xFF1A1D23),
+                            if (on) (if (d == "LONG") AppGreen else AppRed)
+                            else CardBg,
                             RoundedCornerShape(8.dp)
                         )
                         .clickable { direction = d }
@@ -219,14 +222,14 @@ fun PriceAlertSheet(
             )
         }
         if (error.isNotBlank()) {
-            Text(error, color = Color(0xFFF6465D), fontSize = 12.sp)
+            Text(error, color = AppRed, fontSize = 12.sp)
         }
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = {
                 if (modeRange) {
-                    val lo = lowTxt.toDoubleOrNull() ?: 0.0
-                    val hi = highTxt.toDoubleOrNull() ?: 0.0
+                    val lo = lowTxt.toDoubleValue()
+                    val hi = highTxt.toDoubleValue()
                     if (lo <= 0 || hi <= lo) {
                         error = "Pon un rango válido (hasta mayor que desde)"
                         return@Button
@@ -236,7 +239,7 @@ fun PriceAlertSheet(
                     lowTxt = ""
                     highTxt = ""
                 } else {
-                    val t = priceTxt.toDoubleOrNull() ?: 0.0
+                    val t = priceTxt.toDoubleValue()
                     if (t <= 0) {
                         error = "Pon un precio válido"
                         return@Button
@@ -246,7 +249,7 @@ fun PriceAlertSheet(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = if (direction == "SHORT") Color(0xFFF6465D) else Color(0xFF1ECB81), contentColor = Color.Black)
+            colors = ButtonDefaults.buttonColors(containerColor = if (direction == "SHORT") AppRed else AppGreen, contentColor = Color.Black)
         ) {
             Text("Crear alerta $direction", fontWeight = FontWeight.Bold)
         }
@@ -263,22 +266,22 @@ fun PriceAlertSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF1A1D23), RoundedCornerShape(8.dp))
+                            .background(CardBg, RoundedCornerShape(8.dp))
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .background(
-                                    if (a.direction == "SHORT") Color(0xFFF6465D).copy(alpha = 0.2f)
-                                    else Color(0xFF1ECB81).copy(alpha = 0.2f),
-                                    RoundedCornerShape(4.dp)
+                                    if (a.direction == "SHORT") AppRed.copy(alpha = 0.2f)
+                                    else AppGreen.copy(alpha = 0.2f),
+                                    RoundedCornerShape(8.dp)
                                 )
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 a.direction,
-                                color = if (a.direction == "SHORT") Color(0xFFF6465D) else Color(0xFF1ECB81),
+                                color = if (a.direction == "SHORT") AppRed else AppGreen,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -301,9 +304,9 @@ fun PriceAlertSheet(
 private fun fieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = Color.White,
     unfocusedTextColor = Color.White,
-    cursorColor = Color(0xFF1ECB81),
-    focusedBorderColor = Color(0xFF1ECB81),
+    cursorColor = AppGreen,
+    focusedBorderColor = AppGreen,
     unfocusedBorderColor = Color.Gray,
-    focusedLabelColor = Color(0xFF1ECB81),
+    focusedLabelColor = AppGreen,
     unfocusedLabelColor = Color.Gray
 )

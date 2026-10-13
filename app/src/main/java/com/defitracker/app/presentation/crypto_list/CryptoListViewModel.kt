@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import com.defitracker.app.widget.CryptoWidget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -206,7 +207,7 @@ class CryptoListViewModel @Inject constructor(
                                 price = detail.price,
                                 priceChangePercent = detail.priceChangePercent,
                                 isPositive = detail.isPositive
-                            ) to (detail.quoteVolume.toDoubleOrNull() ?: 0.0)
+                            ) to (detail.quoteVolume.toDoubleValue())
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {

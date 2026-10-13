@@ -5,18 +5,16 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 // futuros perpetuos MEXC (contract.mexc.com, v1). Formato columnar, distinto a Binance.
+// solo se lee .data: el envelope success/code no se usa.
 data class MexcFuturesContractDto(
     val symbol: String = "",
     val baseCoin: String = "",
     val quoteCoin: String = "",
-    val settleCoin: String = "",
     val futureType: Int = 0,
     val state: Int = -1
 )
 
 data class MexcFuturesContractsResponse(
-    val success: Boolean = false,
-    val code: Int = -1,
     val data: List<MexcFuturesContractDto> = emptyList()
 )
 
@@ -32,14 +30,10 @@ data class MexcFuturesTickerDto(
 )
 
 data class MexcFuturesTickerResponse(
-    val success: Boolean = false,
-    val code: Int = -1,
     val data: MexcFuturesTickerDto = MexcFuturesTickerDto()
 )
 
 data class MexcFuturesTickersResponse(
-    val success: Boolean = false,
-    val code: Int = -1,
     val data: List<MexcFuturesTickerDto> = emptyList()
 )
 
@@ -53,8 +47,6 @@ data class MexcFuturesKlineData(
 )
 
 data class MexcFuturesKlineResponse(
-    val success: Boolean = false,
-    val code: Int = -1,
     val data: MexcFuturesKlineData = MexcFuturesKlineData()
 )
 

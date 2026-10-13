@@ -50,6 +50,9 @@ import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.alerts.AlertsBottomSheet
 import com.defitracker.app.presentation.alerts.AlertsViewModel
 import com.defitracker.app.presentation.crypto_detail.DetailSeed
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
+import com.defitracker.app.ui.theme.AppGold
+import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
@@ -146,8 +149,8 @@ fun CryptoListScreen(
             SortMode.MANUAL -> basePairs
             SortMode.VOL_DESC -> basePairs.sortedByDescending { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
             SortMode.VOL_ASC -> basePairs.sortedBy { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
-            SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleOrNull() ?: 0.0 }
-            SortMode.CHG_ASC -> basePairs.sortedBy { it.priceChangePercent.toDoubleOrNull() ?: 0.0 }
+            SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleValue() }
+            SortMode.CHG_ASC -> basePairs.sortedBy { it.priceChangePercent.toDoubleValue() }
         }
     }
     val sortLabel = when (sortMode) {
@@ -261,8 +264,8 @@ fun CryptoListScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                cursorColor = Color(0xFF1ECB81),
-                                focusedBorderColor = Color(0xFF1ECB81),
+                                cursorColor = AppGreen,
+                                focusedBorderColor = AppGreen,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                             ),
                             singleLine = true,
@@ -289,7 +292,7 @@ fun CryptoListScreen(
                                     ) {
                                         Text(state.symbolsError, color = Color.Gray, fontSize = 13.sp)
                                         TextButton(onClick = { viewModel.retryLoadSymbols() }) {
-                                            Text("Retry", color = Color(0xFF1ECB81), fontSize = 13.sp)
+                                            Text("Retry", color = AppGreen, fontSize = 13.sp)
                                         }
                                     }
                                 } else {
@@ -298,7 +301,7 @@ fun CryptoListScreen(
                                     if (!state.mexcAvailable) {
                                         Text(
                                             text = "MEXC no disponible ahorita — jala la lista para reintentar",
-                                            color = Color(0xFFFFD60A),
+                                            color = AppGold,
                                             fontSize = 12.sp,
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                                         )
@@ -347,7 +350,7 @@ fun CryptoListScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     if (visiblePairs.isEmpty() && !isSearchMode) {
@@ -502,8 +505,8 @@ fun CryptoListScreen(
                 refreshing = manualRefreshing,
                 state = pullRefreshState,
                 modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
-                backgroundColor = Color(0xFF1A1D23),
-                contentColor = Color(0xFF1ECB81)
+                backgroundColor = CardBg,
+                contentColor = AppGreen
             )
         }
     }

@@ -53,11 +53,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
+import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.ui.theme.Geist
 import com.defitracker.app.ui.theme.GeistTnum
+import com.defitracker.app.ui.theme.TextGray
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
@@ -324,7 +326,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
     val directionIcon = if (isSent) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward
     val amount = remember(tx.value, tx.tokenDecimal) { tx.value.toAmount(tx.tokenDecimal) }
     val timestamp = remember(tx.timeStamp) { tx.timeStamp.formatTimestamp() }
-    val tokenSymbol = tx.tokenSymbol ?: tx.symbol ?: "Token"
+    val tokenSymbol = tx.tokenSymbol ?: "Token"
     val counterparty = if (isSent) tx.to else tx.from
 
     Card(
@@ -340,7 +342,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(directionColor.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -355,7 +357,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             color = networkColor(tx.network ?: "").copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(50)
+                            shape = CircleShape
                         ) {
                             Text(
                                 text = tx.network ?: "Unknown",
@@ -396,7 +398,7 @@ private fun TransactionRow(tx: EtherscanTransactionDto, userAddress: String) {
 private fun TransactionMeta(label: String, value: String) {
     Column {
         Text(label, color = Color.Gray, fontSize = 10.sp)
-        Text(value, color = Color(0xFFADB1B8), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(value, color = TextGray, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -421,7 +423,7 @@ private fun SummaryChip(text: String) {
         label = { Text(text, fontSize = 11.sp) },
         colors = AssistChipDefaults.assistChipColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            labelColor = Color(0xFFADB1B8)
+            labelColor = TextGray
         ),
         border = null
     )
@@ -436,12 +438,9 @@ private fun String.toAmount(decimals: String?): BigDecimal {
 private fun BigDecimal.formatTokenAmount(): String {
     if (signum() == 0) return "0"
     val abs = abs()
-    return when {
-        abs < BigDecimal("0.000001") -> "<0.000001"
-        abs < BigDecimal.ONE -> setScale(8, RoundingMode.DOWN).stripTrailingZeros().toPlainString()
-        abs < BigDecimal("1000") -> setScale(6, RoundingMode.DOWN).stripTrailingZeros().toPlainString()
-        else -> setScale(4, RoundingMode.DOWN).stripTrailingZeros().toPlainString()
-    }
+    // polvo visible: igual que AGENTS pide precision adaptativa, no un 0.00 engañoso
+    if (abs < BigDecimal("0.000001")) return "<0.000001"
+    return formatPriceForChart(abs.toDouble())
 }
 
 private fun String.formatTimestamp(): String {
@@ -466,7 +465,7 @@ private fun networkColor(network: String): Color {
         "Polygon" -> Color(0xFF8247E5)
         "Arbitrum" -> Color(0xFF28A0F0)
         "Solana" -> Color(0xFF14F195)
-        else -> Color(0xFFADB1B8)
+        else -> TextGray
     }
 }
 

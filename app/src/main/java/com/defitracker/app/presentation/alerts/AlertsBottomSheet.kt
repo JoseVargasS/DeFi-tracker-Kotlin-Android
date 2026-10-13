@@ -52,6 +52,9 @@ import com.defitracker.app.alerts.DivMonitorPrefs
 import com.defitracker.app.data.local.DivAlertEntity
 import com.defitracker.app.presentation.components.PillGrid
 import com.defitracker.app.presentation.components.PillOption
+import com.defitracker.app.ui.theme.AppGold
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.ui.theme.SheetBg
 import java.text.SimpleDateFormat
@@ -102,7 +105,7 @@ fun AlertsBottomSheet(
                         onCheckedChange = { viewModel.toggleMonitoring(it) },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF1ECB81)
+                            checkedTrackColor = AppGreen
                         )
                     )
                     // tuerca = config en su propio sheet, ya no mezclada con las notis
@@ -152,7 +155,7 @@ fun AlertsBottomSheet(
                                 androidx.compose.material3.TextButton(onClick = {
                                     viewModel.clearAll()
                                     confirmClear = false
-                                }) { Text("Eliminar", color = Color(0xFFF6465D)) }
+                                }) { Text("Eliminar", color = AppRed) }
                             },
                             dismissButton = {
                                 androidx.compose.material3.TextButton(onClick = { confirmClear = false }) { Text("Cancelar", color = Color.White) }
@@ -253,7 +256,7 @@ private fun AlertConfigSheet(
                         onClick = { onToggleInterval(tf) },
                         label = { Text(tf, fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
+                            selectedContainerColor = AppGreen.copy(alpha = 0.25f),
                             selectedLabelColor = Color.White,
                             containerColor = CardBg,
                             labelColor = Color.Gray
@@ -272,7 +275,7 @@ private fun AlertConfigSheet(
                         onClick = { onToggleInterval(tf) },
                         label = { Text(tf, fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF1ECB81).copy(alpha = 0.25f),
+                            selectedContainerColor = AppGreen.copy(alpha = 0.25f),
                             selectedLabelColor = Color.White,
                             containerColor = CardBg,
                             labelColor = Color.Gray
@@ -321,9 +324,9 @@ private fun AlertRow(
     onClick: () -> Unit
 ) {
     val accent = when {
-        alert.status == "PRE" -> Color(0xFFFFD60A)
-        alert.bullish -> Color(0xFF1ECB81)
-        else -> Color(0xFFF6465D)
+        alert.status == "PRE" -> AppGold
+        alert.bullish -> AppGreen
+        else -> AppRed
     }
     Row(
         modifier = Modifier

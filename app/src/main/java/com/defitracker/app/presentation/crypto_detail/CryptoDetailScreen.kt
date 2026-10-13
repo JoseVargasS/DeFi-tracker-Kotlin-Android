@@ -79,6 +79,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.R
+import com.defitracker.app.ui.theme.AppGold
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.Black
+import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.ui.theme.Geist
 import com.defitracker.app.ui.theme.InputBg
 import com.defitracker.app.ui.theme.LineDiv
@@ -168,7 +173,7 @@ fun CryptoDetailScreen(
             // header delgado en 2 filas pa' darle aire al chart
             Column(
                 modifier = Modifier
-                    .background(Color(0xFF000000))
+                    .background(Black)
                     .statusBarsPadding()
             ) {
                 Row(
@@ -200,16 +205,16 @@ fun CryptoDetailScreen(
                     Box(
                         modifier = Modifier
                             .background(
-                                color = if (state.source == "MEXC") Color(0xFF1ECB81).copy(alpha = 0.2f)
+                                color = if (state.source == "MEXC") AppGreen.copy(alpha = 0.2f)
                                 else Color(0xFF2196F3).copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(4.dp)
+                                shape = RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = sourceLabel(state.source),
-                            color = if (state.source == "MEXC") Color(0xFF1ECB81) else Color(0xFF64B5F6),
+                            color = if (state.source == "MEXC") AppGreen else Color(0xFF64B5F6),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -233,7 +238,7 @@ fun CryptoDetailScreen(
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .background(Color(0xFF1ECB81), CircleShape)
+                                    .background(AppGreen, CircleShape)
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             ) {
                                 Text(
@@ -250,7 +255,7 @@ fun CryptoDetailScreen(
                 state.detail?.let { detail ->
                     val stickyExt = state.daySubDollar
                     val quoteAsset = tradingPair.quoteAsset.ifBlank { "USDT" }
-                    val vol = detail.quoteVolume.toDoubleOrNull() ?: 0.0
+                    val vol = detail.quoteVolume.toDoubleValue()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -258,8 +263,8 @@ fun CryptoDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = formatPriceForChart(detail.price.toDoubleOrNull() ?: 0.0, stickyExt),
-                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
+                            text = formatPriceForChart(detail.price.toDoubleValue(), stickyExt),
+                            color = if (detail.isPositive) AppGreen else AppRed,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = Geist
@@ -267,7 +272,7 @@ fun CryptoDetailScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "${if (detail.isPositive) "+" else ""}${detail.priceChangePercent}%",
-                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
+                            color = if (detail.isPositive) AppGreen else AppRed,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = Geist
@@ -275,8 +280,8 @@ fun CryptoDetailScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = buildString {
-                                append("H ${formatPriceForChart(detail.highPrice.toDoubleOrNull() ?: 0.0, stickyExt)}")
-                                append("  L ${formatPriceForChart(detail.lowPrice.toDoubleOrNull() ?: 0.0, stickyExt)}")
+                                append("H ${formatPriceForChart(detail.highPrice.toDoubleValue(), stickyExt)}")
+                                append("  L ${formatPriceForChart(detail.lowPrice.toDoubleValue(), stickyExt)}")
                                 if (vol > 0) append("  Vol ${formatCompactVol(vol)} $quoteAsset")
                             },
                             color = Color.Gray,
@@ -288,13 +293,13 @@ fun CryptoDetailScreen(
                 }
             }
         },
-        containerColor = Color(0xFF000000)
+        containerColor = Black
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFF000000))
+                .background(Black)
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Stacked Charts Area (subs compactos, el protagonista es el chart)
@@ -355,8 +360,8 @@ fun CryptoDetailScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(3.dp),
-                                color = Color(0xFF1ECB81),
-                                trackColor = Color(0xFF1A1D23)
+                                color = AppGreen,
+                                trackColor = CardBg
                             )
                         }
                         Box(modifier = Modifier.weight(priceW).heightIn(min = 240.dp)) {
@@ -549,7 +554,7 @@ fun CryptoDetailScreen(
                             Button(
                                 onClick = { viewModel.refreshAll() },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF1ECB81),
+                                    containerColor = AppGreen,
                                     contentColor = Color.Black
                                 )
                             ) { Text("Reintentar", fontWeight = FontWeight.Bold) }
@@ -626,7 +631,7 @@ fun CryptoDetailScreen(
                 ) {
                     PriceAlertSheet(
                         symbol = state.detail?.symbol ?: state.symbol,
-                        currentPrice = state.detail?.price?.toDoubleOrNull() ?: 0.0,
+                        currentPrice = (state.detail?.price).toDoubleValue(),
                         alerts = priceAlerts,
                         soundUri = priceSound,
                         onAdd = { dir, target, lo, hi -> viewModel.addPriceAlert(dir, target, lo, hi) },
@@ -4002,7 +4007,7 @@ fun PriceChart(
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp)
-                    .background(Color(0xB3000000), RoundedCornerShape(4.dp))
+                    .background(Color(0xB3000000), RoundedCornerShape(8.dp))
                     .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
             FlowRow(
@@ -4427,7 +4432,7 @@ fun PriceChart(
                         showDeleteAllDrawings.value = false
                         showDrawingSheet.value = false
                         priceChartRef.value?.invalidate()
-                    }) { Text("Eliminar", color = Color(0xFFF6465D)) }
+                    }) { Text("Eliminar", color = AppRed) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDeleteAllDrawings.value = false }) { Text("Cancelar", color = Color.White) }
@@ -4473,7 +4478,7 @@ fun PriceChart(
             Icon(
                 imageVector = Icons.Filled.Bolt,
                 contentDescription = "Pulso del momento",
-                tint = Color(0xFF1ECB81),
+                tint = AppGreen,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -5889,7 +5894,7 @@ class OKXChartMarker(
                 tvChange.setTextColor(changeColor)
                 tvChangePct.text = (if (isUp) "+" else "") + String.format(Locale.US, "%.2f", changePct) + "%"
                 tvChangePct.setTextColor(changeColor)
-                tvVolume.text = formatVolDouble(candle.volume)
+                tvVolume.text = formatCompactVol(candle.volume)
             } else if (index >= state.candles.size && state.candles.isNotEmpty()) {
                 // zona virtual: hora proyectada, sin OHLC
                 val t = fibIndexToTime(state.candles, index, state.selectedInterval)
@@ -5919,12 +5924,6 @@ class OKXChartMarker(
         }
 
         return com.github.mikephil.charting.utils.MPPointF(xOffset, -height.toFloat() / 2f)
-    }
-
-    private fun formatVolDouble(v: Double): String = when {
-        v >= 1_000_000 -> String.format(Locale.US, "%.2fM", v / 1_000_000)
-        v >= 1_000 -> String.format(Locale.US, "%.2fK", v / 1_000)
-        else -> String.format(Locale.US, "%.2f", v)
     }
 }
 
@@ -6074,7 +6073,7 @@ fun MaListSheet(
             )
             Text(
                 text = "+ Agregar",
-                color = if (mas.size < IndicatorPrefs.MAX_MAS) Color(0xFF1ECB81) else Color.Gray,
+                color = if (mas.size < IndicatorPrefs.MAX_MAS) AppGreen else Color.Gray,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable {
@@ -6103,11 +6102,11 @@ fun MaListSheet(
                             .size(26.dp)
                             .border(
                                 1.5.dp,
-                                if (ma.visible) Color(0xFF1ECB81) else Color.Gray,
+                                if (ma.visible) AppGreen else Color.Gray,
                                 CircleShape
                             )
                             .background(
-                                if (ma.visible) Color(0xFF1ECB81).copy(alpha = 0.2f) else Color.Transparent,
+                                if (ma.visible) AppGreen.copy(alpha = 0.2f) else Color.Transparent,
                                 CircleShape
                             )
                             .clickable { onToggle(ma.id) },
@@ -6304,7 +6303,7 @@ fun MaListSheet(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 16.sp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF1ECB81),
+                                focusedBorderColor = AppGreen,
                                 unfocusedBorderColor = LineDiv,
                                 cursorColor = Color.White
                             )
@@ -6316,7 +6315,7 @@ fun MaListSheet(
                                 if (p in 2..500) onPeriod(ma.id, p)
                             }
                             periodDialogId = null
-                        }) { Text("Listo", color = Color(0xFF1ECB81)) }
+                        }) { Text("Listo", color = AppGreen) }
                     },
                     dismissButton = {
                         TextButton(onClick = { periodDialogId = null }) { Text("Cancelar", color = Color.White) }
@@ -6460,7 +6459,7 @@ fun WideColorPicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(20.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(
                     Brush.horizontalGradient(
                         listOf(0f, 60f, 120f, 180f, 240f, 300f, 360f).map { h ->
@@ -6520,7 +6519,7 @@ fun AnalysisSheet(
             Icon(
                 imageVector = Icons.Filled.Bolt,
                 contentDescription = null,
-                tint = Color(0xFF1ECB81),
+                tint = AppGreen,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -6533,7 +6532,7 @@ fun AnalysisSheet(
             )
             Text(
                 text = "Actualizar",
-                color = Color(0xFF1ECB81),
+                color = AppGreen,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable { onRefresh() }
@@ -6544,8 +6543,8 @@ fun AnalysisSheet(
             Text("Calculando con las velas en pantalla…", color = Color.Gray, fontSize = 13.sp)
         } else {
             val biasColor = when (analysis.bias) {
-                PulseBias.BULLISH -> Color(0xFF1ECB81)
-                PulseBias.BEARISH -> Color(0xFFF6465D)
+                PulseBias.BULLISH -> AppGreen
+                PulseBias.BEARISH -> AppRed
                 PulseBias.NEUTRAL -> Color.Gray
             }
             val biasText = when (analysis.bias) {
@@ -6571,7 +6570,7 @@ fun AnalysisSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "contratendencia",
-                        color = Color(0xFFFFD60A),
+                        color = AppGold,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -6592,14 +6591,14 @@ fun AnalysisSheet(
                                 .border(
                                     1.5.dp,
                                     if (item.hit) {
-                                        if (item.bullish == false) Color(0xFFF6465D) else Color(0xFF1ECB81)
+                                        if (item.bullish == false) AppRed else AppGreen
                                     } else Color.Gray,
                                     CircleShape
                                 )
                                 .background(
                                     if (item.hit) {
-                                        if (item.bullish == false) Color(0xFFF6465D).copy(alpha = 0.2f)
-                                        else Color(0xFF1ECB81).copy(alpha = 0.2f)
+                                        if (item.bullish == false) AppRed.copy(alpha = 0.2f)
+                                        else AppGreen.copy(alpha = 0.2f)
                                     } else Color.Transparent,
                                     CircleShape
                                 ),
@@ -6636,13 +6635,13 @@ fun AnalysisSheet(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
                     text = "Soporte ${analysis.support?.let { fmtPulsePrice(it) } ?: "--"}",
-                    color = Color(0xFF1ECB81),
+                    color = AppGreen,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "Resistencia ${analysis.resistance?.let { fmtPulsePrice(it) } ?: "--"}",
-                    color = Color(0xFFF6465D),
+                    color = AppRed,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -6780,7 +6779,7 @@ private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
                 .width(36.dp)
                 .height(3.dp)
                 .background(
-                    if (active) Color(0xFF1ECB81) else Color(0xFF3A3F47),
+                    if (active) AppGreen else Color(0xFF3A3F47),
                     RoundedCornerShape(1.dp)
                 )
         )
@@ -6798,12 +6797,12 @@ private fun DrawingToolCell(
     Box(
         modifier = modifier
             .background(
-                if (selected) Color(0xFF1ECB81).copy(alpha = 0.25f) else InputBg,
+                if (selected) AppGreen.copy(alpha = 0.25f) else InputBg,
                 RoundedCornerShape(8.dp)
             )
             .border(
                 if (selected) 1.dp else 0.dp,
-                if (selected) Color(0xFF1ECB81) else Color.Transparent,
+                if (selected) AppGreen else Color.Transparent,
                 RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
@@ -6855,8 +6854,8 @@ fun OverlayEditBar(
     Row(
         modifier = modifier
             .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
-            .background(Color(0xEE141518), RoundedCornerShape(10.dp))
-            .clip(RoundedCornerShape(10.dp)),
+            .background(Color(0xEE141518), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // pestaña de arrastre: toque contrae/expande, mover arrastra
@@ -6958,7 +6957,7 @@ fun OverlayEditBar(
                     Icon(
                         imageVector = Icons.Filled.FormatColorFill,
                         contentDescription = "Relleno",
-                        tint = if (fillOn) Color(0xFF1ECB81) else Color.Gray,
+                        tint = if (fillOn) AppGreen else Color.Gray,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -7061,8 +7060,8 @@ private fun PositionBar(
     Row(
         modifier = modifier
             .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
-            .background(Color(0xEE141518), RoundedCornerShape(10.dp))
-            .clip(RoundedCornerShape(10.dp)),
+            .background(Color(0xEE141518), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // pestaña de arrastre: toque contrae/expande, mover arrastra
@@ -7106,7 +7105,7 @@ private fun PositionBar(
                     modifier = Modifier.background(InputBg)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Ganancia", color = Color(0xFF1ECB81), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Ganancia", color = AppGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         val profitPos = remember(profitAlpha) { mutableStateOf(profitAlpha) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Slider(
@@ -7119,7 +7118,7 @@ private fun PositionBar(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("${(profitPos.value * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
                         }
-                        Text("Pérdida", color = Color(0xFFF6465D), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Pérdida", color = AppRed, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         val lossPos = remember(lossAlpha) { mutableStateOf(lossAlpha) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Slider(
@@ -7183,7 +7182,7 @@ private fun PositionConfigSheet(
     ) {
         Text(
             if (pos.long) "Posición LONG" else "Posición SHORT",
-            color = if (pos.long) Color(0xFF1ECB81) else Color(0xFFF6465D),
+            color = if (pos.long) AppGreen else AppRed,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold
         )
@@ -7205,7 +7204,7 @@ private fun PositionConfigSheet(
                     modifier = Modifier
                         .weight(1f)
                         .background(
-                            if (on) Color(0xFF1ECB81) else InputBg,
+                            if (on) AppGreen else InputBg,
                             RoundedCornerShape(6.dp)
                         )
                         .clickable { onLeverage(lev) }
@@ -7232,7 +7231,7 @@ private fun PositionConfigSheet(
             fontSize = 12.sp
         )
         if (error.isNotBlank()) {
-            Text(error, color = Color(0xFFF6465D), fontSize = 12.sp)
+            Text(error, color = AppRed, fontSize = 12.sp)
         }
         Spacer(modifier = Modifier.height(8.dp))
         Button(
@@ -7240,7 +7239,7 @@ private fun PositionConfigSheet(
                 val e = parsePriceInput(entryTxt) ?: 0.0
                 val s = parsePriceInput(slTxt) ?: 0.0
                 val t = parsePriceInput(tpTxt) ?: 0.0
-                val q = qtyTxt.toDoubleOrNull() ?: 0.0
+                val q = qtyTxt.toDoubleValue()
                 if (e <= 0 || s <= 0 || t <= 0 || q <= 0) {
                     error = "Revisa los valores (todos mayores a 0)"
                     return@Button
@@ -7250,7 +7249,7 @@ private fun PositionConfigSheet(
             },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (pos.long) Color(0xFF1ECB81) else Color(0xFFF6465D),
+                containerColor = if (pos.long) AppGreen else AppRed,
                 contentColor = Color.Black
             )
         ) {
@@ -7277,10 +7276,10 @@ private fun PosNumberField(
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = Color.White,
             unfocusedTextColor = Color.White,
-            cursorColor = Color(0xFF1ECB81),
-            focusedBorderColor = Color(0xFF1ECB81),
+            cursorColor = AppGreen,
+            focusedBorderColor = AppGreen,
             unfocusedBorderColor = Color.Gray,
-            focusedLabelColor = Color(0xFF1ECB81),
+            focusedLabelColor = AppGreen,
             unfocusedLabelColor = Color.Gray
         )
     )

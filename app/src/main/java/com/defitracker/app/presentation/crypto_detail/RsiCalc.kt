@@ -86,7 +86,8 @@ private fun Any?.toLongValue(): Long = when (this) {
     else -> toString().toLongOrNull() ?: toString().toDoubleOrNull()?.toLong() ?: 0L
 }
 
-private fun Any?.toDoubleValue(): Double = when (this) {
+// parseo tolerante compartido: String/Number/crudo del websocket o del DTO
+fun Any?.toDoubleValue(): Double = when (this) {
     is Number -> toDouble()
     is String -> toDoubleOrNull() ?: 0.0
     else -> toString().toDoubleOrNull() ?: 0.0

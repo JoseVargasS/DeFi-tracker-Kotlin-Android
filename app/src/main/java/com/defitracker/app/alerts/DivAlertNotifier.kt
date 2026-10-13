@@ -14,8 +14,12 @@ import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.compose.ui.graphics.toArgb
 import com.defitracker.app.MainActivity
 import com.defitracker.app.R
+import com.defitracker.app.ui.theme.AppGold
+import com.defitracker.app.ui.theme.AppGreen
+import com.defitracker.app.ui.theme.AppRed
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -190,9 +194,9 @@ class DivAlertNotifier @Inject constructor(
         post(
             alertIdHash, bullish,
             when {
-                pre -> 0xFFFFD60A.toInt()
-                bullish -> 0xFF1ECB81.toInt()
-                else -> 0xFFF6465D.toInt()
+                pre -> AppGold.toArgb()
+                bullish -> AppGreen.toArgb()
+                else -> AppRed.toArgb()
             },
             message, text, text
         ) {
@@ -222,7 +226,7 @@ class DivAlertNotifier @Inject constructor(
         ensurePriceChannel(soundUri)
         post(
             alertIdHash, bullish,
-            if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt(),
+            if (bullish) AppGreen.toArgb() else AppRed.toArgb(),
             title, text, text,
             channel = priceChannelIdFor(soundUri),
             soundUri = soundUri
@@ -243,7 +247,7 @@ class DivAlertNotifier @Inject constructor(
     ) {
         post(
             alertIdHash, bullish,
-            if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt(),
+            if (bullish) AppGreen.toArgb() else AppRed.toArgb(),
             title, text, "$text · Se abre el análisis al entrar"
         ) {
             putExtra(MainActivity.EXTRA_ALERT_SYMBOL, symbol)

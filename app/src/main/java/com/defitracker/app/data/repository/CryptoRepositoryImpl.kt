@@ -24,6 +24,7 @@ import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import com.defitracker.app.domain.model.TakerVolume
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -222,14 +223,14 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // cola liviana sin cache pa' syncTail, 1 sola llamada, sin paginado
+    // cola liviana sin cache pa' syncTail, 1 sola llamada de 10, sin paginado
     suspend fun getLatestKlines(
         symbol: String,
         interval: String,
         source: String,
-        sinceTimeMs: Long = 0L,
-        limit: Int = 10
+        sinceTimeMs: Long = 0L
     ): List<List<Any>> {
+        val limit = 10
         return try {
             when (source) {
                 "MEXC" -> getMexcFuturesKlines(
@@ -273,8 +274,8 @@ class CryptoRepositoryImpl @Inject constructor(
                 if (row.timestamp <= 0L) return@mapNotNull null
                 TakerVolume(
                     timeMs = row.timestamp,
-                    buy = row.buyVol?.toDoubleOrNull() ?: 0.0,
-                    sell = row.sellVol?.toDoubleOrNull() ?: 0.0
+                    buy = row.buyVol.toDoubleValue(),
+                    sell = row.sellVol.toDoubleValue()
                 )
             }
         } catch (e: CancellationException) {
@@ -568,10 +569,6 @@ class CryptoRepositoryImpl @Inject constructor(
             timeStamp = timestamp,
             tokenSymbol = symbol.trim(),
             tokenDecimal = "0",
-            tokenName = firstItem?.coin?.name ?: symbol.trim(),
-            input = null,
-            symbol = null,
-            decimals = null,
             network = networkName
         )
     }
@@ -592,8 +589,8 @@ class CryptoRepositoryImpl @Inject constructor(
         }
         val last = rows.last()
         val prev = rows[rows.size - 2]
-        val close = last[4].toString().toDoubleOrNull() ?: 0.0
-        val prevClose = prev[4].toString().toDoubleOrNull() ?: 0.0
+        val close = last[4].toString().toDoubleValue()
+        val prevClose = prev[4].toString().toDoubleValue()
         val change = close - prevClose
         val pct = if (prevClose == 0.0) 0.0 else change / prevClose * 100.0
         return PairDetail(
@@ -601,8 +598,8 @@ class CryptoRepositoryImpl @Inject constructor(
             price = formatPrice(close),
             priceChange = formatPrice(change),
             priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
-            highPrice = formatPrice(last[2].toString().toDoubleOrNull() ?: 0.0),
-            lowPrice = formatPrice(last[3].toString().toDoubleOrNull() ?: 0.0),
+            highPrice = formatPrice(last[2].toString().toDoubleValue()),
+            lowPrice = formatPrice(last[3].toString().toDoubleValue()),
             volume = last[5].toString(),
             quoteVolume = "0.00",
             isPositive = pct >= 0
@@ -612,7 +609,7 @@ class CryptoRepositoryImpl @Inject constructor(
     private suspend fun getBinancePairDetail(symbol: String): PairDetail {
         return try {
             val stats = binanceApi.get24hStats(symbol)
-            val priceDouble = stats.lastPrice?.toDoubleOrNull() ?: 0.0
+            val priceDouble = stats.lastPrice.toDoubleValue()
             PairDetail(
                 symbol = symbol,
                 price = formatPrice(priceDouble),
@@ -622,11 +619,11 @@ class CryptoRepositoryImpl @Inject constructor(
                 lowPrice = stats.lowPrice,
                 volume = stats.volume,
                 quoteVolume = stats.quoteVolume,
-                isPositive = (stats.priceChangePercent.toDoubleOrNull() ?: 0.0) >= 0
+                isPositive = (stats.priceChangePercent.toDoubleValue()) >= 0
             )
         } catch (exception: Exception) {
             logNonFatal("24h stats request failed for $symbol, falling back to ticker price", exception)
-            val fallbackPrice = binanceApi.getPrice(symbol).price.toDoubleOrNull() ?: 0.0
+            val fallbackPrice = binanceApi.getPrice(symbol).price.toDoubleValue()
             PairDetail(
                 symbol = symbol,
                 price = formatPrice(fallbackPrice),
@@ -773,7 +770,7 @@ class CryptoRepositoryImpl @Inject constructor(
     private fun List<Any>.toDoubleAt(index: Int): Double {
         return when (val v = getOrNull(index)) {
             is Number -> v.toDouble()
-            is String -> v.toDoubleOrNull() ?: 0.0
+            is String -> v.toDoubleValue()
             else -> 0.0
         }
     }

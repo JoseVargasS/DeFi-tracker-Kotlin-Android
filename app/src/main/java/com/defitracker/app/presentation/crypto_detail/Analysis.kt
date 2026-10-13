@@ -33,7 +33,8 @@ data class SrZone(
     val isSupport: Boolean
 )
 
-private fun pulseAtr(candles: List<CandleData>, period: Int = 14): Double {
+private fun pulseAtr(candles: List<CandleData>): Double {
+    val period = 14
     if (candles.size < 2) return 0.0
     var sum = 0.0
     var n = 0
@@ -48,7 +49,9 @@ private fun pulseAtr(candles: List<CandleData>, period: Int = 14): Double {
 }
 
 // zonas horizontales por cluster de swings con tolerancia ATR, minimo 3 toques
-fun detectSrZones(candles: List<CandleData>, lookback: Int = 150, minTouches: Int = 3): List<SrZone> {
+fun detectSrZones(candles: List<CandleData>): List<SrZone> {
+    val lookback = 150
+    val minTouches = 3
     if (candles.size < 30) return emptyList()
     val sample = candles.takeLast(lookback.coerceAtMost(candles.size))
     val atr = pulseAtr(candles)

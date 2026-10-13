@@ -24,6 +24,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 
 private val WidgetDarkGray = fixedColorProvider(Color(0xFF16171A))
 private val WidgetWhite = fixedColorProvider(Color(0xFFFFFFFF))
@@ -119,8 +120,9 @@ class CryptoWidget : GlanceAppWidget() {
                         )
                         Spacer(modifier = GlanceModifier.defaultWeight())
                         Column(horizontalAlignment = Alignment.End) {
+                            // mismo formato adaptativo que lista/detalle, no el crudo del repo
                             Text(
-                                text = "${pair.price} ${pair.quoteAsset}",
+                                text = "${com.defitracker.app.presentation.crypto_detail.formatPriceForChart(pair.price.toDoubleValue())} ${pair.quoteAsset}",
                                 style = TextStyle(color = WidgetWhite, fontSize = 14.sp)
                             )
                             val priceChangeColor = if (pair.isPositive) WidgetGreen else WidgetRed

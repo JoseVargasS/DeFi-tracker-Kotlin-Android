@@ -20,6 +20,7 @@ import com.defitracker.app.presentation.crypto_detail.detectRsiDivergences
 import com.defitracker.app.presentation.crypto_detail.detectSweepReclaim
 import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
 import com.defitracker.app.presentation.crypto_detail.toCandleList
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -168,7 +169,7 @@ class DivScanService : Service() {
             if (now - a.lastNotifiedAt < PRICE_RENOTIFY_MS) continue
             try {
                 val detail = repository.getPairDetail(a.symbol, a.source)
-                val price = detail.price.toDoubleOrNull() ?: 0.0
+                val price = detail.price.toDoubleValue()
                 if (price <= 0.0) continue
                 // hiteo exacto, sin banda de tolerancia: en SUI 0.01 ya es bastante.
                 // LONG = el precio bajo hasta tu objetivo, SHORT = subio hasta el

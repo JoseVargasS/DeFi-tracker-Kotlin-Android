@@ -38,6 +38,7 @@ import coil.request.ImageRequest
 import com.defitracker.app.R
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
+import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.Geist
@@ -59,7 +60,7 @@ fun CryptoPairItem(
     )
     // misma precision de costumbre que el chart, ceros de la banda conservados
     val priceText = remember(pair.price, extended) {
-        formatPriceForChart(pair.price.toDoubleOrNull() ?: 0.0, extended)
+        formatPriceForChart(pair.price.toDoubleValue(), extended)
     }
 
     Surface(

@@ -8,9 +8,5 @@ data class EtherscanTransactionDto(
     val timeStamp: String,
     val tokenSymbol: String?,
     val tokenDecimal: String?,
-    val tokenName: String?,
-    val input: String?,
-    val symbol: String?,
-    val decimals: String?,
     val network: String? = null
 )

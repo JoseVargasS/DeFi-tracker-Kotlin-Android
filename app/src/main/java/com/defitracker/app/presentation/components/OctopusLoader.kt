@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.defitracker.app.R
+import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.Geist
 
 // loader propio de Octopus: logo latiendo + anillo girando, sin videos ni librerias
@@ -54,7 +55,7 @@ fun OctopusLoader(
         Box(contentAlignment = Alignment.Center) {
             Canvas(modifier = Modifier.size(84.dp)) {
                 drawArc(
-                    color = Color(0xFF1ECB81),
+                    color = AppGreen,
                     startAngle = sweep,
                     sweepAngle = 270f,
                     useCenter = false,

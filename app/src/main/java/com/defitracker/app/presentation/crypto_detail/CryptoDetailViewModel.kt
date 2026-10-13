@@ -177,7 +177,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         val startInterval = initialInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
         _state.value = state.value.copy(selectedInterval = startInterval)
         // semilla de la lista: el header ya muestra precio/%/vol antes del primer fetch
-        if (seed.price.toDoubleOrNull() ?: 0.0 > 0.0) {
+        if (seed.price.toDoubleValue() > 0.0) {
             _state.value = state.value.copy(
                 detail = PairDetail(
                     symbol = symbol,
@@ -823,7 +823,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                     } else {
                         repository.getPairDetail(symbol, source).also { lastTvDetailAt = nowLoop }
                     }
-                    val currentPrice = detail.price.toDoubleOrNull() ?: 0.0
+                    val currentPrice = detail.price.toDoubleValue()
 
                     // al cerrar la vela se mergea la cola fresca, nunca full reload
                     val candlesNow = _state.value.candles
@@ -1153,7 +1153,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
 
         val stochK = mutableListOf<Pair<Long, Double>>()
         val stochD = mutableListOf<Pair<Long, Double>>()
-        val rsiValues = calculateRSI(this)
+        val rsiValues = calculateRsi(this)
 
         // SMA/EMA por MA: TF del grafico se calcula local, otro TF se alinea del cache (plan A)
         val maLines = computeMaLines(interval, mas, extras)
@@ -1173,8 +1173,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                 }
             }
 
-            val smoothK = calculateSMA(stochRSI)
-            val smoothD = calculateSMA(smoothK)
+            val smoothK = rsiMaOf(stochRSI, 3)
+            val smoothD = rsiMaOf(smoothK, 3)
 
             for (i in smoothK.indices) {
                 val candleIndex = i + (size - smoothK.size)
@@ -1304,13 +1304,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         }
         return (confirmed + fresh).sortedBy { it.idx2 }
     }
-
-    // calculo compartido con el worker de alertas (RsiCalc.kt)
-    private fun calculateRSI(candles: List<CandleData>): List<Double> =
-        calculateRsi(candles, STOCH_RSI_PERIOD)
-
-    // suavizado 3 del stoch: identico a rsiMaOf con periodo 3
-    private fun calculateSMA(values: List<Double>): List<Double> = rsiMaOf(values, 3)
 
     private fun String.toBinanceInterval(): String {
         return when (this) {

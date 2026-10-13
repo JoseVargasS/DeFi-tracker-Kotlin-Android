@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.defitracker.app.ui.theme.CardBg
+import com.defitracker.app.ui.theme.TextGray
 
 // pill estilo OKX: activo = borde blanco, inactivo = gris oscuro, tap directo sin switch
 
@@ -47,12 +48,12 @@ fun PillGrid(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(if (opt.selected) Color.Transparent else CardBg)
                             .border(
                                 0.5.dp,
                                 if (opt.selected) Color.White else Color.Transparent,
-                                RoundedCornerShape(14.dp)
+                                RoundedCornerShape(8.dp)
                             )
                             .clickable(onClick = opt.onToggle)
                             .padding(vertical = 12.dp, horizontal = 4.dp),
@@ -60,7 +61,7 @@ fun PillGrid(
                     ) {
                         Text(
                             text = opt.title,
-                            color = if (opt.selected) Color.White else Color(0xFF9AA0A8),
+                            color = if (opt.selected) Color.White else TextGray,
                             fontSize = 13.sp,
                             fontWeight = if (opt.selected) FontWeight.Bold else FontWeight.Medium,
                             maxLines = 1,
