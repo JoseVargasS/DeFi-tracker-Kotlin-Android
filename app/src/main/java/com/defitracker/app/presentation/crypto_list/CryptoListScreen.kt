@@ -49,6 +49,7 @@ import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.alerts.AlertsBottomSheet
 import com.defitracker.app.presentation.alerts.AlertsViewModel
+import com.defitracker.app.presentation.crypto_detail.DetailSeed
 import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
@@ -62,7 +63,7 @@ import kotlinx.coroutines.launch
 )
 @Composable
 fun CryptoListScreen(
-    onNavigateToDetail: (String, String, String) -> Unit,
+    onNavigateToDetail: (String, String, String, DetailSeed?) -> Unit,
     viewModel: CryptoListViewModel = hiltViewModel(),
     alertsViewModel: AlertsViewModel = hiltViewModel()
 ) {
@@ -466,7 +467,16 @@ fun CryptoListScreen(
                                         pair = pair,
                                         sparkline = sparklines[key] ?: emptyList(),
                                         extended = viewModel.dayExt.value[key] ?: false,
-                                        onClick = { onNavigateToDetail(pair.symbol, pair.source, "") },
+                                        onClick = {
+                                            // semilla numerica (sin comas): el header del chart pinta al instante
+                                            val seed = DetailSeed(
+                                                price = pair.price.filter { it.isDigit() || it == '.' },
+                                                pct = pair.priceChangePercent.filter { it.isDigit() || it == '.' || it == '-' },
+                                                pos = pair.isPositive,
+                                                vol = (volumes[key] ?: 0.0).toString()
+                                            )
+                                            onNavigateToDetail(pair.symbol, pair.source, "", seed)
+                                        },
                                         onDelete = { viewModel.onRemovePair(pair.symbol) }
                                     )
                                 }
@@ -483,7 +493,7 @@ fun CryptoListScreen(
                     onDismiss = { showAlerts = false },
                     onOpenAlert = { symbol, source, interval ->
                         showAlerts = false
-                        onNavigateToDetail(symbol, source, interval)
+                        onNavigateToDetail(symbol, source, interval, null)
                     }
                 )
             }

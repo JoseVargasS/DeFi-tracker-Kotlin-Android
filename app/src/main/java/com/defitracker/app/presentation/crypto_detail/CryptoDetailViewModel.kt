@@ -26,9 +26,17 @@ import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
+// semilla de la lista (precio/%/vol ya en mano): pinta el header al instante,
+// el detalle fresco la reemplaza al llegar. H/L arranca en el precio.
+data class DetailSeed(
+    val price: String = "",
+    val pct: String = "",
+    val pos: Boolean = true,
+    val vol: String = ""
+)
+
 @HiltViewModel
-class CryptoDetailViewModel @Inject constructor(
-    private val repository: CryptoRepositoryImpl,
+class CryptoDetailViewModel @Inject constructor(    private val repository: CryptoRepositoryImpl,
     private val prefsRepo: IndicatorPrefsRepository,
     private val priceAlertDao: com.defitracker.app.data.local.PriceAlertDao,
     private val monitorPrefs: com.defitracker.app.alerts.DivMonitorPrefs,
@@ -70,6 +78,13 @@ class CryptoDetailViewModel @Inject constructor(
     private val initialInterval: String = savedStateHandle.get<String>("interval")?.trim().orEmpty()
     // deep-link desde noti de señal: abre el sheet de analisis al entrar
     val openAnalysisInitially: Boolean = savedStateHandle.get<String>("analysis") == "1"
+    // semilla de la lista: header con precio al instante, sin esperar la red
+    private val seed = DetailSeed(
+        price = savedStateHandle.get<String>("price").orEmpty(),
+        pct = savedStateHandle.get<String>("pct").orEmpty(),
+        pos = savedStateHandle.get<String>("pos") != "0",
+        vol = savedStateHandle.get<String>("vol").orEmpty()
+    )
 
     // pulso del momento para el boton fantasma
     private val _analysis = mutableStateOf<PulseAnalysis?>(null)
@@ -77,16 +92,25 @@ class CryptoDetailViewModel @Inject constructor(
     private var lastAnalysisAt = 0L
     private var tfClosesCache = mapOf<String, List<Double>>()
     private var tfClosesAt = 0L
+    // el pulso solo trabaja con el sheet abierto: abrir el chart ya no lo dispara
+    private var analysisOpen = false
+    private var analysisJob: Job? = null
+
+    fun setAnalysisOpen(open: Boolean) {
+        analysisOpen = open
+    }
 
     fun refreshAnalysis(force: Boolean = false) {
         val current = _state.value
         if (current.candles.size < 60) return
+        if (!force && !analysisOpen) return
         val now = System.currentTimeMillis()
         if (!force && now - lastAnalysisAt < ANALYSIS_THROTTLE_MS) return
         lastAnalysisAt = now
         val interval = current.selectedInterval
         val candles = current.candles
-        viewModelScope.launch {
+        analysisJob?.cancel()
+        analysisJob = viewModelScope.launch {
             try {
                 val byTf = fetchPulseTfs(interval, force)
                 val result = withContext(Dispatchers.Default) {
@@ -152,8 +176,25 @@ class CryptoDetailViewModel @Inject constructor(
         // si viene de una alerta, abre directo en ese TF
         val startInterval = initialInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
         _state.value = state.value.copy(selectedInterval = startInterval)
+        // semilla de la lista: el header ya muestra precio/%/vol antes del primer fetch
+        if (seed.price.toDoubleOrNull() ?: 0.0 > 0.0) {
+            _state.value = state.value.copy(
+                detail = PairDetail(
+                    symbol = symbol,
+                    price = seed.price,
+                    priceChange = "0.00",
+                    priceChangePercent = seed.pct.ifBlank { "0.00" },
+                    highPrice = seed.price,
+                    lowPrice = seed.price,
+                    volume = "0.00",
+                    quoteVolume = seed.vol.ifBlank { "0.00" },
+                    isPositive = seed.pos
+                )
+            )
+        }
         loadDetail()
         startUpdates()
+        analysisOpen = openAnalysisInitially
         viewModelScope.launch {
             try {
                 _prefs.value = prefsRepo.prefsFlow.first()
@@ -248,7 +289,11 @@ class CryptoDetailViewModel @Inject constructor(
             _state.value = _state.value.copy(takerBuy = buy, takerSell = sell)
         }
     }
-    fun toggleRsiDiv() = updatePrefs { it.copy(rsiDivVisible = !it.rsiDivVisible) }
+    fun toggleRsiDiv() {
+        updatePrefs { it.copy(rsiDivVisible = !it.rsiDivVisible) }
+        // las divs apagadas no se calculan: al prenderlas se recalculan al toque
+        recomputeIndicatorsFromCache()
+    }
     fun toggleRsiDivHidden() = updatePrefs { it.copy(rsiDivHidden = !it.rsiDivHidden) }
     fun toggleMA(period: Int) = updatePrefs { cur ->
         cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(visible = !ma.visible) else ma })
@@ -363,8 +408,7 @@ class CryptoDetailViewModel @Inject constructor(
     }
 
     // re-alinea MAs con el cache actual, sin red y sin mover viewport
-    private fun recomputeMaLinesFromCache() {
-        val current = _state.value
+    private fun recomputeMaLinesFromCache() {        val current = _state.value
         if (current.candles.isEmpty()) return
         val mas = _prefs.value.mas
         val extras = extraTfCandles.toMap()
@@ -375,6 +419,26 @@ class CryptoDetailViewModel @Inject constructor(
                 }
                 if (_state.value.candles.size == current.candles.size) {
                     _state.value = _state.value.copy(maLines = aligned)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    // recalcula SMC/divs con las velas en mano al prender el toggle, sin red ni reload
+    private fun recomputeIndicatorsFromCache() {
+        val current = _state.value
+        if (current.candles.isEmpty() || current.isLoading) return
+        viewModelScope.launch {
+            try {
+                val interval = current.selectedInterval
+                val comp = withContext(Dispatchers.Default) {
+                    val c = current.candles.toChartComputation(interval, _prefs.value.mas, extraTfCandles.toMap())
+                    overlaySmcConfluence(c.smc)?.let { c.copy(smc = it) } ?: c
+                }
+                if (_state.value.selectedInterval == interval && _state.value.candles.size == current.candles.size) {
+                    _state.value = _state.value.withComputation(comp)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -692,12 +756,31 @@ class CryptoDetailViewModel @Inject constructor(
     }
 
     // ─── SMC ───
-    fun toggleSmcStructure() = updatePrefs { it.copy(smcStructure = !it.smcStructure) }
-    fun toggleSmcOrderBlocks() = updatePrefs { it.copy(smcOrderBlocks = !it.smcOrderBlocks) }
-    fun toggleSmcFvg() = updatePrefs { it.copy(smcFvg = !it.smcFvg) }
-    fun toggleSmcPremium() = updatePrefs { it.copy(smcPremium = !it.smcPremium) }
-    fun toggleSmcEqhl() = updatePrefs { it.copy(smcEqhl = !it.smcEqhl) }
-    fun toggleSmcLiquidity() = updatePrefs { it.copy(smcLiquidity = !it.smcLiquidity) }
+    // el SMC apagado no se calcula: al prenderlo se recalcula al toque con el cache
+    fun toggleSmcStructure() {
+        updatePrefs { it.copy(smcStructure = !it.smcStructure) }
+        recomputeIndicatorsFromCache()
+    }
+    fun toggleSmcOrderBlocks() {
+        updatePrefs { it.copy(smcOrderBlocks = !it.smcOrderBlocks) }
+        recomputeIndicatorsFromCache()
+    }
+    fun toggleSmcFvg() {
+        updatePrefs { it.copy(smcFvg = !it.smcFvg) }
+        recomputeIndicatorsFromCache()
+    }
+    fun toggleSmcPremium() {
+        updatePrefs { it.copy(smcPremium = !it.smcPremium) }
+        recomputeIndicatorsFromCache()
+    }
+    fun toggleSmcEqhl() {
+        updatePrefs { it.copy(smcEqhl = !it.smcEqhl) }
+        recomputeIndicatorsFromCache()
+    }
+    fun toggleSmcLiquidity() {
+        updatePrefs { it.copy(smcLiquidity = !it.smcLiquidity) }
+        recomputeIndicatorsFromCache()
+    }
 
     // jalar-para-actualizar: detalle + chart fresco sin pelear con el loop automatico
     fun refreshAll() {
@@ -835,6 +918,8 @@ class CryptoDetailViewModel @Inject constructor(
         val gen = chartGen
 
         chartJob?.cancel()
+        // el analisis viejo no sigue quemando red al cambiar de TF
+        analysisJob?.cancel()
         chartJob = viewModelScope.launch {
             // si entro otro TF mientras se pintaba, este ya no pisa nada
             _state.value = state.value.copy(selectedInterval = normalizedInterval, isLoading = true, error = "", takerBuy = emptyList(), takerSell = emptyList())
@@ -850,8 +935,8 @@ class CryptoDetailViewModel @Inject constructor(
                         // MEXC mapea+agrega en repo, Binance usa su formato
                         intervalForSource(normalizedInterval),
                         source,
-                        // carga completa siempre fresca, si no el cambio de TF muestra velas viejas
-                        forceRefresh = true
+                        // force (init/pull) siempre fresco; cambio de TF reusa cache de 30s
+                        forceRefresh = force
                     )
                 }
                 val extrasDeferred = neededTfs.map { tf ->
@@ -890,6 +975,8 @@ class CryptoDetailViewModel @Inject constructor(
                 }
                 val rawKlines = rawKlinesDeferred.await()
                 if (gen != chartGen) return@launch
+                // purga: los TFs viejos no se acumulan al pasear por intervalos
+                extraTfCandles.keys.retainAll(neededTfs)
                 extrasDeferred.awaitAll().forEach { (tf, candles) ->
                     if (candles.isNotEmpty()) extraTfCandles[tf] = candles
                 }
@@ -917,12 +1004,18 @@ class CryptoDetailViewModel @Inject constructor(
                 }
                 _state.value = state.value.withComputation(chartData).copy(
                     smc = smcReal ?: chartData.smc,
-                    daySubDollar = daySubDollarDeferred.await(),
                     isLoading = false
                 )
                 // extras ya traidos en paralelo arriba; solo refresca analisis
                 if (gen != chartGen) return@launch
                 refreshAnalysis()
+                // el flag de precision no bloquea el pintado: llega cuando llegue
+                try {
+                    val subDollar = daySubDollarDeferred.await()
+                    if (gen == chartGen) _state.value = _state.value.copy(daySubDollar = subDollar)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
                 syncTaker(500)
             } catch (e: CancellationException) {
                 throw e
@@ -1016,9 +1109,17 @@ class CryptoDetailViewModel @Inject constructor(
     private fun List<CandleData>.toChartComputation(
         interval: String = "",
         mas: List<MaConfig> = _prefs.value.mas,
-        extras: Map<String, List<CandleData>> = emptyMap()
+        extras: Map<String, List<CandleData>> = emptyMap(),
+        prefs: IndicatorPrefs = _prefs.value
     ): ChartComputation {
         if (isEmpty()) return ChartComputation()
+
+        // lo apagado no se calcula: el tick cada 2s y el cambio de TF lo agradecen.
+        // BB/RSI/Stoch/MACD son pasadas baratas y se dejan siempre (el toggle sigue instantaneo);
+        // lo caro (SMC, divergencias, MAs ocultas) sí se condiciona.
+        val wantDiv = prefs.rsiDivVisible
+        val wantSmc = prefs.smcStructure || prefs.smcOrderBlocks || prefs.smcFvg ||
+            prefs.smcPremium || prefs.smcEqhl || prefs.smcLiquidity
 
         val period = 20
         val multiplier = 2.0
@@ -1105,12 +1206,12 @@ class CryptoDetailViewModel @Inject constructor(
             macdDea = macd.dea,
             macdHist = macd.hist,
             // SMC derivado de las velas, se recalcula solo al cambiar TF
-            smc = computeSmc(this, interval),
+            smc = if (wantSmc) computeSmc(this, interval) else SmcData(),
             // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
-            rsiDiv = mergeConfirmedAndEarly(
+            rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
                 detectRsiDivergences(this, rsiValues),
                 detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK)
-            )
+            ) else emptyList()
         )
     }
 
@@ -1127,12 +1228,12 @@ class CryptoDetailViewModel @Inject constructor(
         val seen = mutableSetOf<Triple<MaType, Int, String>>()
         val ordered = mas.sortedBy { if (it.timeframe == "chart") 0 else 1 }
         for (ma in ordered) {
+            // apagada = ni se calcula
+            if (!ma.visible) continue
             val effectiveTf = if (ma.timeframe == "chart" || ma.timeframe == interval) interval else ma.timeframe
-            if (ma.visible) {
-                val key = Triple(ma.type, ma.period, effectiveTf)
-                if (key in seen) continue
-                seen.add(key)
-            }
+            val key = Triple(ma.type, ma.period, effectiveTf)
+            if (key in seen) continue
+            seen.add(key)
             val tf = ma.timeframe
             if (tf != "chart" && tf != interval) {
                 val extra = extras[tf] ?: continue

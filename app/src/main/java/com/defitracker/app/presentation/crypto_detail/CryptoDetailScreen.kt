@@ -883,7 +883,10 @@ fun PriceChart(
     // pulso: analisis del momento en bottom sheet
     val showAnalysis = remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (viewModel.openAnalysisInitially) showAnalysis.value = true
+        if (viewModel.openAnalysisInitially) {
+            viewModel.setAnalysisOpen(true)
+            showAnalysis.value = true
+        }
     }
     val rangeSelection = remember { mutableStateOf<MeasureZone?>(null) }
     val fibPendingStart = remember { mutableStateOf<FibAnchor?>(null) }
@@ -4460,6 +4463,7 @@ fun PriceChart(
                 .background(Color(0x66000000), CircleShape)
                 .border(1.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
                 .clickable {
+                    viewModel.setAnalysisOpen(true)
                     viewModel.refreshAnalysis(force = true)
                     showAnalysis.value = true
                 }
@@ -4477,7 +4481,10 @@ fun PriceChart(
         // sheet de analisis del momento
         if (showAnalysis.value) {
             ModalBottomSheet(
-                onDismissRequest = { showAnalysis.value = false },
+                onDismissRequest = {
+                    viewModel.setAnalysisOpen(false)
+                    showAnalysis.value = false
+                },
                 containerColor = SheetBg
             ) {
                 AnalysisSheet(

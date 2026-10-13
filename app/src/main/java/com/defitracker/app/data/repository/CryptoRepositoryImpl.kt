@@ -827,7 +827,9 @@ class CryptoRepositoryImpl @Inject constructor(
 
     private fun chartPageCountForInterval(interval: String): Int {
         return when (interval) {
-            "1m", "5m", "15m" -> 3
+            // 2 paginas (2000 velas) sobran pa' la MA200 y el arranque en 100;
+            // la tercera solo alargaba la apertura
+            "1m", "5m", "15m" -> 2
             "30m", "1h" -> 2
             else -> 1
         }

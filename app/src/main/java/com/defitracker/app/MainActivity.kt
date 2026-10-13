@@ -27,6 +27,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.defitracker.app.presentation.crypto_detail.CryptoDetailScreen
+import com.defitracker.app.presentation.crypto_detail.DetailSeed
 import com.defitracker.app.presentation.crypto_list.CryptoListScreen
 import androidx.compose.ui.res.painterResource
 import com.defitracker.app.presentation.wallet.WalletScreen
@@ -217,12 +218,16 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
     ) {
         composable(Screen.Pairs.route) {
             CryptoListScreen(
-                onNavigateToDetail = { symbol, source, interval ->
-                    val route = if (interval.isNotEmpty()) {
-                        "crypto_detail/$symbol/$source?interval=$interval"
-                    } else {
-                        "crypto_detail/$symbol/$source"
+                onNavigateToDetail = { symbol, source, interval, seed ->
+                    // semilla: la lista ya trae precio/%/vol, el header pinta al instante
+                    val params = buildList {
+                        if (interval.isNotEmpty()) add("interval=$interval")
+                        if (seed != null && (seed.price.toDoubleOrNull() ?: 0.0) > 0.0) {
+                            add("price=${seed.price}&pct=${seed.pct}&pos=${if (seed.pos) "1" else "0"}&vol=${seed.vol}")
+                        }
                     }
+                    val route = if (params.isEmpty()) "crypto_detail/$symbol/$source"
+                    else "crypto_detail/$symbol/$source?" + params.joinToString("&")
                     navController.navigate(route)
                 }
             )
@@ -234,7 +239,7 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
             TransactionsScreen()
         }
         composable(
-            route = "crypto_detail/{symbol}/{source}?interval={interval}&analysis={analysis}",
+            route = "crypto_detail/{symbol}/{source}?interval={interval}&analysis={analysis}&price={price}&pct={pct}&pos={pos}&vol={vol}",
             // solo fade al entrar al grafico: el slide compite con el revelado interno
             enterTransition = { fadeIn(animationSpec = tween(180)) },
             exitTransition = { fadeOut(animationSpec = tween(140)) },
@@ -256,6 +261,26 @@ fun Navigation(navController: androidx.navigation.NavHostController) {
                 navArgument("analysis") {
                     type = NavType.StringType
                     defaultValue = "0"
+                    nullable = true
+                },
+                navArgument("price") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                    nullable = true
+                },
+                navArgument("pct") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                    nullable = true
+                },
+                navArgument("pos") {
+                    type = NavType.StringType
+                    defaultValue = "1"
+                    nullable = true
+                },
+                navArgument("vol") {
+                    type = NavType.StringType
+                    defaultValue = ""
                     nullable = true
                 }
             )
