@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -75,6 +78,8 @@ fun PriceAlertSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         SheetSectionTitle("Alertas de precio · $symbol")
@@ -139,6 +144,12 @@ fun PriceAlertSheet(
             )
             Text(soundName, color = Color.Gray, fontSize = 12.sp)
         }
+        Text(
+            "Se abre el selector del sistema: elige Sonidos para ver los tonos.",
+            color = Color.Gray,
+            fontSize = 11.sp,
+            fontFamily = Geist
+        )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("LONG", "SHORT").forEach { d ->
@@ -235,7 +246,7 @@ fun PriceAlertSheet(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1ECB81), contentColor = Color.Black)
+            colors = ButtonDefaults.buttonColors(containerColor = if (direction == "SHORT") Color(0xFFF6465D) else Color(0xFF1ECB81), contentColor = Color.Black)
         ) {
             Text("Crear alerta $direction", fontWeight = FontWeight.Bold)
         }
@@ -248,7 +259,7 @@ fun PriceAlertSheet(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 items(alerts, key = { it.id }) { a ->
-                    val label = if (a.low > 0 && a.high > 0) "${a.low} – ${a.high}" else "${a.targetPrice}"
+                    val label = if (a.low > 0 && a.high > 0) "${formatPriceForChart(a.low)} – ${formatPriceForChart(a.high)}" else formatPriceForChart(a.targetPrice)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

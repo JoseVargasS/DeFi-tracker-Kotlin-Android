@@ -17,12 +17,19 @@ data class DrawOverlay(
     val colorHex: String = "#FFD60A",
     val width: Float = 1f,
     val hidden: Boolean = false,
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    // relleno de figuras (RECT/CIRCLE/TRIANGLE) con su transparencia, estilo TV
+    val fill: Boolean = true,
+    val fillAlpha: Float = 0.2f
 )
 
 const val MAX_DRAWS_PER_SYMBOL = 20
 
-// encoding manual sin librerias: id;kind;sTime;sPrice;eTime;ePrice;color;width;hidden;locked
+// figuras que admiten relleno
+fun DrawKind.supportsFill(): Boolean = this == DrawKind.RECT || this == DrawKind.CIRCLE || this == DrawKind.TRIANGLE
+
+// encoding manual sin librerias: id;kind;sTime;sPrice;eTime;ePrice;color;width;hidden;locked;fill;fillAlpha
+// los viejos de 10 campos se leen con defaults (sin relleno)
 fun encodeDrawOverlays(overlays: List<DrawOverlay>): String = overlays.joinToString("|") { o ->
     listOf(
         o.id,
@@ -34,7 +41,9 @@ fun encodeDrawOverlays(overlays: List<DrawOverlay>): String = overlays.joinToStr
         o.colorHex,
         o.width.toString(),
         bool01(o.hidden),
-        bool01(o.locked)
+        bool01(o.locked),
+        bool01(o.fill),
+        o.fillAlpha.toString()
     ).joinToString(";")
 }
 
@@ -60,7 +69,10 @@ fun decodeDrawOverlays(raw: String?): List<DrawOverlay> {
             colorHex = p[6].ifBlank { "#FFD60A" },
             width = p.reqWidth(7),
             hidden = p.flag(8),
-            locked = p.flag(9)
+            locked = p.flag(9),
+            // viejos sin esos campos: sin relleno, igual que hoy
+            fill = if (p.size >= 11) p.flag(10) else false,
+            fillAlpha = if (p.size >= 12) p[11].toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.2f else 0.2f
         )
     }.take(MAX_DRAWS_PER_SYMBOL)
 }

@@ -19,6 +19,7 @@ import com.defitracker.app.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 // canal + push con flecha verde/roja segun direccion, tap abre la grafica en ese TF
 @Singleton
@@ -44,36 +45,59 @@ class DivAlertNotifier @Inject constructor(
         )
     }
 
+    // Cada tono vive en su propio canal: en algunas capas (MIUI/HyperOS) borrar y
+    // recrear el mismo ID restaura el sonido viejo, con ID fresco el tono si pega.
+    fun priceChannelIdFor(soundUri: String): String {
+        if (soundUri.isBlank()) return CHANNEL_PRICE
+        val h = resolveSound(soundUri).toString().hashCode()
+        val tag = if (h == Int.MIN_VALUE) "min" else abs(h).toString()
+        return "${CHANNEL_PRICE}_$tag"
+    }
+
     // canal propio de alertas de precio con el tono elegido.
-    // El sonido se fija al crear el canal: si cambio, se borra y recrea.
+    // El sonido se fija al crear el canal: cada tono tiene su ID, no se pelea con el viejo.
     fun ensurePriceChannel(soundUri: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         val sound = resolveSound(soundUri)
-        if (nm.getNotificationChannel(CHANNEL_PRICE)?.sound == sound) return
-        nm.deleteNotificationChannel(CHANNEL_PRICE)
-        nm.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_PRICE, "Alertas de precio",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Avisos LONG/SHORT cuando el precio toca tu zona"
-                setSound(
-                    sound,
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .build()
-                )
+        val id = priceChannelIdFor(soundUri)
+        if (nm.getNotificationChannel(id) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    id, "Alertas de precio",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Avisos LONG/SHORT cuando el precio toca tu zona"
+                    setSound(
+                        sound,
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                }
+            )
+        }
+        // canales de tonos viejos pa' fuera, que no estorben en ajustes
+        try {
+            nm.notificationChannels.forEach { ch ->
+                val cid = ch.id.orEmpty()
+                if (cid.startsWith(CHANNEL_PRICE) && cid != id) {
+                    nm.deleteNotificationChannel(cid)
+                }
             }
-        )
+        } catch (_: Exception) {}
     }
 
     private fun resolveSound(soundUri: String): Uri {
         if (soundUri.isBlank()) return Settings.System.DEFAULT_NOTIFICATION_URI
         return try {
-            Uri.parse(soundUri).takeIf {
-                it != Uri.EMPTY && (it.scheme == "content" || it.scheme == "android.resource")
-            } ?: Settings.System.DEFAULT_NOTIFICATION_URI
+            val parsed = Uri.parse(soundUri.trim())
+            if (parsed == Uri.EMPTY || parsed.scheme.isNullOrBlank()) {
+                Settings.System.DEFAULT_NOTIFICATION_URI
+            } else {
+                parsed
+            }
         } catch (_: Exception) {
             Settings.System.DEFAULT_NOTIFICATION_URI
         }
@@ -108,6 +132,7 @@ class DivAlertNotifier @Inject constructor(
         content: String,
         big: String,
         channel: String = CHANNEL_ALERTS,
+        soundUri: String = "",
         putExtras: Intent.() -> Unit
     ) {
         if (ActivityCompat.checkSelfPermission(
@@ -125,6 +150,12 @@ class DivAlertNotifier @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val noti = NotificationCompat.Builder(context, channel)
+            // pre-O no hay canales: el tono va en la noti misma
+            .apply {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O && soundUri.isNotBlank()) {
+                    setSound(resolveSound(soundUri))
+                }
+            }
             // flecha arriba/abajo, color verde/rojo segun direccion
             .setSmallIcon(
                 if (bullish) R.drawable.ic_arrow_up_bold
@@ -184,7 +215,7 @@ class DivAlertNotifier @Inject constructor(
     ) {
         val displaySymbol = symbol.replace("_", "")
         val dir = direction.uppercase().takeIf { it == "SHORT" } ?: "LONG"
-        val priceTxt = if (touchedPrice > 0) touchedPrice.toString() else "tu zona"
+        val priceTxt = if (touchedPrice > 0) com.defitracker.app.presentation.crypto_detail.formatPriceForChart(touchedPrice) else "tu zona"
         val title = "$displaySymbol llegó a tu zona de $dir!"
         val text = "Objetivo $targetTxt · tocó $priceTxt · Toca para ver la gráfica"
         val bullish = dir == "LONG"
@@ -193,7 +224,8 @@ class DivAlertNotifier @Inject constructor(
             alertIdHash, bullish,
             if (bullish) 0xFF1ECB81.toInt() else 0xFFF6465D.toInt(),
             title, text, text,
-            channel = CHANNEL_PRICE
+            channel = priceChannelIdFor(soundUri),
+            soundUri = soundUri
         ) {
             putExtra(MainActivity.EXTRA_ALERT_SYMBOL, symbol)
             putExtra(MainActivity.EXTRA_ALERT_SOURCE, source)

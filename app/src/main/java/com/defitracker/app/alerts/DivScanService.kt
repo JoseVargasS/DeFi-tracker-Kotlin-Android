@@ -18,6 +18,7 @@ import com.defitracker.app.presentation.crypto_detail.detectFvgTap
 import com.defitracker.app.presentation.crypto_detail.detectMaWickRejection
 import com.defitracker.app.presentation.crypto_detail.detectRsiDivergences
 import com.defitracker.app.presentation.crypto_detail.detectSweepReclaim
+import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
 import com.defitracker.app.presentation.crypto_detail.toCandleList
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
@@ -49,6 +50,12 @@ class DivScanService : Service() {
     override fun onCreate() {
         super.onCreate()
         notifier.ensureChannels()
+        // el canal de precio ya queda con tu tono antes del primer hiteo
+        scope.launch {
+            try {
+                notifier.ensurePriceChannel(monitorPrefs.current().priceSoundUri)
+            } catch (_: Exception) {}
+        }
         startForeground(DivAlertNotifier.SERVICE_NOTI_ID, notifier.serviceNotification())
         scope.launch { scanLoop() }
     }
@@ -173,9 +180,9 @@ class DivScanService : Service() {
                 } else false
                 if (hit) {
                     val targetTxt = if (a.low > 0 && a.high > 0 && a.high > a.low) {
-                        "${a.low}–${a.high}"
+                        "${formatPriceForChart(a.low)}–${formatPriceForChart(a.high)}"
                     } else {
-                        a.targetPrice.toString()
+                        formatPriceForChart(a.targetPrice)
                     }
                     notifier.notifyPriceAlert(a.symbol, a.source, a.direction, price, targetTxt, a.id.hashCode(), soundUri)
                     try { priceAlertDao.markNotified(a.id, now) } catch (_: Exception) {}

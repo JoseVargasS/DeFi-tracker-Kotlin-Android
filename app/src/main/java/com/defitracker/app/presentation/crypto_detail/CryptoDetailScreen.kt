@@ -30,8 +30,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Check
@@ -42,10 +40,10 @@ import androidx.compose.material.icons.filled.HorizontalRule
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
@@ -66,6 +64,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -1015,6 +1014,11 @@ fun PriceChart(
                     color = GraphicsColor.argb(220, 26, 29, 35)
                     style = Paint.Style.FILL
                 }
+                // relleno de figuras con su transparencia, estilo TV
+                private val drawFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.parseColor("#FFD60A")
+                    style = Paint.Style.FILL
+                }
                 // conector punteado + tag de MAs de otro TF (1h.SMA20)
                 val maTagDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.WHITE
@@ -1307,23 +1311,24 @@ fun PriceChart(
                     refreshTouchMatrix(matrix)
                 }
 
-                private fun touchToCandleIndex(x: Float, y: Float, size: Int): Int? {
+                private fun touchToCandleIndex(x: Float, y: Float, size: Int, maxExtra: Int = 0): Int? {
                     val contentLeft = viewPortHandler.contentLeft()
                     val contentRight = viewPortHandler.contentRight()
                     val contentTop = viewPortHandler.contentTop()
                     val contentBottom = viewPortHandler.contentBottom()
                     if (x < contentLeft || x > contentRight || y < contentTop || y > contentBottom) return null
                     val values = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y)
-                    return values.x.roundToInt().coerceIn(0, size - 1)
+                    // Medir usa velas virtuales a la derecha como el fibo, el resto queda igual
+                    return values.x.roundToInt().coerceIn(0, size - 1 + maxExtra)
                 }
 
                 private fun measureAnchor(x: Float, y: Float): Pair<Int, Double>? {
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return null
-                    val index = touchToCandleIndex(x, y, candles.size) ?: return null
+                    val index = touchToCandleIndex(x, y, candles.size, FIB_VIRTUAL_EXTEND) ?: return null
                     var price = getTransformer(YAxis.AxisDependency.LEFT).getValuesByTouchPoint(x, y).y.toDouble()
-                    // iman pega Medir al high/low/close mas cercano
-                    if (magnetRef.value) {
+                    // iman pega Medir al high/low/close mas cercano, en zona virtual no hay vela
+                    if (magnetRef.value && index < candles.size) {
                         val trans = getTransformer(YAxis.AxisDependency.LEFT)
                         val c = candles[index]
                         var best = price
@@ -1675,8 +1680,8 @@ fun PriceChart(
                 private fun drawPriceRangeSelection(canvas: Canvas, candles: List<CandleData>) {
                     val selection = rangeSelection.value ?: return
                     if (candles.isEmpty()) return
-                    val sIdx = selection.startIdx.coerceIn(0, candles.size - 1)
-                    val eIdx = selection.endIdx?.coerceIn(0, candles.size - 1)
+                    val sIdx = selection.startIdx.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                    val eIdx = selection.endIdx?.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
                     val contentLeft = viewPortHandler.contentLeft()
                     val contentRight = viewPortHandler.contentRight()
@@ -1782,8 +1787,8 @@ fun PriceChart(
                     val candles = stateRef.value.candles
                     if (candles.isEmpty()) return 0
                     val trans = getTransformer(YAxis.AxisDependency.LEFT)
-                    val lIdx = min(sel.startIdx, sel.endIdx!!).coerceIn(0, candles.size - 1)
-                    val rIdx = max(sel.startIdx, sel.endIdx).coerceIn(0, candles.size - 1)
+                    val lIdx = min(sel.startIdx, sel.endIdx!!).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                    val rIdx = max(sel.startIdx, sel.endIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                     val firstPrice = if (sel.startIdx <= sel.endIdx) sel.startPrice else sel.endPrice!!
                     val lastPrice = if (sel.startIdx <= sel.endIdx) sel.endPrice!! else sel.startPrice
                     val pts = floatArrayOf(lIdx.toFloat(), firstPrice.toFloat(), rIdx.toFloat(), lastPrice.toFloat())
@@ -2126,10 +2131,20 @@ fun PriceChart(
                         }
                         DrawKind.RECT -> {
                             yTagRect.set(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
+                            if (o.fill) {
+                                drawFillPaint.color = lineColor
+                                drawFillPaint.alpha = (o.fillAlpha.coerceIn(0f, 1f) * 255).toInt()
+                                canvas.drawRect(yTagRect, drawFillPaint)
+                            }
                             canvas.drawRect(yTagRect, drawLinePaint)
                         }
                         DrawKind.CIRCLE -> {
                             yTagRect.set(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
+                            if (o.fill) {
+                                drawFillPaint.color = lineColor
+                                drawFillPaint.alpha = (o.fillAlpha.coerceIn(0f, 1f) * 255).toInt()
+                                canvas.drawOval(yTagRect, drawFillPaint)
+                            }
                             canvas.drawOval(yTagRect, drawLinePaint)
                         }
                         DrawKind.TRIANGLE -> {
@@ -2139,6 +2154,11 @@ fun PriceChart(
                             drawTriPath.lineTo(s.x, e.y)
                             drawTriPath.lineTo(e.x, e.y)
                             drawTriPath.close()
+                            if (o.fill) {
+                                drawFillPaint.color = lineColor
+                                drawFillPaint.alpha = (o.fillAlpha.coerceIn(0f, 1f) * 255).toInt()
+                                canvas.drawPath(drawTriPath, drawFillPaint)
+                            }
                             canvas.drawPath(drawTriPath, drawLinePaint)
                         }
                         DrawKind.PRICE_LINE -> {
@@ -2765,7 +2785,7 @@ fun PriceChart(
                                     measureDragZone = hit
                                     measureOrig = rangeSelection.value
                                     val candles = stateRef.value.candles
-                                    measureGrabIdx = touchToCandleIndex(event.x, event.y, candles.size) ?: 0
+                                    measureGrabIdx = touchToCandleIndex(event.x, event.y, candles.size, FIB_VIRTUAL_EXTEND) ?: 0
                                     measureGrabPrice = getTransformer(YAxis.AxisDependency.LEFT)
                                         .getValuesByTouchPoint(event.x, event.y).y.toDouble()
                                 }
@@ -2785,8 +2805,8 @@ fun PriceChart(
                                                 val candles = stateRef.value.candles
                                                 val dIdx = anchor.first - measureGrabIdx
                                                 val dPrice = anchor.second - measureGrabPrice
-                                                val s1 = (orig.startIdx + dIdx).coerceIn(0, candles.size - 1)
-                                                val e1 = (orig.endIdx!! + dIdx).coerceIn(0, candles.size - 1)
+                                                val s1 = (orig.startIdx + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                                val e1 = (orig.endIdx!! + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
                                                 orig.copy(
                                                     startIdx = s1,
                                                     startPrice = orig.startPrice + dPrice,
@@ -3579,6 +3599,64 @@ fun PriceChart(
                 }
             }
             }
+            // atajos Medir/Fibo estilo TV justo encima de la fila de botones
+            Column(horizontalAlignment = Alignment.End) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val measureActive = drawingTool.value == DrawingTool.MEASURE
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = if (measureActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable {
+                        drawingTool.value = if (drawingTool.value == DrawingTool.MEASURE) DrawingTool.NONE else DrawingTool.MEASURE
+                        rangeSelection.value = null
+                        fibPendingStart.value = null
+                        pendingStartRef.value = null
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
+                        priceChartRef.value?.apply {
+                            highlightValue(null)
+                            syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
+                            invalidate()
+                        }
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_measure),
+                    contentDescription = "Medir",
+                    tint = if (measureActive) Color.Black else Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            val fiboActive = drawingTool.value == DrawingTool.FIBO
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = if (fiboActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable {
+                        drawingTool.value = DrawingTool.FIBO
+                        fibPendingStart.value = null
+                        pendingStartRef.value = null
+                        priceChartRef.value?.invalidate()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_fib),
+                    contentDescription = "Fibonacci",
+                    tint = if (fiboActive) Color.Black else Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            }
+            Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // ojo: oculta lineas/medias/dibujos sobre el precio, velas y volumen intactos
             Box(
@@ -3608,11 +3686,11 @@ fun PriceChart(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "Indicadores",
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+                Icon(
+                    painter = painterResource(R.drawable.ic_indicators_tv),
+                    contentDescription = "Indicadores",
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
                 )
             }
             // un solo boton Dibujo (pincel), adentro se elige Medir o Fibo
@@ -3628,11 +3706,12 @@ fun PriceChart(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Brush,
+                    painter = painterResource(R.drawable.ic_draw_tv),
                     contentDescription = "Dibujo",
                     tint = if (dibujoActive) Color.Black else Color.White,
                     modifier = Modifier.size(14.dp)
                 )
+            }
             }
             }
         }
@@ -3694,6 +3773,17 @@ fun PriceChart(
                     priceChartRef.value?.invalidate()
                 },
                 onLevels = {},
+                showFill = selectedDraw.kind.supportsFill(),
+                fillOn = selectedDraw.fill,
+                fillAlpha = selectedDraw.fillAlpha,
+                onToggleFill = {
+                    viewModel.setDrawFill(selectedDraw.id, !selectedDraw.fill)
+                    priceChartRef.value?.invalidate()
+                },
+                onFillAlpha = {
+                    viewModel.setDrawFillAlpha(selectedDraw.id, it)
+                    priceChartRef.value?.invalidate()
+                },
                 onToggleHide = {
                     viewModel.toggleDrawHidden(selectedDraw.id)
                     priceChartRef.value?.invalidate()
@@ -3725,28 +3815,6 @@ fun PriceChart(
                     fibCount = fibOverlays.size + drawOverlays.size,
                     // ocultar/eliminar funcionan con seleccion o con todos
                     hasFib = fibOverlays.isNotEmpty() || drawOverlays.isNotEmpty(),
-                    onPickMeasure = {
-                        drawingTool.value = if (drawingTool.value == DrawingTool.MEASURE) DrawingTool.NONE else DrawingTool.MEASURE
-                        rangeSelection.value = null
-                        fibPendingStart.value = null
-                        pendingStartRef.value = null
-                        drawPendingStart.value = null
-                        pendingDrawStartRef.value = null
-                        priceChartRef.value?.apply {
-                            highlightValue(null)
-                            syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
-                            invalidate()
-                        }
-                        showDrawingSheet.value = false
-                    },
-                    onPickFibo = {
-                        // entrar a Fibo siempre arma uno nuevo, aunque ya existan
-                        drawingTool.value = DrawingTool.FIBO
-                        fibPendingStart.value = null
-                        pendingStartRef.value = null
-                        showDrawingSheet.value = false
-                        priceChartRef.value?.invalidate()
-                    },
                     onPickDraw = { kind ->
                         drawingTool.value = DrawingTool.DRAW
                         drawKindRef.value = kind
@@ -6064,8 +6132,6 @@ fun DrawingToolsSheet(
     magnetOn: Boolean,
     hasFib: Boolean,
     fibCount: Int = 0,
-    onPickMeasure: () -> Unit,
-    onPickFibo: () -> Unit,
     onPickDraw: (DrawKind) -> Unit,
     onToggleMagnet: () -> Unit,
     onHideSelected: () -> Unit,
@@ -6085,26 +6151,6 @@ fun DrawingToolsSheet(
             DrawingTopAction("Eliminar", hasFib, onDeleteSelected)
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Medir y niveles", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DrawingToolCell(
-                Icons.Filled.Straighten,
-                if (active == DrawingTool.MEASURE) "Medir ON" else "Medir",
-                active == DrawingTool.MEASURE,
-                Modifier.weight(1f),
-                onClick = onPickMeasure
-            )
-            DrawingToolCell(
-                Icons.Filled.BarChart,
-                "Retroceso de Fib",
-                active == DrawingTool.FIBO,
-                Modifier.weight(1f),
-                onClick = onPickFibo
-            )
-            DrawingToolCell(Icons.Filled.DragHandle, "Línea de precio", active == DrawingTool.DRAW && drawKind == DrawKind.PRICE_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.PRICE_LINE) }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
         Text("Líneas de tendencia", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(6.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -6120,6 +6166,7 @@ fun DrawingToolsSheet(
             DrawingToolCell(Icons.Filled.HorizontalRule, "Segmento H", active == DrawingTool.DRAW && drawKind == DrawKind.H_SEGMENT, Modifier.weight(1f)) { onPickDraw(DrawKind.H_SEGMENT) }
             DrawingToolCell(Icons.Filled.Remove, "Línea H", active == DrawingTool.DRAW && drawKind == DrawKind.H_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.H_LINE) }
             DrawingToolCell(Icons.Filled.ArrowForward, "Recta H", active == DrawingTool.DRAW && drawKind == DrawKind.H_RAY, Modifier.weight(1f)) { onPickDraw(DrawKind.H_RAY) }
+            DrawingToolCell(Icons.Filled.DragHandle, "Precio", active == DrawingTool.DRAW && drawKind == DrawKind.PRICE_LINE, Modifier.weight(1f)) { onPickDraw(DrawKind.PRICE_LINE) }
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text("Figuras geométricas", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -6240,10 +6287,17 @@ fun OverlayEditBar(
     onLevels: () -> Unit,
     onToggleHide: () -> Unit,
     onToggleLock: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    // relleno de figuras con transparencia, estilo TV (solo dibujos que lo admiten)
+    showFill: Boolean = false,
+    fillOn: Boolean = false,
+    fillAlpha: Float = 0.2f,
+    onToggleFill: () -> Unit = {},
+    onFillAlpha: (Float) -> Unit = {}
 ) {
     var showColors by remember { mutableStateOf(false) }
     var showWidths by remember { mutableStateOf(false) }
+    var showFillMenu by remember { mutableStateOf(false) }
     // toque en la pestaña contrae/expande, arrastrar la mueve igual que antes
     var collapsed by remember(selectionKey) { mutableStateOf(false) }
     // pestaña para mover la barra a cualquier lado
@@ -6269,6 +6323,7 @@ fun OverlayEditBar(
                     if (collapsed) {
                         showColors = false
                         showWidths = false
+                        showFillMenu = false
                     }
                 })
                 .pointerInput(Unit) {
@@ -6351,6 +6406,53 @@ fun OverlayEditBar(
             }
         }
         GridDivider()
+        // bote = relleno de figuras con transparencia, estilo TV (solo dibujos)
+        if (showFill) {
+            Box {
+                GridCell(onClick = { showFillMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.FormatColorFill,
+                        contentDescription = "Relleno",
+                        tint = if (fillOn) Color(0xFF1ECB81) else Color.Gray,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showFillMenu,
+                    onDismissRequest = { showFillMenu = false },
+                    modifier = Modifier.background(InputBg)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Relleno",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Switch(checked = fillOn, onCheckedChange = { onToggleFill() })
+                        }
+                        val sliderPos = remember(fillAlpha) { mutableStateOf(fillAlpha) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Slider(
+                                value = sliderPos.value,
+                                onValueChange = { sliderPos.value = it },
+                                onValueChangeFinished = { onFillAlpha(sliderPos.value) },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("${(sliderPos.value * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+            GridDivider()
+        }
         // tuerca = niveles (solo fibo) y estilo del seleccionado
         if (showLevels) {
             GridCell(onClick = onLevels) {

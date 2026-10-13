@@ -32,6 +32,7 @@ class CryptoDetailViewModel @Inject constructor(
     private val prefsRepo: IndicatorPrefsRepository,
     private val priceAlertDao: com.defitracker.app.data.local.PriceAlertDao,
     private val monitorPrefs: com.defitracker.app.alerts.DivMonitorPrefs,
+    private val notifier: com.defitracker.app.alerts.DivAlertNotifier,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -492,7 +493,10 @@ class CryptoDetailViewModel @Inject constructor(
             id = java.util.UUID.randomUUID().toString(),
             kind = kind,
             start = start,
-            end = end
+            end = end,
+            // figuras nuevas con relleno suave, el resto sin relleno
+            fill = kind.supportsFill(),
+            fillAlpha = 0.2f
         )
         _drawOverlays.value = _drawOverlays.value + overlay
         _selectedDrawId.value = overlay.id
@@ -519,6 +523,8 @@ class CryptoDetailViewModel @Inject constructor(
 
     fun setDrawColor(id: String, hex: String) = updateDraw(id, { it.copy(colorHex = hex) })
     fun setDrawWidth(id: String, w: Float) = updateDraw(id, { it.copy(width = w.coerceIn(0.5f, 3f)) })
+    fun setDrawFill(id: String, on: Boolean) = updateDraw(id, { it.copy(fill = on) })
+    fun setDrawFillAlpha(id: String, a: Float) = updateDraw(id, { it.copy(fillAlpha = a.coerceIn(0f, 1f)) })
     fun toggleDrawHidden(id: String) = updateDraw(id, { it.copy(hidden = !it.hidden) })
     fun toggleDrawLocked(id: String) = updateDraw(id, { it.copy(locked = !it.locked) })
 
@@ -578,7 +584,11 @@ class CryptoDetailViewModel @Inject constructor(
 
     fun setPriceSound(uri: String) {
         viewModelScope.launch {
-            try { monitorPrefs.setPriceSoundUri(uri) } catch (_: Exception) {}
+            try {
+                monitorPrefs.setPriceSoundUri(uri)
+                // el tono vive en el canal: se recrea al elegir, no al sonar
+                notifier.ensurePriceChannel(uri)
+            } catch (_: Exception) {}
         }
     }
 
