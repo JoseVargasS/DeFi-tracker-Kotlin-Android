@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExpandMore
@@ -22,12 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.defitracker.app.R
 import com.defitracker.app.ui.theme.AppGold
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
@@ -202,7 +203,7 @@ fun WalletScreen(
                                     enabled = state.selectedAddress.isNotBlank(),
                                     modifier = Modifier.size(36.dp)
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AppRed.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                                    Icon(painterResource(R.drawable.ic_trash_tv), contentDescription = "Delete", tint = AppRed.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                                 }
                             }
                         }

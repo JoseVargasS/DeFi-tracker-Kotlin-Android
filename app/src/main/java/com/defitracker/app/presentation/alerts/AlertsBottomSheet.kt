@@ -21,9 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.NotificationsNone
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -44,10 +42,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.defitracker.app.R
 import com.defitracker.app.alerts.DivMonitorPrefs
 import com.defitracker.app.data.local.DivAlertEntity
 import com.defitracker.app.presentation.components.PillGrid
@@ -109,7 +109,7 @@ fun AlertsBottomSheet(
                     var showAlertConfig by remember { mutableStateOf(false) }
                     IconButton(onClick = { showAlertConfig = true }) {
                         Icon(
-                            imageVector = Icons.Default.Settings,
+                            painter = painterResource(R.drawable.ic_nut_tv),
                             contentDescription = "Configuración de alertas",
                             tint = Color.White
                         )
@@ -135,7 +135,7 @@ fun AlertsBottomSheet(
                     var confirmClear by remember { mutableStateOf(false) }
                     IconButton(onClick = { confirmClear = true }) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            painter = painterResource(R.drawable.ic_trash_tv),
                             contentDescription = "Eliminar todas las notificaciones",
                             tint = Color.White
                         )

@@ -167,6 +167,18 @@ class IndicatorPrefsRepository @Inject constructor(
         }
     }
 
+    // posiciones LONG/SHORT por simbolo, mismo esquema que dibujos
+    fun positionOverlaysFlow(symbol: String): Flow<List<PositionOverlay>> =
+        context.indicatorDataStore.data.map { p ->
+            decodePositionOverlays(p[stringPreferencesKey("position_overlays_$symbol")])
+        }
+
+    suspend fun savePositionOverlays(symbol: String, overlays: List<PositionOverlay>) {
+        context.indicatorDataStore.edit { e ->
+            e[stringPreferencesKey("position_overlays_$symbol")] = encodePositionOverlays(overlays.take(MAX_POSITIONS_PER_SYMBOL))
+        }
+    }
+
     // migracion del fibo unico anterior a la lista, una sola vez
     suspend fun migrateLegacyFib(symbol: String): List<FibOverlay>? {
         val p = context.indicatorDataStore.data.first()

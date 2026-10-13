@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChangeHistory
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.HorizontalRule
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -47,7 +46,6 @@ import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -730,7 +728,9 @@ enum class DrawingTool {
     NONE,
     MEASURE,
     FIBO,
-    DRAW
+    DRAW,
+    LONG_POS,
+    SHORT_POS
 }
 
 // duracion de cada vela para el countdown al cierre
@@ -826,6 +826,16 @@ private data class MeasureZone(
     val isComplete: Boolean = endIdx != null && endPrice != null
 }
 
+// geometria en pixeles de una posicion LONG/SHORT ya resuelta
+private data class PosGeom(
+    val leftX: Float,
+    val rightX: Float,
+    val entryY: Float,
+    val topY: Float,
+    val botY: Float,
+    val topIsProfit: Boolean
+)
+
 // ─── PRICE CHART ────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -874,6 +884,12 @@ fun PriceChart(
     val selectedDrawId = viewModel.selectedDrawId.value
     val drawsRef = remember { mutableStateOf<List<DrawOverlay>>(emptyList()) }
     val selectedDrawRef = remember { mutableStateOf<String?>(null) }
+    // posiciones LONG/SHORT por simbolo, mismo esquema
+    val positionOverlays = viewModel.positionOverlays.value
+    val selectedPositionId = viewModel.selectedPositionId.value
+    val positionsRef = remember { mutableStateOf<List<PositionOverlay>>(emptyList()) }
+    val selectedPositionRef = remember { mutableStateOf<String?>(null) }
+    val showPositionConfig = remember { mutableStateOf(false) }
     val drawKindRef = remember { mutableStateOf<DrawKind?>(null) }
     val pendingDrawStartRef = remember { mutableStateOf<FibAnchor?>(null) }
     val magnetRef = remember { mutableStateOf(false) }
@@ -893,6 +909,8 @@ fun PriceChart(
     LaunchedEffect(selectedFibId) { selectedFibRef.value = selectedFibId }
     LaunchedEffect(drawOverlays) { drawsRef.value = drawOverlays }
     LaunchedEffect(selectedDrawId) { selectedDrawRef.value = selectedDrawId }
+    LaunchedEffect(positionOverlays) { positionsRef.value = positionOverlays }
+    LaunchedEffect(selectedPositionId) { selectedPositionRef.value = selectedPositionId }
     LaunchedEffect(drawingTool.value) { toolRef.value = drawingTool.value }
     LaunchedEffect(fibPendingStart.value) { pendingStartRef.value = fibPendingStart.value }
     LaunchedEffect(drawPendingStart.value) { pendingDrawStartRef.value = drawPendingStart.value }
@@ -1018,6 +1036,13 @@ fun PriceChart(
                 private val drawFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.parseColor("#FFD60A")
                     style = Paint.Style.FILL
+                }
+                // punteada sutil pa' niveles TP/SL de posiciones
+                private val posDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = GraphicsColor.WHITE
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
                 }
                 // conector punteado + tag de MAs de otro TF (1h.SMA20)
                 val maTagDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1196,6 +1221,8 @@ fun PriceChart(
                 private val tagBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.WHITE
                 }
+                // hora proyectada pa'l tag de la cruz en zona virtual
+                private val crossTimeSdf = java.text.SimpleDateFormat("MM/dd HH:mm", Locale.US)
                 private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = GraphicsColor.WHITE
                     style = Paint.Style.FILL
@@ -1238,6 +1265,8 @@ fun PriceChart(
                 private val xTagRect = RectF()
 
                 private var lastTouchYPx = -1f
+                // X libre del dedo pa' que la cruz pase la ultima vela (lienzo infinito)
+                private var lastTouchXPx = -1f
                 private var downX = 0f
                 private var downY = 0f
                 private var lastGestureX = 0f
@@ -1365,6 +1394,7 @@ fun PriceChart(
                     }
                     highlightValue(null)
                     lastTouchYPx = -1f
+                    lastTouchXPx = -1f
                     syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     invalidate()
                     return true
@@ -2205,6 +2235,212 @@ fun PriceChart(
                     canvas.drawCircle(p[0], p[1], 9f, dotOutlinePaint)
                 }
 
+                // ─── POSICIONES LONG/SHORT estilo TV ───
+                // 1 arriba (precio), 2 medio (ancho), 3 abajo (precio), 4 cuerpo (mover)
+                private var posDragId: String? = null
+                private var posDragZone: Int = 0
+                private var posDragMoved: Boolean = false
+                // campo fijado al agarrar (true = TP): asi SL y TP no se pegan al cruzarse
+                private var posDragTopIsTp: Boolean = true
+                private var posOrigStart: Long = 0L
+                private var posOrigEnd: Long = 0L
+                private var posOrigEntry: Double = 0.0
+                private var posOrigSl: Double = 0.0
+                private var posOrigTp: Double = 0.0
+                private var posGrabIdx: Int = 0
+                private var posGrabPrice: Double = 0.0
+                var onPositionLive: ((String, PositionOverlay) -> Unit)? = null
+                var onPositionCommit: ((String) -> Unit)? = null
+                var onPositionTap: ((FibAnchor, Boolean) -> Unit)? = null
+                var onPositionSelect: ((String?) -> Unit)? = null
+
+                private fun positionGeom(o: PositionOverlay): PosGeom? {
+                    val candles = stateRef.value.candles
+                    if (candles.isEmpty()) return null
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val interval = stateRef.value.selectedInterval
+                    val sIdx = fibTimeToIndexVirtual(candles, o.startTime, interval)
+                    val eIdx = fibTimeToIndexVirtual(candles, o.endTime, interval)
+                    val lx = floatArrayOf(min(sIdx, eIdx).toFloat(), 0f)
+                    trans.pointValuesToPixel(lx)
+                    val rx = floatArrayOf(max(sIdx, eIdx).toFloat(), 0f)
+                    trans.pointValuesToPixel(rx)
+                    val ey = floatArrayOf(0f, o.entry.toFloat())
+                    trans.pointValuesToPixel(ey)
+                    val topPrice = max(o.sl, o.tp)
+                    val botPrice = min(o.sl, o.tp)
+                    val ty = floatArrayOf(0f, topPrice.toFloat())
+                    trans.pointValuesToPixel(ty)
+                    val by = floatArrayOf(0f, botPrice.toFloat())
+                    trans.pointValuesToPixel(by)
+                    // el verde sigue al TP en ambas direcciones: en short arriba va el SL (rojo)
+                    val topIsProfit = topPrice == o.tp
+                    return PosGeom(lx[0], rx[0], ey[1], ty[1], by[1], topIsProfit)
+                }
+
+                private fun positionLabel(o: PositionOverlay, line: Double): String {
+                    val (pct, _) = positionLineStats(o.entry, line, o.qtyUsdt, o.leverage)
+                    val qtyTxt = if (o.qtyUsdt % 1.0 == 0.0) o.qtyUsdt.toLong().toString()
+                    else formatPriceForChart(o.qtyUsdt, stateRef.value.daySubDollar)
+                    val pctTxt = "${if (pct >= 0) "+" else ""}${String.format(Locale.US, "%.2f", pct)}%"
+                    val priceTxt = formatPriceForChart(line, stateRef.value.daySubDollar)
+                    return "$qtyTxt ($pctTxt) $priceTxt"
+                }
+
+                private fun drawPositionLabel(canvas: Canvas, text: String, x: Float, y: Float, bg: Int, right: Boolean = false) {
+                    val w = selectionTextPaint.measureText(text) + 18f
+                    val h = selectionTextPaint.textSize + 12f
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+                    // etiquetas de SL/TP al borde derecho pa' no tapar los handles del centro
+                    val lx = if (right) {
+                        (x - w - 8f).coerceIn(contentLeft + 4f, (contentRight - w - 4f).coerceAtLeast(contentLeft + 4f))
+                    } else {
+                        (x - w / 2f).coerceIn(contentLeft + 4f, (contentRight - w - 4f).coerceAtLeast(contentLeft + 4f))
+                    }
+                    val ly = (y - h / 2f).coerceIn(contentTop + 4f, (contentBottom - h - 4f).coerceAtLeast(contentTop + 4f))
+                    yTagRect.set(lx, ly, lx + w, ly + h)
+                    selectionLabelPaint.color = bg
+                    canvas.drawRoundRect(yTagRect, 5f, 5f, selectionLabelPaint)
+                    canvas.drawText(text, lx + 9f, ly + h - 8f, selectionTextPaint)
+                }
+
+                // chip con el valor en el eje Y, como la linea de entrada
+                private fun drawPosYTag(canvas: Canvas, price: Double, bg: Int) {
+                    val txt = formatPriceForChart(price, stateRef.value.daySubDollar)
+                    val w = selectionTextPaint.measureText(txt) + 16f
+                    val h = selectionTextPaint.textSize + 10f
+                    val contentLeft = viewPortHandler.contentLeft()
+                    val contentRight = viewPortHandler.contentRight()
+                    val contentTop = viewPortHandler.contentTop()
+                    val contentBottom = viewPortHandler.contentBottom()
+                    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+                    val pts = floatArrayOf(0f, price.toFloat())
+                    trans.pointValuesToPixel(pts)
+                    val rx = (contentRight - w).coerceAtLeast(contentLeft)
+                    val ly = (pts[1] - h / 2f).coerceIn(contentTop, (contentBottom - h).coerceAtLeast(contentTop))
+                    yTagRect.set(rx, ly, rx + w, ly + h)
+                    selectionLabelPaint.color = bg
+                    canvas.drawRoundRect(yTagRect, 4f, 4f, selectionLabelPaint)
+                    canvas.drawText(txt, rx + 8f, ly + h - 7f, selectionTextPaint)
+                }
+
+                private fun drawSinglePosition(canvas: Canvas, candles: List<CandleData>, o: PositionOverlay, selected: Boolean) {
+                    val g = positionGeom(o) ?: return
+                    val profitColor = GraphicsColor.parseColor(POS_PROFIT_HEX)
+                    val lossColor = GraphicsColor.parseColor(POS_LOSS_HEX)
+                    val topColor = if (g.topIsProfit) profitColor else lossColor
+                    val botColor = if (g.topIsProfit) lossColor else profitColor
+                    val topAlpha = ((if (g.topIsProfit) o.profitAlpha else o.lossAlpha).coerceIn(0f, 1f) * 255).toInt()
+                    val botAlpha = ((if (g.topIsProfit) o.lossAlpha else o.profitAlpha).coerceIn(0f, 1f) * 255).toInt()
+                    // rellenos ganancia/perdida con su transparencia
+                    drawFillPaint.color = topColor
+                    drawFillPaint.alpha = topAlpha
+                    canvas.drawRect(g.leftX, min(g.entryY, g.topY), g.rightX, max(g.entryY, g.topY), drawFillPaint)
+                    drawFillPaint.color = botColor
+                    drawFillPaint.alpha = botAlpha
+                    canvas.drawRect(g.leftX, min(g.entryY, g.botY), g.rightX, max(g.entryY, g.botY), drawFillPaint)
+                    // bordes TP/SL + linea de entrada
+                    drawLinePaint.color = topColor
+                    drawLinePaint.strokeWidth = 2f
+                    drawLinePaint.alpha = 255
+                    canvas.drawLine(g.leftX, g.topY, g.rightX, g.topY, drawLinePaint)
+                    drawLinePaint.color = botColor
+                    canvas.drawLine(g.leftX, g.botY, g.rightX, g.botY, drawLinePaint)
+                    drawLinePaint.color = GraphicsColor.WHITE
+                    canvas.drawLine(g.leftX, g.entryY, g.rightX, g.entryY, drawLinePaint)
+                    drawLinePaint.alpha = 255
+                    // etiquetas: % apalancado + precio en SL/TP a la derecha, entrada al centro
+                    val topLine = if (g.topIsProfit) o.tp else o.sl
+                    val botLine = if (g.topIsProfit) o.sl else o.tp
+                    drawPositionLabel(canvas, positionLabel(o, topLine), g.rightX, g.topY, topColor, right = true)
+                    drawPositionLabel(canvas, positionLabel(o, botLine), g.rightX, g.botY, botColor, right = true)
+                    drawPositionLabel(
+                        canvas,
+                        formatPriceForChart(o.entry, stateRef.value.daySubDollar),
+                        (g.leftX + g.rightX) / 2f, g.entryY,
+                        GraphicsColor.argb(220, 26, 29, 35)
+                    )
+                    // handles cuadrados si esta seleccionada: arriba/abajo al centro,
+                    // el del medio fuera de la caja pa' no chocar con las etiquetas
+                    if (selected) {
+                        val contentLeft = viewPortHandler.contentLeft()
+                        val contentRight = viewPortHandler.contentRight()
+                        val contentTop = viewPortHandler.contentTop()
+                        val contentBottom = viewPortHandler.contentBottom()
+                        // punteadas sutiles de borde a borde + marca en el eje Y, como la entrada
+                        posDashPaint.color = topColor
+                        posDashPaint.alpha = 120
+                        canvas.drawLine(contentLeft, g.topY, contentRight, g.topY, posDashPaint)
+                        posDashPaint.color = botColor
+                        canvas.drawLine(contentLeft, g.botY, contentRight, g.botY, posDashPaint)
+                        posDashPaint.alpha = 255
+                        drawPosYTag(canvas, topLine, topColor)
+                        drawPosYTag(canvas, botLine, botColor)
+                        drawPosYTag(canvas, o.entry, GraphicsColor.argb(220, 26, 29, 35))
+                        val cx = (g.leftX + g.rightX) / 2f
+                        val r = 18f
+                        listOf(
+                            Triple(cx, g.topY, 1),
+                            Triple(g.rightX + 26f, g.entryY, 2),
+                            Triple(cx, g.botY, 3)
+                        ).forEach { (hx, hy, _) ->
+                            yTagRect.set(hx - r, hy - r, hx + r, hy + r)
+                            canvas.drawRect(yTagRect, fibHandleFill)
+                            canvas.drawRect(yTagRect, fibHandleStroke)
+                        }
+                    }
+                }
+
+                private fun drawPositionOverlays(canvas: Canvas, candles: List<CandleData>) {
+                    positionsRef.value.forEach { o ->
+                        drawSinglePosition(canvas, candles, o, o.id == selectedPositionRef.value)
+                    }
+                }
+
+                private fun positionHitTest(x: Float, y: Float): Triple<String, Int, Boolean>? {
+                    if (stateRef.value.candles.isEmpty()) return null
+                    if (prefsRef.value.overlaysHidden) return null
+                    var best: Triple<String, Int, Boolean>? = null
+                    var bestDist = Float.MAX_VALUE
+                    positionsRef.value.forEach { o ->
+                        val g = positionGeom(o) ?: return@forEach
+                        val cx = (g.leftX + g.rightX) / 2f
+                        val dTop = kotlin.math.hypot(x - cx, y - g.topY)
+                        if (dTop <= 60f && dTop < bestDist) {
+                            bestDist = dTop
+                            best = Triple(o.id, 1, false)
+                        }
+                        val dMid = kotlin.math.hypot(x - (g.rightX + 26f), y - g.entryY)
+                        if (dMid <= 60f && dMid < bestDist) {
+                            bestDist = dMid
+                            best = Triple(o.id, 2, false)
+                        }
+                        val dBot = kotlin.math.hypot(x - cx, y - g.botY)
+                        if (dBot <= 60f && dBot < bestDist) {
+                            bestDist = dBot
+                            best = Triple(o.id, 3, false)
+                        }
+                        if (bestDist <= 60f) return@forEach
+                        val l = min(g.leftX, g.rightX)
+                        val r = max(g.leftX, g.rightX)
+                        val t = min(g.topY, g.botY)
+                        val b = max(g.topY, g.botY)
+                        if (x >= l && x <= r && y >= t && y <= b) {
+                            best = Triple(o.id, 4, false)
+                        }
+                    }
+                    return best
+                }
+
+                private fun applyPositionTap(x: Float, y: Float, long: Boolean) {
+                    val anchor = drawAnchorFromTouch(x, y) ?: return
+                    onPositionTap?.invoke(anchor, long)
+                    invalidate()
+                }
+
                 private fun drawFibOverlays(canvas: Canvas, candles: List<CandleData>) {
                     val overlays = overlaysRef.value
                     if (overlays.isEmpty() || candles.isEmpty()) {
@@ -2601,6 +2837,40 @@ fun PriceChart(
                             if (toolRef.value == DrawingTool.MEASURE) {
                                 // en Medir manda la cinta, los overlays no interceptan
                             } else {
+                                val ph = positionHitTest(event.x, event.y)
+                                if (ph != null) {
+                                    val (pid, pzone, _) = ph
+                                    onPositionSelect?.invoke(pid)
+                                    selectedPositionRef.value = pid
+                                    selectedFibRef.value = null
+                                    selectedDrawRef.value = null
+                                    downX = event.x
+                                    downY = event.y
+                                    posDragMoved = false
+                                    posDragId = pid
+                                    posDragZone = pzone
+                                    if (pzone == 1 || pzone == 3) {
+                                        // se fija el campo agarrado (TP o SL) pa' todo el gesto
+                                        val o = positionsRef.value.firstOrNull { it.id == pid }
+                                        val topIsProfit = o?.let { positionGeom(it)?.topIsProfit } ?: true
+                                        posDragTopIsTp = if (pzone == 1) topIsProfit else !topIsProfit
+                                    }
+                                    if (pzone == 4) {
+                                        val o = positionsRef.value.firstOrNull { it.id == pid }
+                                        val candles = stateRef.value.candles
+                                        posOrigStart = o?.startTime ?: 0L
+                                        posOrigEnd = o?.endTime ?: 0L
+                                        posOrigEntry = o?.entry ?: 0.0
+                                        posOrigSl = o?.sl ?: 0.0
+                                        posOrigTp = o?.tp ?: 0.0
+                                        posGrabIdx = touchToCandleIndex(event.x, event.y, candles.size, FIB_VIRTUAL_EXTEND)
+                                            ?: o?.let { fibTimeToIndexVirtual(candles, it.startTime, stateRef.value.selectedInterval) } ?: 0
+                                        posGrabPrice = getTransformer(YAxis.AxisDependency.LEFT)
+                                            .getValuesByTouchPoint(event.x, event.y).y.toDouble()
+                                    }
+                                    parent.requestDisallowInterceptTouchEvent(true)
+                                    return true
+                                }
                                 val dh = drawHitTest(event.x, event.y)
                                 if (dh != null) {
                                     val (did, dzone, dlocked) = dh
@@ -2746,6 +3016,66 @@ fun PriceChart(
                                 }
                                 return true
                             }
+                            if (posDragId != null) {
+                                val dx = abs(event.x - downX)
+                                val dy = abs(event.y - downY)
+                                if (dx > 10f || dy > 10f) posDragMoved = true
+                                if (posDragMoved) {
+                                    val id = posDragId!!
+                                    val cur = positionsRef.value.firstOrNull { it.id == id }
+                                    if (cur != null) {
+                                        val candles = stateRef.value.candles
+                                        val interval = stateRef.value.selectedInterval
+                                        if (posDragZone == 4) {
+                                            // mover cuerpo conserva tamaño (delta indice+precio)
+                                            val rawMoveX = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).x.roundToInt()
+                                            val newIdx = rawMoveX.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                            val newPrice = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).y.toDouble()
+                                            val dIdx = newIdx - posGrabIdx
+                                            val dPrice = newPrice - posGrabPrice
+                                            val s0 = fibTimeToIndexVirtual(candles, posOrigStart, interval)
+                                            val e0 = fibTimeToIndexVirtual(candles, posOrigEnd, interval)
+                                            // se recorta el desplazamiento, no los extremos: el ancho no cambia
+                                            val hi = candles.size - 1 + FIB_VIRTUAL_EXTEND
+                                            val shift = dIdx.coerceIn(0 - minOf(s0, e0), hi - maxOf(s0, e0))
+                                            val s1 = s0 + shift
+                                            val e1 = e0 + shift
+                                            val next = cur.copy(
+                                                startTime = fibIndexToTime(candles, s1, interval),
+                                                endTime = fibIndexToTime(candles, e1, interval),
+                                                entry = posOrigEntry + dPrice,
+                                                sl = posOrigSl + dPrice,
+                                                tp = posOrigTp + dPrice
+                                            )
+                                            positionsRef.value = positionsRef.value.map { if (it.id == id) next else it }
+                                            onPositionLive?.invoke(id, next)
+                                            invalidate()
+                                        } else if (posDragZone == 2) {
+                                            // handle del medio: solo ancho (tiempo final)
+                                            val rawX = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).x.roundToInt()
+                                            val idx = rawX.coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                            val t = fibIndexToTime(candles, idx, interval)
+                                            val next = cur.copy(endTime = maxOf(t, cur.startTime))
+                                            positionsRef.value = positionsRef.value.map { if (it.id == id) next else it }
+                                            onPositionLive?.invoke(id, next)
+                                            invalidate()
+                                        } else {
+                                            // handles arriba/abajo: solo el campo agarrado, aunque se crucen
+                                            val price = getTransformer(YAxis.AxisDependency.LEFT)
+                                                .getValuesByTouchPoint(event.x, event.y).y.toDouble()
+                                            if (price <= 0) return true
+                                            val next = if (posDragTopIsTp) cur.copy(tp = price) else cur.copy(sl = price)
+                                            positionsRef.value = positionsRef.value.map { if (it.id == id) next else it }
+                                            onPositionLive?.invoke(id, next)
+                                            invalidate()
+                                        }
+                                    }
+                                }
+                                return true
+                            }
                         }
                         android.view.MotionEvent.ACTION_UP -> {
                             if (fibDragId != null) {
@@ -2762,12 +3092,21 @@ fun PriceChart(
                                 drawDragZone = 0
                                 return true
                             }
+                            if (posDragId != null) {
+                                if (posDragMoved) onPositionCommit?.invoke(posDragId!!)
+                                else invalidate()
+                                posDragId = null
+                                posDragZone = 0
+                                return true
+                            }
                         }
                         android.view.MotionEvent.ACTION_CANCEL -> {
                             fibDragId = null
                             fibDragZone = 0
                             drawDragId = null
                             drawDragZone = 0
+                            posDragId = null
+                            posDragZone = 0
                         }
                     }
 
@@ -2849,7 +3188,9 @@ fun PriceChart(
                     }
 
                     // modo colocacion, el tap crea puntos; arrastrar = pan para no atascarse
-                    if (toolRef.value == DrawingTool.FIBO || toolRef.value == DrawingTool.DRAW) {
+                    // LONG/SHORT crean la posicion con un tap (defaults 10x, SL/TP 1%)
+                    val tool = toolRef.value
+                    if (tool == DrawingTool.FIBO || tool == DrawingTool.DRAW || tool == DrawingTool.LONG_POS || tool == DrawingTool.SHORT_POS) {
                         parent.requestDisallowInterceptTouchEvent(true)
                         when (event.action) {
                             android.view.MotionEvent.ACTION_DOWN -> {
@@ -2867,6 +3208,7 @@ fun PriceChart(
                                     lastGestureX = event.x
                                     lastGestureY = event.y
                                     lastTouchYPx = -1f
+                                    lastTouchXPx = -1f
                                     invalidate()
                                 }
                                 return true
@@ -2877,6 +3219,8 @@ fun PriceChart(
                                 if (dx < 14f && dy < 14f) {
                                     performClick()
                                     if (toolRef.value == DrawingTool.FIBO) applyFibTap(event.x, event.y)
+                                    else if (toolRef.value == DrawingTool.LONG_POS) applyPositionTap(event.x, event.y, true)
+                                    else if (toolRef.value == DrawingTool.SHORT_POS) applyPositionTap(event.x, event.y, false)
                                     else applyDrawTap(event.x, event.y)
                                 }
                                 return true
@@ -2945,7 +3289,9 @@ fun PriceChart(
                             if (highlighted != null && highlighted.isNotEmpty()) {
                                 gestureMoved = true
                                 lastTouchYPx = event.y
-                                highlightValue(getHighlightByTouchPoint(event.x, event.y), true)
+                                lastTouchXPx = event.x
+                                // fuera de datos no hay highlight: se guarda el ultimo valido
+                                getHighlightByTouchPoint(event.x, event.y)?.let { highlightValue(it, true) }
                                 syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                                 lastGestureX = event.x
                                 lastGestureY = event.y
@@ -2977,6 +3323,7 @@ fun PriceChart(
                                 lastGestureX = event.x
                                 lastGestureY = event.y
                                 lastTouchYPx = -1f
+                                lastTouchXPx = -1f
                                 invalidate()
                                 return true
                             }
@@ -2989,23 +3336,27 @@ fun PriceChart(
                             if (!gestureMoved && dx < 10f && dy < 10f) {
                                 performClick()
                                 // tap al vacio quita el foco: sin seleccion no hay boton flotante
-                                if (fibHitTest(event.x, event.y) == null && drawHitTest(event.x, event.y) == null) {
+                                if (fibHitTest(event.x, event.y) == null && drawHitTest(event.x, event.y) == null && positionHitTest(event.x, event.y) == null) {
                                     onFibSelect?.invoke(null)
                                     onDrawSelect?.invoke(null)
+                                    onPositionSelect?.invoke(null)
                                     selectedFibRef.value = null
                                     selectedDrawRef.value = null
+                                    selectedPositionRef.value = null
                                     invalidate()
                                 }
                                 if (highlighted != null && highlighted.isNotEmpty()) {
                                     // Toggle OFF
                                     highlightValue(null)
                                     lastTouchYPx = -1f
+                                    lastTouchXPx = -1f
                                     syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                                 } else {
                                     // Toggle ON
                                     lastTouchYPx = event.y
+                                    lastTouchXPx = event.x
                                     val h = getHighlightByTouchPoint(event.x, event.y)
-                                    highlightValue(h, true)
+                                    if (h != null) highlightValue(h, true)
                                 }
                                 invalidate()
                                 touchMode = ChartTouchMode.UNDECIDED
@@ -3130,6 +3481,7 @@ fun PriceChart(
                     if (!prefsRef.value.overlaysHidden) {
                         drawFibOverlays(canvas, entries)
                         drawDrawOverlays(canvas, entries)
+                        drawPositionOverlays(canvas, entries)
                         drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
                         drawMaTfTags(canvas, entries)
                     }
@@ -3145,9 +3497,10 @@ fun PriceChart(
 
                     val xPts = floatArrayOf(h.x, h.y)
                     trans.pointValuesToPixel(xPts)
-                    val px = xPts[0]
                     val snappedPy = xPts[1]
 
+                    // X libre del dedo por todo el lienzo, Y exacto del toque
+                    val px = if (lastTouchXPx >= 0) lastTouchXPx.coerceIn(contentLeft, contentRight) else xPts[0]
                     val py = if (lastTouchYPx >= 0) lastTouchYPx.coerceIn(contentTop, contentBottom) else snappedPy
 
                     // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
@@ -3189,8 +3542,13 @@ fun PriceChart(
                     canvas.drawText(priceText, yTagRect.centerX(), py + tagGap + thY + 2f, tagTextPaint)
                     canvas.drawText(pctText, yTagRect.centerX(), py + tagGap + (thY * 2) + 10f, tagTextPaint)
 
-                    // X-Axis Tag (Date)
-                    val dateText = xAxis.valueFormatter.getFormattedValue(h.x).replace("|", " ")
+                    // X-Axis Tag (Date): en zona virtual hora proyectada, no la ultima vela
+                    val freeIdx = trans.getValuesByTouchPoint(px, py).x.roundToInt()
+                    val dateText = if (freeIdx >= entries.size && entries.isNotEmpty()) {
+                        crossTimeSdf.format(java.util.Date(fibIndexToTime(entries, freeIdx, stateRef.value.selectedInterval)))
+                    } else {
+                        xAxis.valueFormatter.getFormattedValue(h.x).replace("|", " ")
+                    }
                     val twX = tagTextPaint.measureText(dateText)
                     xTagRect.set(px - twX/2 - 10f, contentBottom, px + twX/2 + 10f, contentBottom + thY + 16f)
                     canvas.drawRoundRect(xTagRect, 4f, 4f, tagBackgroundPaint)
@@ -3303,6 +3661,29 @@ fun PriceChart(
                     viewModel.selectDraw(id)
                     selectedDrawRef.value = id
                 }
+                onPositionLive = { id, next ->
+                    viewModel.setPositionLive(id, next)
+                    positionsRef.value = positionsRef.value.map { if (it.id == id) next else it }
+                }
+                onPositionCommit = { id ->
+                    viewModel.commitPosition(id)
+                }
+                onPositionSelect = { id ->
+                    viewModel.selectPosition(id)
+                    selectedPositionRef.value = id
+                }
+                onPositionTap = { anchor, long ->
+                    val candles = stateRef.value.candles
+                    if (candles.isNotEmpty() && anchor.price > 0) {
+                        val half = fibStepMs(candles, stateRef.value.selectedInterval) * 10
+                        viewModel.addPosition(long, anchor.time, anchor.price, half)?.let { created ->
+                            positionsRef.value = viewModel.positionOverlays.value
+                            selectedPositionRef.value = created.id
+                        }
+                        drawingTool.value = DrawingTool.NONE
+                    }
+                    invalidate()
+                }
                 onDrawTap = { anchor ->
                     val kind = drawKindRef.value ?: DrawKind.SEGMENT
                     if (kind == DrawKind.PRICE_LINE) {
@@ -3356,6 +3737,31 @@ fun PriceChart(
             selectedFibRef.value = viewModel.selectedFibId.value
             drawsRef.value = viewModel.drawOverlays.value
             selectedDrawRef.value = viewModel.selectedDrawId.value
+            positionsRef.value = viewModel.positionOverlays.value
+            selectedPositionRef.value = viewModel.selectedPositionId.value
+            chart.onPositionLive = { id, next ->
+                viewModel.setPositionLive(id, next)
+                positionsRef.value = positionsRef.value.map { if (it.id == id) next else it }
+            }
+            chart.onPositionCommit = { id ->
+                viewModel.commitPosition(id)
+            }
+            chart.onPositionSelect = { id ->
+                viewModel.selectPosition(id)
+                selectedPositionRef.value = id
+            }
+            chart.onPositionTap = { anchor, long ->
+                val candles = state.candles
+                if (candles.isNotEmpty() && anchor.price > 0) {
+                    val half = fibStepMs(candles, state.selectedInterval) * 10
+                    viewModel.addPosition(long, anchor.time, anchor.price, half)?.let { created ->
+                        positionsRef.value = viewModel.positionOverlays.value
+                        selectedPositionRef.value = created.id
+                    }
+                    drawingTool.value = DrawingTool.NONE
+                }
+                chart.invalidate()
+            }
             chart.onFibLive = { id, next ->
                 viewModel.setFibLive(id, next)
                 overlaysRef.value = overlaysRef.value.map { if (it.id == id) next else it }
@@ -3655,6 +4061,56 @@ fun PriceChart(
                     modifier = Modifier.size(14.dp)
                 )
             }
+            val longActive = drawingTool.value == DrawingTool.LONG_POS
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = if (longActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable {
+                        drawingTool.value = if (drawingTool.value == DrawingTool.LONG_POS) DrawingTool.NONE else DrawingTool.LONG_POS
+                        fibPendingStart.value = null
+                        pendingStartRef.value = null
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
+                        priceChartRef.value?.invalidate()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_long_tv),
+                    contentDescription = "Posición Long",
+                    tint = if (longActive) Color.Black else Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            val shortActive = drawingTool.value == DrawingTool.SHORT_POS
+            Box(
+                modifier = Modifier
+                    .background(
+                        color = if (shortActive) Color(0xCCF6465D) else Color(0xCC1A1D23),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .clickable {
+                        drawingTool.value = if (drawingTool.value == DrawingTool.SHORT_POS) DrawingTool.NONE else DrawingTool.SHORT_POS
+                        fibPendingStart.value = null
+                        pendingStartRef.value = null
+                        drawPendingStart.value = null
+                        pendingDrawStartRef.value = null
+                        priceChartRef.value?.invalidate()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_short_tv),
+                    contentDescription = "Posición Short",
+                    tint = if (shortActive) Color.Black else Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3801,6 +4257,63 @@ fun PriceChart(
                     priceChartRef.value?.invalidate()
                 }
             )
+        }
+
+        // barra de la posicion seleccionada: pincel (transparencias), tuerca, tacho
+        val selectedPos = positionOverlays.firstOrNull { it.id == selectedPositionId }
+        if (selectedPos != null && !prefs.overlaysHidden) {
+            PositionBar(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 44.dp),
+                selectionKey = selectedPos.id,
+                profitAlpha = selectedPos.profitAlpha,
+                lossAlpha = selectedPos.lossAlpha,
+                onProfitAlpha = {
+                    viewModel.setPositionProfitAlpha(selectedPos.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onLossAlpha = {
+                    viewModel.setPositionLossAlpha(selectedPos.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onConfig = { showPositionConfig.value = true },
+                onDelete = {
+                    viewModel.deletePosition(selectedPos.id)
+                    positionsRef.value = viewModel.positionOverlays.value
+                    selectedPositionRef.value = viewModel.selectedPositionId.value
+                    priceChartRef.value?.invalidate()
+                }
+            )
+        }
+
+        // tuerca de la posicion: entrada, SL, TP, leverage, cantidad
+        if (showPositionConfig.value) {
+            val cfgPos = positionOverlays.firstOrNull { it.id == selectedPositionId }
+            if (cfgPos != null) {
+                ModalBottomSheet(
+                    onDismissRequest = { showPositionConfig.value = false },
+                    containerColor = SheetBg
+                ) {
+                    PositionConfigSheet(
+                        pos = cfgPos,
+                        currentPrice = state.detail?.price?.toDoubleOrNull() ?: state.candles.lastOrNull()?.close ?: cfgPos.entry,
+                        extended = state.daySubDollar,
+                        onLeverage = {
+                            viewModel.setPositionLeverage(cfgPos.id, it)
+                            priceChartRef.value?.invalidate()
+                        },
+                        onApply = { entry, sl, tp, qty ->
+                            viewModel.setPositionLevels(cfgPos.id, entry, sl, tp)
+                            viewModel.setPositionQty(cfgPos.id, qty)
+                            priceChartRef.value?.invalidate()
+                            showPositionConfig.value = false
+                        }
+                    )
+                }
+            } else {
+                showPositionConfig.value = false
+            }
         }
 
         if (showDrawingSheet.value) {
@@ -5356,6 +5869,17 @@ class OKXChartMarker(
                 tvChangePct.text = (if (isUp) "+" else "") + String.format(Locale.US, "%.2f", changePct) + "%"
                 tvChangePct.setTextColor(changeColor)
                 tvVolume.text = formatVolDouble(candle.volume)
+            } else if (index >= state.candles.size && state.candles.isNotEmpty()) {
+                // zona virtual: hora proyectada, sin OHLC
+                val t = fibIndexToTime(state.candles, index, state.selectedInterval)
+                tvTime.text = hourSdf.format(Date(t))
+                tvOpen.text = "—"
+                tvHigh.text = "—"
+                tvLow.text = "—"
+                tvClose.text = "—"
+                tvChange.text = "—"
+                tvChangePct.text = "—"
+                tvVolume.text = "—"
             }
         }
         super.refreshContent(e, highlight)
@@ -5719,7 +6243,7 @@ fun MaListSheet(
                     if (mas.size > 1) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            painter = painterResource(R.drawable.ic_trash_tv),
                             contentDescription = "Eliminar ${maLegendLabel(ma)}",
                             tint = Color.Gray,
                             modifier = Modifier
@@ -6457,7 +6981,7 @@ fun OverlayEditBar(
         if (showLevels) {
             GridCell(onClick = onLevels) {
                 Icon(
-                    imageVector = Icons.Filled.Settings,
+                    painter = painterResource(R.drawable.ic_nut_tv),
                     contentDescription = "Niveles",
                     tint = Color.White,
                     modifier = Modifier.size(22.dp)
@@ -6487,7 +7011,7 @@ fun OverlayEditBar(
         GridDivider()
         GridCell(onClick = onDelete) {
             Icon(
-                imageVector = Icons.Filled.Delete,
+                painter = painterResource(R.drawable.ic_trash_tv),
                 contentDescription = "Eliminar",
                 tint = Color.Gray,
                 modifier = Modifier.size(22.dp)
@@ -6495,6 +7019,250 @@ fun OverlayEditBar(
         }
         }
     }
+}
+
+// ─── POSICION: BARRA FLOTANTE (pincel, tuerca, tacho) ────────────────────────
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PositionBar(
+    modifier: Modifier = Modifier,
+    selectionKey: String,
+    profitAlpha: Float,
+    lossAlpha: Float,
+    onProfitAlpha: (Float) -> Unit,
+    onLossAlpha: (Float) -> Unit,
+    onConfig: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showPaint by remember { mutableStateOf(false) }
+    var collapsed by remember(selectionKey) { mutableStateOf(false) }
+    var drag by remember { mutableStateOf(Offset.Zero) }
+    Row(
+        modifier = modifier
+            .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
+            .background(Color(0xEE141518), RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // pestaña de arrastre: toque contrae/expande, mover arrastra
+        Box(
+            modifier = Modifier
+                .size(width = 44.dp, height = 40.dp)
+                .combinedClickable(onClick = {
+                    collapsed = !collapsed
+                    if (collapsed) showPaint = false
+                })
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        drag += dragAmount
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (collapsed) Icons.Filled.KeyboardArrowRight else Icons.Default.DragHandle,
+                contentDescription = if (collapsed) "Expandir" else "Mover",
+                tint = Color.Gray,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        if (!collapsed) {
+            GridDivider()
+            // pincel = transparencia de cada color
+            Box {
+                GridCell(onClick = { showPaint = true }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_draw_tv),
+                        contentDescription = "Transparencias",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showPaint,
+                    onDismissRequest = { showPaint = false },
+                    modifier = Modifier.background(InputBg)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Ganancia", color = Color(0xFF1ECB81), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        val profitPos = remember(profitAlpha) { mutableStateOf(profitAlpha) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Slider(
+                                value = profitPos.value,
+                                onValueChange = { profitPos.value = it },
+                                onValueChangeFinished = { onProfitAlpha(profitPos.value) },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("${(profitPos.value * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
+                        }
+                        Text("Pérdida", color = Color(0xFFF6465D), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        val lossPos = remember(lossAlpha) { mutableStateOf(lossAlpha) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Slider(
+                                value = lossPos.value,
+                                onValueChange = { lossPos.value = it },
+                                onValueChangeFinished = { onLossAlpha(lossPos.value) },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("${(lossPos.value * 100).toInt()}%", color = Color.White, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+            GridDivider()
+            // tuerca = entrada, SL, TP, leverage, cantidad
+            GridCell(onClick = onConfig) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_nut_tv),
+                    contentDescription = "Configurar",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            GridDivider()
+            GridCell(onClick = onDelete) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trash_tv),
+                    contentDescription = "Eliminar",
+                    tint = Color.Gray,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
+
+// ─── POSICION: SHEET DE CONFIG ───────────────────────────────────────────────
+private val POSITION_LEVERAGES = listOf(1, 2, 3, 5, 10, 15, 20, 50, 100)
+
+@Composable
+private fun PositionConfigSheet(
+    pos: PositionOverlay,
+    currentPrice: Double,
+    extended: Boolean,
+    onLeverage: (Int) -> Unit,
+    onApply: (entry: Double, sl: Double, tp: Double, qty: Double) -> Unit
+) {
+    var entryTxt by remember(pos.id) { mutableStateOf(formatAxisPrice(pos.entry, currentPrice, extended)) }
+    var slTxt by remember(pos.id) { mutableStateOf(formatAxisPrice(pos.sl, currentPrice, extended)) }
+    var tpTxt by remember(pos.id) { mutableStateOf(formatAxisPrice(pos.tp, currentPrice, extended)) }
+    var qtyTxt by remember(pos.id) { mutableStateOf(pos.qtyUsdt.toString()) }
+    var error by remember { mutableStateOf("") }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            if (pos.long) "Posición LONG" else "Posición SHORT",
+            color = if (pos.long) Color(0xFF1ECB81) else Color(0xFFF6465D),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PosNumberField("Entrada", entryTxt, { entryTxt = it }, Modifier.weight(1f))
+            PosNumberField("Stop loss", slTxt, { slTxt = it }, Modifier.weight(1f))
+            PosNumberField("Take profit", tpTxt, { tpTxt = it }, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        PosNumberField("Cantidad (USDT)", qtyTxt, { qtyTxt = it }, Modifier.fillMaxWidth())
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Leverage · ${pos.leverage}x", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            POSITION_LEVERAGES.forEach { lev ->
+                val on = pos.leverage == lev
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(
+                            if (on) Color(0xFF1ECB81) else InputBg,
+                            RoundedCornerShape(6.dp)
+                        )
+                        .clickable { onLeverage(lev) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "${lev}x",
+                        color = if (on) Color.Black else Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        // vista previa ganancia/perdida estimada en USDT
+        val (tpPct, tpAmt) = positionLineStats(pos.entry, pos.tp, pos.qtyUsdt, pos.leverage)
+        val (slPct, slAmt) = positionLineStats(pos.entry, pos.sl, pos.qtyUsdt, pos.leverage)
+        Text(
+            "TP ${String.format(Locale.US, "%+.2f%%", tpPct)} · ${String.format(Locale.US, "%+.2f USDT", tpAmt)}   |   " +
+                "SL ${String.format(Locale.US, "%+.2f%%", slPct)} · ${String.format(Locale.US, "%+.2f USDT", slAmt)}",
+            color = Color.Gray,
+            fontSize = 12.sp
+        )
+        if (error.isNotBlank()) {
+            Text(error, color = Color(0xFFF6465D), fontSize = 12.sp)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = {
+                val e = parsePriceInput(entryTxt) ?: 0.0
+                val s = parsePriceInput(slTxt) ?: 0.0
+                val t = parsePriceInput(tpTxt) ?: 0.0
+                val q = qtyTxt.toDoubleOrNull() ?: 0.0
+                if (e <= 0 || s <= 0 || t <= 0 || q <= 0) {
+                    error = "Revisa los valores (todos mayores a 0)"
+                    return@Button
+                }
+                error = ""
+                onApply(e, s, t, q)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (pos.long) Color(0xFF1ECB81) else Color(0xFFF6465D),
+                contentColor = Color.Black
+            )
+        ) {
+            Text("Aplicar", fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun PosNumberField(
+    label: String,
+    value: String,
+    onValue: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValue,
+        label = { Text(label, fontSize = 12.sp) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        singleLine = true,
+        modifier = modifier,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            cursorColor = Color(0xFF1ECB81),
+            focusedBorderColor = Color(0xFF1ECB81),
+            unfocusedBorderColor = Color.Gray,
+            focusedLabelColor = Color(0xFF1ECB81),
+            unfocusedLabelColor = Color.Gray
+        )
+    )
 }
 
 @Composable

@@ -58,6 +58,12 @@ class CryptoDetailViewModel @Inject constructor(
     private val _selectedDrawId = mutableStateOf<String?>(null)
     val selectedDrawId: State<String?> = _selectedDrawId
 
+    // posiciones LONG/SHORT por simbolo, mismo esquema
+    private val _positionOverlays = mutableStateOf<List<PositionOverlay>>(emptyList())
+    val positionOverlays: State<List<PositionOverlay>> = _positionOverlays
+    private val _selectedPositionId = mutableStateOf<String?>(null)
+    val selectedPositionId: State<String?> = _selectedPositionId
+
     private val symbol: String = checkNotNull(savedStateHandle["symbol"])
     private val source: String = checkNotNull(savedStateHandle["source"])
     // deep-link desde noti/sheet con el TF de la alerta
@@ -170,6 +176,13 @@ class CryptoDetailViewModel @Inject constructor(
                 _drawOverlays.value = prefsRepo.drawOverlaysFlow(symbol).first()
                 _selectedDrawId.value = null
                 _selectedFibId.value = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+            // posiciones LONG/SHORT del simbolo, sin seleccion al entrar
+            try {
+                _positionOverlays.value = prefsRepo.positionOverlaysFlow(symbol).first()
+                _selectedPositionId.value = null
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
@@ -540,6 +553,92 @@ class CryptoDetailViewModel @Inject constructor(
         _selectedDrawId.value = null
         persistDraws()
     }
+
+    // ─── POSICIONES LONG/SHORT ───
+    private fun persistPositions() {
+        val snapshot = _positionOverlays.value
+        viewModelScope.launch {
+            try {
+                prefsRepo.savePositionOverlays(symbol, snapshot)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun setPositionLive(id: String, overlay: PositionOverlay) {
+        _positionOverlays.value = _positionOverlays.value.map { if (it.id == id) overlay else it }
+    }
+
+    fun commitPosition(id: String) {
+        persistPositions()
+    }
+
+    // un tap crea la posicion con defaults (10x, SL/TP 1%, 500 USDT)
+    fun addPosition(long: Boolean, entryTime: Long, entryPrice: Double, halfWidthMs: Long): PositionOverlay? {
+        if (_positionOverlays.value.size >= MAX_POSITIONS_PER_SYMBOL) return null
+        if (entryPrice <= 0) return null
+        val sl = if (long) entryPrice * (1 - DEFAULT_POSITION_SL_PCT) else entryPrice * (1 + DEFAULT_POSITION_SL_PCT)
+        val tp = if (long) entryPrice * (1 + DEFAULT_POSITION_TP_PCT) else entryPrice * (1 - DEFAULT_POSITION_TP_PCT)
+        val overlay = PositionOverlay(
+            id = java.util.UUID.randomUUID().toString(),
+            long = long,
+            startTime = entryTime - halfWidthMs,
+            endTime = entryTime + halfWidthMs,
+            entry = entryPrice,
+            sl = sl,
+            tp = tp
+        )
+        _positionOverlays.value = _positionOverlays.value + overlay
+        _selectedPositionId.value = overlay.id
+        _selectedFibId.value = null
+        _selectedDrawId.value = null
+        persistPositions()
+        return overlay
+    }
+
+    fun deletePosition(id: String) {
+        _positionOverlays.value = _positionOverlays.value.filterNot { it.id == id }
+        if (_selectedPositionId.value == id) _selectedPositionId.value = null
+        persistPositions()
+    }
+
+    fun selectPosition(id: String?) {
+        _selectedPositionId.value = id
+        if (id != null) {
+            _selectedFibId.value = null
+            _selectedDrawId.value = null
+        }
+    }
+
+    private fun updatePosition(id: String, transform: (PositionOverlay) -> PositionOverlay) {
+        _positionOverlays.value = _positionOverlays.value.map { if (it.id == id) transform(it) else it }
+        persistPositions()
+    }
+
+    fun setPositionLevels(id: String, entry: Double, sl: Double, tp: Double) = updatePosition(id, {
+        it.copy(
+            entry = if (entry > 0) entry else it.entry,
+            sl = if (sl > 0) sl else it.sl,
+            tp = if (tp > 0) tp else it.tp
+        )
+    })
+
+    fun setPositionQty(id: String, qty: Double) = updatePosition(id, {
+        it.copy(qtyUsdt = if (qty > 0) qty else it.qtyUsdt)
+    })
+
+    fun setPositionLeverage(id: String, lev: Int) = updatePosition(id, {
+        it.copy(leverage = lev.coerceIn(1, 200))
+    })
+
+    fun setPositionProfitAlpha(id: String, a: Float) = updatePosition(id, {
+        it.copy(profitAlpha = a.coerceIn(0f, 1f))
+    })
+
+    fun setPositionLossAlpha(id: String, a: Float) = updatePosition(id, {
+        it.copy(lossAlpha = a.coerceIn(0f, 1f))
+    })
 
     // ─── ALERTAS DE PRECIO (LONG/SHORT por par) ───
     fun priceAlertsFlow(): kotlinx.coroutines.flow.Flow<List<com.defitracker.app.data.local.PriceAlertEntity>> =
