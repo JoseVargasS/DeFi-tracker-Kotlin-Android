@@ -33,3 +33,15 @@ fun formatAxisPrice(value: Double, refClose: Double, extended: Boolean = false):
     val n = formatPriceForChart(refClose, extended).substringAfter('.', "").length.coerceIn(2, 8)
     return String.format(java.util.Locale.US, "%.${n}f", value)
 }
+
+// volumen 24h compacto pa'l header (1.24B, 850.50M, 12.30K)
+fun formatCompactVol(value: Double): String {
+    val v = abs(value)
+    return when {
+        v >= 1_000_000_000_000.0 -> String.format(java.util.Locale.US, "%.2fT", value / 1_000_000_000_000.0)
+        v >= 1_000_000_000.0 -> String.format(java.util.Locale.US, "%.2fB", value / 1_000_000_000.0)
+        v >= 1_000_000.0 -> String.format(java.util.Locale.US, "%.2fM", value / 1_000_000.0)
+        v >= 1_000.0 -> String.format(java.util.Locale.US, "%.2fK", value / 1_000.0)
+        else -> String.format(java.util.Locale.US, "%.2f", value)
+    }
+}

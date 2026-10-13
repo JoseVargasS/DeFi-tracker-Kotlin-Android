@@ -165,52 +165,67 @@ fun CryptoDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = tradingPair.displayName,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 18.sp,
-                            fontFamily = Geist
+            // header delgado en 2 filas pa' darle aire al chart
+            Column(
+                modifier = Modifier
+                    .background(Color(0xFF000000))
+                    .statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // badge de fuente siempre visible
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    color = if (state.source == "MEXC") Color(0xFF1ECB81).copy(alpha = 0.2f)
-                                    else Color(0xFF2196F3).copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .padding(horizontal = 6.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = sourceLabel(state.source),
-                                color = if (state.source == "MEXC") Color(0xFF1ECB81) else Color(0xFF64B5F6),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
                     }
-                },
-                actions = {
+                    Text(
+                        text = tradingPair.displayName,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        fontFamily = Geist
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    // badge de fuente siempre visible
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (state.source == "MEXC") Color(0xFF1ECB81).copy(alpha = 0.2f)
+                                else Color(0xFF2196F3).copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = sourceLabel(state.source),
+                            color = if (state.source == "MEXC") Color(0xFF1ECB81) else Color(0xFF64B5F6),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
                     // campanita de alertas LONG/SHORT de este par
                     Box(contentAlignment = Alignment.Center) {
-                        IconButton(onClick = { showPriceAlerts.value = true }) {
+                        IconButton(
+                            onClick = { showPriceAlerts.value = true },
+                            modifier = Modifier.size(32.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Notifications,
                                 contentDescription = "Alertas de precio",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                         val activeCount = priceAlerts.count { it.enabled }
@@ -230,12 +245,48 @@ fun CryptoDetailScreen(
                             }
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF000000),
-                    titleContentColor = Color.White
-                )
-            )
+                }
+                // precio + % + H/L/Vol en una sola linea delgada
+                state.detail?.let { detail ->
+                    val stickyExt = state.daySubDollar
+                    val quoteAsset = tradingPair.quoteAsset.ifBlank { "USDT" }
+                    val vol = detail.quoteVolume.toDoubleOrNull() ?: 0.0
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatPriceForChart(detail.price.toDoubleOrNull() ?: 0.0, stickyExt),
+                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = Geist
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${if (detail.isPositive) "+" else ""}${detail.priceChangePercent}%",
+                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = Geist
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = buildString {
+                                append("H ${formatPriceForChart(detail.highPrice.toDoubleOrNull() ?: 0.0, stickyExt)}")
+                                append("  L ${formatPriceForChart(detail.lowPrice.toDoubleOrNull() ?: 0.0, stickyExt)}")
+                                if (vol > 0) append("  Vol ${formatCompactVol(vol)} $quoteAsset")
+                            },
+                            color = Color.Gray,
+                            fontSize = 10.sp,
+                            fontFamily = Geist,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
         },
         containerColor = Color(0xFF000000)
     ) { padding ->
@@ -246,43 +297,6 @@ fun CryptoDetailScreen(
                 .background(Color(0xFF000000))
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // header compacto, el chart manda
-            state.detail?.let { detail ->
-                val stickyExt = state.daySubDollar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF000000))
-                            .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = formatPriceForChart(detail.price.toDoubleOrNull() ?: 0.0, stickyExt),
-                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = Geist
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${if (detail.isPositive) "+" else ""}${detail.priceChangePercent}%",
-                            color = if (detail.isPositive) Color(0xFF1ECB81) else Color(0xFFF6465D),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = Geist
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "H ${formatPriceForChart(detail.highPrice.toDoubleOrNull() ?: 0.0, stickyExt)}  L ${formatPriceForChart(detail.lowPrice.toDoubleOrNull() ?: 0.0, stickyExt)}",
-                            color = Color.Gray,
-                            fontSize = 11.sp,
-                            fontFamily = Geist
-                        )
-                    }
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
             // Stacked Charts Area (subs compactos, el protagonista es el chart)
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val areaHpx = with(LocalDensity.current) { maxHeight.toPx() }
