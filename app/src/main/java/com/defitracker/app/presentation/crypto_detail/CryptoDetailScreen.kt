@@ -858,6 +858,7 @@ private data class PosGeom(
 // ─── PRICE CHART ────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun PriceChart(
     state: CryptoDetailState,
     prefs: IndicatorPrefs,
@@ -2349,7 +2350,7 @@ fun PriceChart(
                     canvas.drawText(txt, rx + 8f, ly + h - 7f, selectionTextPaint)
                 }
 
-                private fun drawSinglePosition(canvas: Canvas, candles: List<CandleData>, o: PositionOverlay, selected: Boolean) {
+                private fun drawSinglePosition(canvas: Canvas, _candles: List<CandleData>, o: PositionOverlay, selected: Boolean) {
                     val g = positionGeom(o) ?: return
                     val profitColor = GraphicsColor.parseColor(POS_PROFIT_HEX)
                     val lossColor = GraphicsColor.parseColor(POS_LOSS_HEX)
@@ -2390,8 +2391,6 @@ fun PriceChart(
                     if (selected) {
                         val contentLeft = viewPortHandler.contentLeft()
                         val contentRight = viewPortHandler.contentRight()
-                        val contentTop = viewPortHandler.contentTop()
-                        val contentBottom = viewPortHandler.contentBottom()
                         // punteadas sutiles de borde a borde + marca en el eje Y, como la entrada
                         posDashPaint.color = topColor
                         posDashPaint.alpha = 120
@@ -3521,8 +3520,8 @@ fun PriceChart(
                     trans.pointValuesToPixel(xPts)
                     val snappedPy = xPts[1]
 
-                    // X libre del dedo por todo el lienzo, Y exacto del toque
-                    val px = if (lastTouchXPx >= 0) lastTouchXPx.coerceIn(contentLeft, contentRight) else xPts[0]
+                    // X snapeada a la vela, Y exacto del toque
+                    val px = xPts[0].coerceIn(contentLeft, contentRight)
                     val py = if (lastTouchYPx >= 0) lastTouchYPx.coerceIn(contentTop, contentBottom) else snappedPy
 
                     // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
@@ -5196,7 +5195,7 @@ private fun updateLastMacdInPlace(chart: CombinedChart, state: CryptoDetailState
             for (i in 0 until bd.dataSetCount) {
                 val ds = bd.getDataSetByIndex(i)
                 if (ds.entryCount > 0) {
-                    (ds.getEntryForIndex(ds.entryCount - 1) as? BarEntry)?.y = lastHist.second.toFloat()
+                    ds.getEntryForIndex(ds.entryCount - 1)?.y = lastHist.second.toFloat()
                 }
             }
         }
@@ -6056,7 +6055,6 @@ fun MaListSheet(
     var tfMenuId by remember { mutableStateOf<String?>(null) }
     var widthMenuId by remember { mutableStateOf<String?>(null) }
     var periodDialogId by remember { mutableStateOf<String?>(null) }
-    val sheetContext = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -6073,20 +6071,10 @@ fun MaListSheet(
             )
             Text(
                 text = "+ Agregar",
-                color = if (mas.size < IndicatorPrefs.MAX_MAS) AppGreen else Color.Gray,
+                color = AppGreen,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable {
-                    if (mas.size < IndicatorPrefs.MAX_MAS) {
-                        onAdd()
-                    } else {
-                        android.widget.Toast.makeText(
-                            sheetContext,
-                            "Máximo ${IndicatorPrefs.MAX_MAS} medias",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
+                modifier = Modifier.clickable { onAdd() }
             )
         }
         Spacer(modifier = Modifier.height(8.dp))

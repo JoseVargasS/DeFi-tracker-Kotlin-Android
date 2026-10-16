@@ -70,7 +70,7 @@ data class IndicatorPrefs(
             "chart", "1m", "5m", "15m", "30m", "1h", "2h", "4h",
             "6h", "12h", "1d", "3d", "5d", "1w", "2w", "1mo"
         )
-        const val MAX_MAS = 8
+        // sin tope de cantidad, lista libre
         val PRESET_COLORS = listOf(
             "#E91E63", "#22D8EB", "#FFFFFF", "#FFD60A",
             "#0ECB81", "#FF9800", "#B39DDB", "#F6465D"
@@ -241,7 +241,7 @@ class IndicatorPrefsRepository @Inject constructor(
 
 // una MA por segmento id|tipo|periodo|color|grosor|visible|tf, ";" entre MAs
 private fun encodeMas(mas: List<MaConfig>): String =
-    mas.take(IndicatorPrefs.MAX_MAS).joinToString(";") {
+    mas.joinToString(";") {
         listOf(it.id, it.type.name, it.period.toString(), it.colorHex, it.width.toString(), bool01(it.visible), it.timeframe).joinToString("|")
     }
 
@@ -263,7 +263,7 @@ private fun decodeMas(raw: String?): List<MaConfig>? {
                 width = p[4].toFloatOrNull()?.coerceIn(0.5f, 3f) ?: 1.2f,
                 visible = p.flag(5)
             )
-        }.ifEmpty { null }?.take(IndicatorPrefs.MAX_MAS)
+        }.ifEmpty { null }
     } catch (_: Exception) {
         null
     }

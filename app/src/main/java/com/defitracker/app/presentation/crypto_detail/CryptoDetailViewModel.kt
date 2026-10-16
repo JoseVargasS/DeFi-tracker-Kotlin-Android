@@ -339,13 +339,12 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         refreshExtraMas(force = true)
     }
     fun addMA() = updatePrefs { cur ->
-        if (cur.mas.size >= IndicatorPrefs.MAX_MAS) return@updatePrefs cur
         val usedPeriods = cur.mas.map { it.period }.toSet()
         val period = listOf(9, 21, 50, 200, 10, 30, 100, 55).firstOrNull { it !in usedPeriods } ?: 50
         val usedColors = cur.mas.map { it.colorHex }.toSet()
         val color = IndicatorPrefs.ADD_COLORS.firstOrNull { it !in usedColors } ?: "#FFFFFF"
         val id = "ma${period}_${System.currentTimeMillis() % 100000}"
-        cur.copy(mas = cur.mas + MaConfig(id, period, MaType.SMA, "chart", color, 1.2f, true))
+        cur.copy(mas = cur.mas + MaConfig(id, period, MaType.SMA, "chart", color, 1.2f, false))
     }
     fun deleteMA(id: String) = updatePrefs { cur ->
         if (cur.mas.size <= 1) return@updatePrefs cur
@@ -463,6 +462,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         _fibOverlays.value = _fibOverlays.value.map { if (it.id == id) overlay else it }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun commitFib(id: String) {
         persistFibs()
     }
@@ -560,6 +560,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         _drawOverlays.value = _drawOverlays.value.map { if (it.id == id) overlay else it }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun commitDraw(id: String) {
         persistDraws()
     }
@@ -634,6 +635,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         _positionOverlays.value = _positionOverlays.value.map { if (it.id == id) overlay else it }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun commitPosition(id: String) {
         persistPositions()
     }
@@ -803,6 +805,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     // tick sin cambios = sin reconstruccion (mata el parpadeo en laterales)
     private var lastTickPrice = Double.NaN
     private var lastTickCandleKey = ""
+    private var lastBaseVol24 = Double.NaN
     private var lastTvDetailAt = 0L
 
     private fun startUpdates() {
@@ -844,8 +847,18 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         val tickInterval = _state.value.selectedInterval
                         val tickCandles = _state.value.candles
                         val tickLast = tickCandles.lastOrNull()
+                        // volumen vivo: el tick antes solo movia precio, la ultima barra quedaba
+                        // congelada hasta el cierre. El delta del vol 24h ≈ lo tradeado entre ticks.
+                        val baseVol24 = detail.volume.toDoubleValue()
+                        var volDelta = 0.0
+                        if (lastBaseVol24.isFinite() && baseVol24 > 0.0) {
+                            val d = baseVol24 - lastBaseVol24
+                            if (d > 0.0) volDelta = d
+                        }
+                        if (baseVol24 > 0.0) lastBaseVol24 = baseVol24
+                        val liveVol = (tickLast?.volume ?: 0.0) + volDelta
                         val tickKey = if (tickLast == null) "empty"
-                        else "${tickLast.time}:${tickLast.open}:${tickLast.high}:${tickLast.low}:$currentPrice:${tickCandles.size}"
+                        else "${tickLast.time}:${tickLast.open}:${tickLast.high}:${tickLast.low}:$currentPrice:$liveVol:${tickCandles.size}"
                         // nada se movio: ni recalculo ni estado nuevo, el chart ni se entera
                         if (currentPrice == lastTickPrice && tickKey == lastTickCandleKey) continue
                         lastTickPrice = currentPrice
@@ -853,10 +866,16 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         val updatedCandles = tickCandles.toMutableList()
                         if (updatedCandles.isNotEmpty()) {
                             val lastCandle = updatedCandles.last()
+                            // el split buy/sell conserva su proporcion al crecer
+                            val buyRatio = if (lastCandle.volume > 0.0) {
+                                (lastCandle.takerBuyVol / lastCandle.volume).coerceIn(0.0, 1.0)
+                            } else 0.5
                             val newLastCandle = lastCandle.copy(
                                 close = currentPrice,
                                 high = currentPrice.coerceAtLeast(lastCandle.high),
-                                low = currentPrice.coerceAtMost(lastCandle.low)
+                                low = currentPrice.coerceAtMost(lastCandle.low),
+                                volume = liveVol,
+                                takerBuyVol = lastCandle.takerBuyVol + volDelta * buyRatio
                             )
                             updatedCandles[updatedCandles.size - 1] = newLastCandle
                         }

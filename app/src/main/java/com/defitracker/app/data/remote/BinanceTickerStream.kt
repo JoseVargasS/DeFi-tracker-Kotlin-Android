@@ -44,8 +44,7 @@ class BinanceTickerStream(
     private suspend fun connectOnce(onBatch: (Map<String, BinanceTick>) -> Unit) {
         val done = kotlinx.coroutines.CompletableDeferred<Unit>()
         val request = Request.Builder().url(WS_URL).build()
-        var socket: WebSocket? = null
-        socket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+        val socket: WebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val data = JSONObject(text).optJSONArray("data") ?: return

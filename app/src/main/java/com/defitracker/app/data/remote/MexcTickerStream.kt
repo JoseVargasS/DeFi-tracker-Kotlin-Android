@@ -46,8 +46,7 @@ class MexcTickerStream(
         // ping de la app: el server tumba conexiones sin trafico a los ~60s.
         // coroutineScope: al salir se cancela el ping solo
         kotlinx.coroutines.coroutineScope {
-            var socket: WebSocket? = null
-            socket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+            val socket: WebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     webSocket.send(SUB_MSG)
                     launch {
@@ -92,7 +91,7 @@ class MexcTickerStream(
                 done.await()
             } finally {
                 try {
-                    socket?.close(1000, null)
+                    socket.close(1000, null)
                 } catch (_: Exception) {}
             }
         }

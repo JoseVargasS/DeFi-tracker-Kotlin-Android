@@ -46,7 +46,7 @@ class TradingViewClient(
             .header("Origin", "https://www.tradingview.com")
             .build()
 
-        var socket: WebSocket? = null
+        val socket: WebSocket
         val bars = ArrayList<List<Any>>()
 
         socket = okHttpClient.newWebSocket(request, object : WebSocketListener() {

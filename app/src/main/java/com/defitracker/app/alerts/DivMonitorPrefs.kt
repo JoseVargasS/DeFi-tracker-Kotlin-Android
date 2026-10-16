@@ -28,15 +28,16 @@ class DivMonitorPrefs @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     val configFlow: Flow<DivMonitorConfig> = context.divMonitorDataStore.data.map { p ->
+        // null = nunca configurado -> defaults; "" = apagado todo a proposito -> vacio
+        val intervalsRaw = p[stringPreferencesKey("intervals")]
+        val signalsRaw = p[stringPreferencesKey("signals")]
         DivMonitorConfig(
             enabled = p[booleanPreferencesKey("enabled")] ?: true,
-            intervals = p[stringPreferencesKey("intervals")]
-                ?.split(",").orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                .ifEmpty { DivMonitorConfig().intervals },
+            intervals = if (intervalsRaw == null) DivMonitorConfig().intervals
+            else intervalsRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
             confluence = p[booleanPreferencesKey("confluence")] ?: true,
-            signals = p[stringPreferencesKey("signals")]
-                ?.split(",").orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                ?: DivMonitorConfig().signals,
+            signals = if (signalsRaw == null) DivMonitorConfig().signals
+            else signalsRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
             priceSoundUri = p[stringPreferencesKey("price_sound")] ?: ""
         )
     }

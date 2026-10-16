@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -108,8 +109,15 @@ fun PriceAlertSheet(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
-                val picked: Uri? =
+                val picked: Uri? = if (Build.VERSION.SDK_INT >= 33) {
+                    result.data?.getParcelableExtra(
+                        RingtoneManager.EXTRA_RINGTONE_PICKED_URI,
+                        Uri::class.java
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
                     result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                }
                 onSoundPicked(picked?.toString().orEmpty())
             }
         }
