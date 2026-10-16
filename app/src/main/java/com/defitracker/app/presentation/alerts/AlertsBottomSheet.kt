@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -217,7 +219,7 @@ fun AlertsBottomSheet(
 }
 
 // config de alertas en su propio sheet (tuerca dentro de la zona de notis)
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AlertConfigSheet(
     state: AlertsState,
@@ -245,35 +247,17 @@ private fun AlertConfigSheet(
             )
             Spacer(Modifier.height(8.dp))
             // TFs configurables, por defecto 5m/15m/30m/1h
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                DivMonitorPrefs.ALL_INTERVALS.take(7).forEach { tf ->
+                DivMonitorPrefs.ALL_INTERVALS.forEach { tf ->
                     val selected = tf in state.intervals
                     FilterChip(
                         selected = selected,
                         onClick = { onToggleInterval(tf) },
-                        label = { Text(tf, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AppGreen.copy(alpha = 0.25f),
-                            selectedLabelColor = Color.White,
-                            containerColor = CardBg,
-                            labelColor = Color.Gray
-                        )
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DivMonitorPrefs.ALL_INTERVALS.drop(7).forEach { tf ->
-                    val selected = tf in state.intervals
-                    FilterChip(
-                        selected = selected,
-                        onClick = { onToggleInterval(tf) },
-                        label = { Text(tf, fontSize = 11.sp) },
+                        label = { Text(tf, fontSize = 11.sp, maxLines = 1) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = AppGreen.copy(alpha = 0.25f),
                             selectedLabelColor = Color.White,
