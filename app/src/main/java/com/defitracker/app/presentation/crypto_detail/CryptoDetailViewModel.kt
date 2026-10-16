@@ -640,7 +640,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         persistPositions()
     }
 
-    // un tap crea la posicion con defaults (10x, SL/TP 1%, 500 USDT)
+    // un tap crea la posicion con defaults (5x, SL/TP 1.5%, 750 USDT)
     fun addPosition(long: Boolean, entryTime: Long, entryPrice: Double, halfWidthMs: Long): PositionOverlay? {
         if (_positionOverlays.value.size >= MAX_POSITIONS_PER_SYMBOL) return null
         if (entryPrice <= 0) return null

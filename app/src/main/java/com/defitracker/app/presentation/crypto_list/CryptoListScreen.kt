@@ -23,9 +23,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -57,12 +59,15 @@ import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.presentation.crypto_list.components.CryptoPairItem
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(
     ExperimentalMaterial3Api::class,
     androidx.compose.ui.ExperimentalComposeUiApi::class,
-    androidx.compose.material.ExperimentalMaterialApi::class
+    androidx.compose.material.ExperimentalMaterialApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 @Composable
 fun CryptoListScreen(
@@ -139,27 +144,37 @@ fun CryptoListScreen(
     val scope = rememberCoroutineScope()
     val dragKey = remember { mutableStateOf<String?>(null) }
     val dragOffsetY = remember { mutableStateOf(0f) }
+    // Y del dedo en coords del viewport, manda sobre el offset acumulado
+    val fingerY = remember { mutableStateOf(0f) }
     val localOrder = remember { mutableStateOf<List<CryptoPair>?>(null) }
+    // un solo job de autoscroll: uno por evento se acumulaban y la lista saltaba
+    var autoScrollJob by remember { mutableStateOf<Job?>(null) }
+    // soltar despues de arrastrar no abre el par sin querer
+    var lastDropAt by remember { mutableStateOf(0L) }
+    fun stopAutoScroll() {
+        autoScrollJob?.cancel()
+        autoScrollJob = null
+    }
     val sortMode = viewModel.sortMode.value
     val sparklines = viewModel.sparklines.value
     val volumes = viewModel.volumes.value
     val basePairs = localOrder.value ?: visiblePairs
     val displayPairs = remember(basePairs, sortMode, volumes) {
         when (sortMode) {
-            SortMode.MANUAL -> basePairs
+            SortMode.DEFAULT -> basePairs
             SortMode.VOL_DESC -> basePairs.sortedByDescending { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
-            SortMode.VOL_ASC -> basePairs.sortedBy { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
             SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleValue() }
-            SortMode.CHG_ASC -> basePairs.sortedBy { it.priceChangePercent.toDoubleValue() }
         }
     }
     val sortLabel = when (sortMode) {
-        SortMode.MANUAL -> "Ordenar por: Manual"
+        SortMode.DEFAULT -> "Ordenar por: Defecto"
         SortMode.VOL_DESC -> "Ordenar por Volumen 24h ↓"
-        SortMode.VOL_ASC -> "Ordenar por Volumen 24h ↑"
         SortMode.CHG_DESC -> "Ordenar por Cambio 24h ↓"
-        SortMode.CHG_ASC -> "Ordenar por Cambio 24h ↑"
     }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    // ref fresca del orden visible: el gesto no se reinicia con los ticks,
+    // sembrar desde displayPairs directo usaba la lista vieja y el 2do move borraba el 1ro
+    val displayPairsRef = rememberUpdatedState(displayPairs)
     // jalar-para-actualizar con el componente estandar: baja/crece/gira fluido,
     // dispara solo al soltar pasado el punto, reversa cancela con animacion
     val manualRefreshing = viewModel.manualRefreshing.value
@@ -371,7 +386,7 @@ fun CryptoListScreen(
                         }
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            // header estilo exchange, tap cicla el orden
+                            // header estilo exchange, tap abre el desplegable de orden
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -379,13 +394,41 @@ fun CryptoListScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = sortLabel,
-                                    color = Color.Gray,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.clickable { viewModel.cycleSort() }
-                                )
+                                Box {
+                                    Text(
+                                        text = sortLabel,
+                                        color = Color.Gray,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.clickable { sortMenuOpen = true }
+                                    )
+                                    DropdownMenu(
+                                        expanded = sortMenuOpen,
+                                        onDismissRequest = { sortMenuOpen = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Por defecto") },
+                                            onClick = {
+                                                viewModel.setSortMode(SortMode.DEFAULT)
+                                                sortMenuOpen = false
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Mayor cambio 24h") },
+                                            onClick = {
+                                                viewModel.setSortMode(SortMode.CHG_DESC)
+                                                sortMenuOpen = false
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Mayor volumen") },
+                                            onClick = {
+                                                viewModel.setSortMode(SortMode.VOL_DESC)
+                                                sortMenuOpen = false
+                                            }
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "Cambio 24h",
                                     color = Color.Gray,
@@ -403,22 +446,38 @@ fun CryptoListScreen(
                             ) { pair ->
                                 val key = "${pair.symbol}-${pair.source}"
                                 val dragging = dragKey.value == key
-                                Box(
+                                // fila con handle a la izquierda: unico punto de arrastre
+                                Row(
                                     modifier = Modifier
+                                        .animateItemPlacement()
                                         .graphicsLayer {
                                             translationY = if (dragging) dragOffsetY.value else 0f
-                                        }
-                                        .pointerInput(key, sortMode) {
-                                            // drag solo en modo manual, ordenado no se arrastra
-                                            if (sortMode == SortMode.MANUAL) {
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // handle chiquito siempre visible, con long-press para no mover sin querer
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .width(30.dp)
+                                            .pointerInput(key, sortMode) {
                                             detectDragGesturesAfterLongPress(
                                                 onDragStart = {
                                                     view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                                    // en ordenado se pasa a Por defecto con lo visible como base
+                                                    if (sortMode != SortMode.DEFAULT) {
+                                                        viewModel.setSortMode(SortMode.DEFAULT)
+                                                    }
                                                     dragKey.value = key
-                                                    localOrder.value = displayPairs
+                                                    localOrder.value = displayPairsRef.value
                                                     dragOffsetY.value = 0f
+                                                    val vi = listState.layoutInfo.visibleItemsInfo
+                                                        .find { it.key == key }
+                                                    fingerY.value = (vi?.offset ?: 0) + (vi?.size ?: 0) / 2f
                                                 },
                                                 onDragEnd = {
+                                                    stopAutoScroll()
+                                                    lastDropAt = System.currentTimeMillis()
                                                     localOrder.value?.let { ordered ->
                                                         viewModel.savePairOrder(ordered.map { "${it.symbol}-${it.source}" })
                                                     }
@@ -427,50 +486,92 @@ fun CryptoListScreen(
                                                     localOrder.value = null
                                                 },
                                                 onDragCancel = {
+                                                    stopAutoScroll()
                                                     dragKey.value = null
                                                     dragOffsetY.value = 0f
                                                     localOrder.value = null
                                                 },
                                                 onDrag = { change, dragAmount ->
                                                     change.consume()
-                                                    dragOffsetY.value += dragAmount.y
+                                                    fingerY.value += dragAmount.y
+                                                    val info = listState.layoutInfo
+                                                    val slots = info.visibleItemsInfo.sortedBy { it.index }
+                                                    if (slots.isEmpty()) return@detectDragGesturesAfterLongPress
+                                                    // reancla al slot actual: compensa swaps y autoscroll
+                                                    val slot = slots.find { it.key == dragKey.value }
+                                                    if (slot != null) {
+                                                        dragOffsetY.value = fingerY.value - (slot.offset + slot.size / 2f)
+                                                    } else {
+                                                        dragOffsetY.value += dragAmount.y
+                                                    }
                                                     val current = localOrder.value?.toMutableList()
                                                         ?: return@detectDragGesturesAfterLongPress
                                                     val dragId = dragKey.value ?: return@detectDragGesturesAfterLongPress
                                                     val from = current.indexOfFirst { "${it.symbol}-${it.source}" == dragId }
                                                     if (from < 0) return@detectDragGesturesAfterLongPress
-                                                    // por key, el indice de Lazy cambia con cada reorder
-                                                    val itemH = listState.layoutInfo.visibleItemsInfo
-                                                        .find { it.key == dragId }?.size ?: 180
-                                                    val target = (from + (dragOffsetY.value / itemH).roundToInt())
-                                                        .coerceIn(0, current.size - 1)
+                                                    // destino por posicion real del dedo, sin asumir altos
+                                                    var target = slots.last().index.coerceIn(0, current.size - 1)
+                                                    for (vi in slots) {
+                                                        if (fingerY.value < vi.offset + vi.size / 2f) {
+                                                            target = vi.index.coerceIn(0, current.size - 1)
+                                                            break
+                                                        }
+                                                    }
                                                     if (target != from) {
+                                                        val lo = minOf(from, target)
+                                                        val hi = maxOf(from, target)
+                                                        var dist = 0f
+                                                        for (vi in slots) {
+                                                            if (vi.key != dragId && vi.index in (lo + 1)..hi) dist += vi.size
+                                                        }
+                                                        if (dist <= 0f) dist = kotlin.math.abs(target - from) * 180f
                                                         val item = current.removeAt(from)
                                                         current.add(target, item)
                                                         localOrder.value = current
-                                                        // descuenta lo ya movido o el offset acumulado salta de mas
-                                                        dragOffsetY.value -= (target - from) * itemH
+                                                        // descuenta lo cruzado con altos reales
+                                                        dragOffsetY.value += if (target > from) -dist else dist
                                                     }
-                                                    // autoscroll en bordes
-                                                    val info = listState.layoutInfo
+                                                    // autoscroll en bordes con un solo job vivo
                                                     val vi = info.visibleItemsInfo.find { it.key == dragId }
                                                     val center = (vi?.offset ?: 0) + dragOffsetY.value + (vi?.size ?: 0) / 2
                                                     val viewportH = info.viewportEndOffset - info.viewportStartOffset
-                                                    if (center < 120) {
-                                                        scope.launch { listState.scroll { scrollBy(-60f) } }
-                                                    } else if (center > viewportH - 120) {
-                                                        scope.launch { listState.scroll { scrollBy(60f) } }
+                                                    val dir = when {
+                                                        center < 120 -> -1f
+                                                        center > viewportH - 120 -> 1f
+                                                        else -> 0f
+                                                    }
+                                                    if (dir == 0f) {
+                                                        stopAutoScroll()
+                                                    } else if (autoScrollJob?.isActive != true) {
+                                                        autoScrollJob = scope.launch {
+                                                            // con pausa de frame: sin delay saturaba el hilo y ANR
+                                                            while (true) {
+                                                                var moved = 0f
+                                                                listState.scroll { moved = scrollBy(24f * dir) }
+                                                                // la lista se movio sola: el item sigue al dedo
+                                                                if (moved != 0f) dragOffsetY.value += moved
+                                                                delay(16)
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             )
                                             }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DragHandle,
+                                                contentDescription = "Reordenar",
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(20.dp)
+                                            )
                                         }
-                                ) {
-                                    CryptoPairItem(
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        CryptoPairItem(
                                         pair = pair,
                                         sparkline = sparklines[key] ?: emptyList(),
                                         extended = viewModel.dayExt.value[key] ?: false,
                                         onClick = {
+                                            if (System.currentTimeMillis() - lastDropAt < 300L) return@CryptoPairItem
                                             // semilla numerica (sin comas): el header del chart pinta al instante
                                             val seed = DetailSeed(
                                                 price = pair.price.filter { it.isDigit() || it == '.' },
@@ -481,7 +582,8 @@ fun CryptoListScreen(
                                             onNavigateToDetail(pair.symbol, pair.source, "", seed)
                                         },
                                         onDelete = { viewModel.onRemovePair(pair.symbol) }
-                                    )
+                                        )
+                                    }
                                 }
                                 Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                             }

@@ -2302,12 +2302,19 @@ fun PriceChart(
                 }
 
                 private fun positionLabel(o: PositionOverlay, line: Double): String {
-                    val (pct, _) = positionLineStats(o.entry, line, o.qtyUsdt, o.leverage)
-                    val qtyTxt = if (o.qtyUsdt % 1.0 == 0.0) o.qtyUsdt.toLong().toString()
-                    else formatPriceForChart(o.qtyUsdt, stateRef.value.daySubDollar)
-                    val pctTxt = "${if (pct >= 0) "+" else ""}${String.format(Locale.US, "%.2f", pct)}%"
                     val priceTxt = formatPriceForChart(line, stateRef.value.daySubDollar)
-                    return "$qtyTxt ($pctTxt) $priceTxt"
+                    if (o.entry <= 0.0) return priceTxt
+                    // % del movimiento del precio en la grafica, con signo segun la direccion:
+                    // TP siempre +, SL siempre -. Monto final = cantidad + PnL de ese lado.
+                    val rawMove = (line - o.entry) / o.entry * 100.0
+                    val dir = if (o.long) 1.0 else -1.0
+                    val pct = rawMove * dir
+                    val pnl = o.qtyUsdt * pct * o.leverage / 100.0
+                    val finalQty = o.qtyUsdt + pnl
+                    val qtyTxt = String.format(Locale.US, "%.2f", finalQty)
+                    val pctTxt = "${if (pct >= 0) "+" else ""}${String.format(Locale.US, "%.2f", pct)}%"
+                    // sin precio: ya se ve en el eje Y
+                    return "$qtyTxt ($pctTxt)"
                 }
 
                 private fun drawPositionLabel(canvas: Canvas, text: String, x: Float, y: Float, bg: Int, right: Boolean = false) {
@@ -2375,20 +2382,21 @@ fun PriceChart(
                     drawLinePaint.color = GraphicsColor.WHITE
                     canvas.drawLine(g.leftX, g.entryY, g.rightX, g.entryY, drawLinePaint)
                     drawLinePaint.alpha = 255
-                    // etiquetas: % apalancado + precio en SL/TP a la derecha, entrada al centro
+                    // etiquetas: solo con el dibujo seleccionado, centradas sobre la caja
                     val topLine = if (g.topIsProfit) o.tp else o.sl
                     val botLine = if (g.topIsProfit) o.sl else o.tp
-                    drawPositionLabel(canvas, positionLabel(o, topLine), g.rightX, g.topY, topColor, right = true)
-                    drawPositionLabel(canvas, positionLabel(o, botLine), g.rightX, g.botY, botColor, right = true)
-                    drawPositionLabel(
-                        canvas,
-                        formatPriceForChart(o.entry, stateRef.value.daySubDollar),
-                        (g.leftX + g.rightX) / 2f, g.entryY,
-                        GraphicsColor.argb(220, 26, 29, 35)
-                    )
                     // handles cuadrados si esta seleccionada: arriba/abajo al centro,
                     // el del medio fuera de la caja pa' no chocar con las etiquetas
                     if (selected) {
+                        val cx = (g.leftX + g.rightX) / 2f
+                        drawPositionLabel(canvas, positionLabel(o, topLine), cx, g.topY, topColor)
+                        drawPositionLabel(canvas, positionLabel(o, botLine), cx, g.botY, botColor)
+                        drawPositionLabel(
+                            canvas,
+                            formatPriceForChart(o.entry, stateRef.value.daySubDollar),
+                            cx, g.entryY,
+                            GraphicsColor.argb(220, 26, 29, 35)
+                        )
                         val contentLeft = viewPortHandler.contentLeft()
                         val contentRight = viewPortHandler.contentRight()
                         // punteadas sutiles de borde a borde + marca en el eje Y, como la entrada
@@ -2401,7 +2409,6 @@ fun PriceChart(
                         drawPosYTag(canvas, topLine, topColor)
                         drawPosYTag(canvas, botLine, botColor)
                         drawPosYTag(canvas, o.entry, GraphicsColor.argb(220, 26, 29, 35))
-                        val cx = (g.leftX + g.rightX) / 2f
                         val r = 18f
                         listOf(
                             Triple(cx, g.topY, 1),

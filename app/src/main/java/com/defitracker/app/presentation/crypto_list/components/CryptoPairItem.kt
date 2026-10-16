@@ -203,7 +203,7 @@ private fun Sparkline(values: List<Double>, positive: Boolean) {
         )
         Box(
             modifier = Modifier
-                .width(70.dp)
+                .width(54.dp)
                 .height(28.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(Color.Gray.copy(alpha = pulse.value))
@@ -211,7 +211,7 @@ private fun Sparkline(values: List<Double>, positive: Boolean) {
         return
     }
     val color = if (positive) AppGreen else AppRed
-    Canvas(modifier = Modifier.width(70.dp).height(28.dp)) {
+    Canvas(modifier = Modifier.width(54.dp).height(28.dp)) {
         val min = values.minOrNull() ?: return@Canvas
         val max = values.maxOrNull() ?: return@Canvas
         val range = (max - min).takeIf { it > 0 } ?: 1.0

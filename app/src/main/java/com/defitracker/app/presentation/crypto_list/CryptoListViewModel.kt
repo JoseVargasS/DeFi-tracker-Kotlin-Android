@@ -79,19 +79,13 @@ class CryptoListViewModel @Inject constructor(
     // precision de costumbre por par: 1 call diaria extra por par cada 5 min (cache 5 min del repo)
     private val _dayExt = mutableStateOf<Map<String, Boolean>>(emptyMap())
     val dayExt: State<Map<String, Boolean>> = _dayExt
-    private val _sortMode = mutableStateOf(SortMode.MANUAL)
+    private val _sortMode = mutableStateOf(SortMode.DEFAULT)
     val sortMode: State<SortMode> = _sortMode
 
     fun pairKey(symbol: String, source: String) = "$symbol-$source"
 
-    fun cycleSort() {
-        _sortMode.value = when (_sortMode.value) {
-            SortMode.MANUAL -> SortMode.VOL_DESC
-            SortMode.VOL_DESC -> SortMode.VOL_ASC
-            SortMode.VOL_ASC -> SortMode.CHG_DESC
-            SortMode.CHG_DESC -> SortMode.CHG_ASC
-            SortMode.CHG_ASC -> SortMode.MANUAL
-        }
+    fun setSortMode(mode: SortMode) {
+        _sortMode.value = mode
     }
 
     init {
@@ -357,7 +351,7 @@ class CryptoListViewModel @Inject constructor(
 }
 
 enum class SortMode {
-    MANUAL, VOL_DESC, VOL_ASC, CHG_DESC, CHG_ASC
+    DEFAULT, VOL_DESC, CHG_DESC
 }
 
 data class CryptoListState(
