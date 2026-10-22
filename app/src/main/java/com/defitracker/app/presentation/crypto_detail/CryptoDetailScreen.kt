@@ -2033,6 +2033,25 @@ fun PriceChart(
                             bestDist = de
                             best = Triple(o.id, 2, o.locked)
                         }
+                        // rectangulo: 4 puntos medios, 4=izq 5=der 6=arriba 7=abajo
+                        if (o.kind == DrawKind.RECT) {
+                            val l = min(s.x, e.x)
+                            val rr = max(s.x, e.x)
+                            val t = min(s.y, e.y)
+                            val b = max(s.y, e.y)
+                            listOf(
+                                4 to (l to (t + b) / 2f),
+                                5 to (rr to (t + b) / 2f),
+                                6 to ((l + rr) / 2f to t),
+                                7 to ((l + rr) / 2f to b)
+                            ).forEach { (zone, p) ->
+                                val d = kotlin.math.hypot(x - p.first, y - p.second)
+                                if (d <= 45f && d < bestDist) {
+                                    bestDist = d
+                                    best = Triple(o.id, zone, o.locked)
+                                }
+                            }
+                        }
                         if (bestDist <= 60f) return@forEach
                         var bodyDist = Float.MAX_VALUE
                         when (o.kind) {
@@ -2190,6 +2209,48 @@ fun PriceChart(
                                 canvas.drawRect(yTagRect, drawFillPaint)
                             }
                             canvas.drawRect(yTagRect, drawLinePaint)
+                            // precios de los bordes pegados al eje Y, como el tag de la cruz
+                            val rectTop = yTagRect.top
+                            val rectBottom = yTagRect.bottom
+                            val rectLeft = yTagRect.left
+                            val rectRight = yTagRect.right
+                            val chipH = drawLabelPaint.textSize + 8f
+                            val refClose = candles.lastOrNull()?.close ?: o.start.price
+                            fun chipTop(centerY: Float) = (centerY - chipH / 2f)
+                                .coerceIn(contentTop, (contentBottom - chipH).coerceAtLeast(contentTop))
+                            fun priceTag(price: Double, top: Float) {
+                                val txt = formatAxisPrice(price, refClose, stateRef.value.daySubDollar)
+                                val w = drawLabelPaint.measureText(txt) + 12f
+                                val leftRaw = contentRight + 2f
+                                val offRight = (leftRaw + w - (width.toFloat() - 2f)).coerceAtLeast(0f)
+                                val left = leftRaw - offRight
+                                yTagRect.set(left, top, left + w, top + chipH)
+                                canvas.drawRoundRect(yTagRect, 3f, 3f, drawChipPaint)
+                                canvas.drawText(txt, left + 6f, top + chipH - 6f, drawLabelPaint)
+                            }
+                            val hi = maxOf(o.start.price, o.end.price)
+                            val lo = minOf(o.start.price, o.end.price)
+                            // rectangulo bajo: separar los tags pa' que no se encimen
+                            val topHi = if (chipTop(rectBottom) - chipTop(rectTop) < chipH) {
+                                (chipTop(rectBottom) - chipH).coerceAtLeast(contentTop)
+                            } else {
+                                chipTop(rectTop)
+                            }
+                            val topLo = if (chipTop(rectBottom) - topHi < chipH) {
+                                (topHi + chipH).coerceAtMost((contentBottom - chipH).coerceAtLeast(contentTop))
+                            } else {
+                                chipTop(rectBottom)
+                            }
+                            priceTag(hi, topHi)
+                            priceTag(lo, topLo)
+                            // proyeccion punteada a los ejes, solo al construir o seleccionar
+                            if (selected) {
+                                drawDashPaint.color = lineColor
+                                canvas.drawLine(contentLeft, rectTop, contentRight, rectTop, drawDashPaint)
+                                canvas.drawLine(contentLeft, rectBottom, contentRight, rectBottom, drawDashPaint)
+                                canvas.drawLine(rectLeft, contentTop, rectLeft, contentBottom, drawDashPaint)
+                                canvas.drawLine(rectRight, contentTop, rectRight, contentBottom, drawDashPaint)
+                            }
                         }
                         DrawKind.CIRCLE -> {
                             yTagRect.set(min(s.x, e.x), min(s.y, e.y), max(s.x, e.x), max(s.y, e.y))
@@ -2236,6 +2297,24 @@ fun PriceChart(
                         }
                         canvas.drawCircle(e.x, e.y, r, drawHandleFill)
                         canvas.drawCircle(e.x, e.y, r, drawHandleStroke)
+                        // rectangulo: puntos al medio de cada lado, estiran un solo eje
+                        if (o.kind == DrawKind.RECT) {
+                            val l = min(s.x, e.x)
+                            val rr = max(s.x, e.x)
+                            val t = min(s.y, e.y)
+                            val b = max(s.y, e.y)
+                            val hr = 9f
+                            listOf(
+                                l to (t + b) / 2f,
+                                rr to (t + b) / 2f,
+                                (l + rr) / 2f to t,
+                                (l + rr) / 2f to b
+                            ).forEach { (hx, hy) ->
+                                yTagRect.set(hx - hr, hy - hr, hx + hr, hy + hr)
+                                canvas.drawRect(yTagRect, drawHandleFill)
+                                canvas.drawRect(yTagRect, drawHandleStroke)
+                            }
+                        }
                     }
                     drawLinePaint.alpha = 255
                 }
@@ -3033,8 +3112,19 @@ fun PriceChart(
                                             }
                                         } else {
                                             drawAnchorFromTouch(event.x, event.y)?.let { anchor ->
-                                                val next = if (drawDragZone == 1) cur.copy(start = anchor)
-                                                else cur.copy(end = anchor)
+                                                val next = when (drawDragZone) {
+                                                    1 -> cur.copy(start = anchor)
+                                                    2 -> cur.copy(end = anchor)
+                                                    // lados: solo el eje agarrado, sin cruzarse al opuesto
+                                                    4 -> if (cur.start.time <= cur.end.time) cur.copy(start = cur.start.copy(time = minOf(anchor.time, cur.end.time)))
+                                                    else cur.copy(end = cur.end.copy(time = minOf(anchor.time, cur.start.time)))
+                                                    5 -> if (cur.start.time >= cur.end.time) cur.copy(start = cur.start.copy(time = maxOf(anchor.time, cur.end.time)))
+                                                    else cur.copy(end = cur.end.copy(time = maxOf(anchor.time, cur.start.time)))
+                                                    6 -> if (cur.start.price >= cur.end.price) cur.copy(start = cur.start.copy(price = maxOf(anchor.price, cur.end.price)))
+                                                    else cur.copy(end = cur.end.copy(price = maxOf(anchor.price, cur.start.price)))
+                                                    else -> if (cur.start.price <= cur.end.price) cur.copy(start = cur.start.copy(price = minOf(anchor.price, cur.end.price)))
+                                                    else cur.copy(end = cur.end.copy(price = minOf(anchor.price, cur.start.price)))
+                                                }
                                                 drawsRef.value = drawsRef.value.map { if (it.id == id) next else it }
                                                 onDrawLive?.invoke(id, next)
                                                 invalidate()
