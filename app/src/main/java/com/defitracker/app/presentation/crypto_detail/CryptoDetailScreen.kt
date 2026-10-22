@@ -2489,12 +2489,14 @@ fun PriceChart(
                         drawPosYTag(canvas, botLine, botColor)
                         drawPosYTag(canvas, o.entry, GraphicsColor.argb(220, 26, 29, 35))
                         val r = 18f
+                        // arriba/abajo al borde izq pa' no tapar los tags centrados
+                        val hx = g.leftX + 20f
                         listOf(
-                            Triple(cx, g.topY, 1),
+                            Triple(hx, g.topY, 1),
                             Triple(g.rightX + 26f, g.entryY, 2),
-                            Triple(cx, g.botY, 3)
-                        ).forEach { (hx, hy, _) ->
-                            yTagRect.set(hx - r, hy - r, hx + r, hy + r)
+                            Triple(hx, g.botY, 3)
+                        ).forEach { (hx2, hy, _) ->
+                            yTagRect.set(hx2 - r, hy - r, hx2 + r, hy + r)
                             canvas.drawRect(yTagRect, fibHandleFill)
                             canvas.drawRect(yTagRect, fibHandleStroke)
                         }
@@ -2514,8 +2516,9 @@ fun PriceChart(
                     var bestDist = Float.MAX_VALUE
                     positionsRef.value.forEach { o ->
                         val g = positionGeom(o) ?: return@forEach
-                        val cx = (g.leftX + g.rightX) / 2f
-                        val dTop = kotlin.math.hypot(x - cx, y - g.topY)
+                        // anclajes de TP/SL al borde izq: centrados tapaban sus tags
+                        val hx = g.leftX + 20f
+                        val dTop = kotlin.math.hypot(x - hx, y - g.topY)
                         if (dTop <= 60f && dTop < bestDist) {
                             bestDist = dTop
                             best = Triple(o.id, 1, false)
@@ -2525,7 +2528,7 @@ fun PriceChart(
                             bestDist = dMid
                             best = Triple(o.id, 2, false)
                         }
-                        val dBot = kotlin.math.hypot(x - cx, y - g.botY)
+                        val dBot = kotlin.math.hypot(x - hx, y - g.botY)
                         if (dBot <= 60f && dBot < bestDist) {
                             bestDist = dBot
                             best = Triple(o.id, 3, false)

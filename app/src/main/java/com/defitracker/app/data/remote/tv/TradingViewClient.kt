@@ -12,6 +12,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
 class TradingViewClient(
@@ -27,6 +28,10 @@ class TradingViewClient(
 
         val rows = try {
             fetchRaw(symbol, resolution, countback)
+        } catch (e: TimeoutCancellationException) {
+            // TV no respondio a tiempo: se usa el memo y no se tumba la carga del chart
+            Log.w(TAG, "TV timeout for $symbol/$resolution")
+            memo[key]?.rows ?: emptyList()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -179,20 +184,28 @@ class TradingViewClient(
 }
 
 // TF del chart a resolucion TV, compartido por repo y ViewModel
-fun tvResolution(interval: String): String = when (interval.trim()) {
-    "1m" -> "1"
-    "3m" -> "3"
-    "5m" -> "5"
-    "15m" -> "15"
-    "30m" -> "30"
-    "1h" -> "60"
-    "2h" -> "120"
-    "4h" -> "240"
-    "6h" -> "360"
-    "12h" -> "720"
-    "1d", "5d" -> "1D"
-    "3d" -> "3D"
-    "1w", "2w" -> "1W"
-    "1mo" -> "1M"
-    else -> "60"
+// nota: el VM ya manda la resolucion resuelta; si llega otra vez aca no se
+// vuelve a mapear (antes "5" caia al default "60" y todo TV quedaba en 1h)
+private val TV_RESOLUTIONS = setOf("1", "3", "5", "15", "30", "60", "120", "240", "360", "720", "1D", "3D", "1W", "1M")
+
+fun tvResolution(interval: String): String {
+    val tf = interval.trim()
+    if (tf in TV_RESOLUTIONS) return tf
+    return when (tf) {
+        "1m" -> "1"
+        "3m" -> "3"
+        "5m" -> "5"
+        "15m" -> "15"
+        "30m" -> "30"
+        "1h" -> "60"
+        "2h" -> "120"
+        "4h" -> "240"
+        "6h" -> "360"
+        "12h" -> "720"
+        "1d", "5d" -> "1D"
+        "3d" -> "3D"
+        "1w", "2w" -> "1W"
+        "1mo" -> "1M"
+        else -> "60"
+    }
 }

@@ -13,6 +13,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -962,6 +963,9 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                     async(Dispatchers.IO) {
                         tf to try {
                             fetchExtraCandles(tf, force = false)
+                        } catch (e: TimeoutCancellationException) {
+                            // socket TV lento: sin ese extra, el chart igual pinta
+                            emptyList()
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {
@@ -975,6 +979,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                     async(Dispatchers.IO) {
                         tf to try {
                             fetchExtraCandles(tf, force = false)
+                        } catch (e: TimeoutCancellationException) {
+                            emptyList()
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {
@@ -996,10 +1002,25 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                 if (gen != chartGen) return@launch
                 // purga: los TFs viejos no se acumulan al pasear por intervalos
                 extraTfCandles.keys.retainAll(neededTfs)
+                extraSmcCandles.keys.retainAll(neededSmcTfs.toSet())
+                // TV: pintado rapido con el TF principal y los extras ya cacheados.
+                // esperar 4-5 sockets mas es lo que trababa el cambio de TF
+                if (source == "TV") {
+                    val quickCandles = withContext(Dispatchers.Default) { rawKlines.toCandleList() }
+                    if (quickCandles.isNotEmpty()) {
+                        val quick = withContext(Dispatchers.Default) {
+                            quickCandles.toChartComputation(normalizedInterval, masSnapshot, extraTfCandles.toMap())
+                        }
+                        if (gen == chartGen && _state.value.selectedInterval == normalizedInterval) {
+                            val quickSmc = withContext(Dispatchers.Default) { overlaySmcConfluence(quick.smc) }
+                            _state.value = state.value.withComputation(quick.copy(smc = quickSmc ?: quick.smc))
+                                .copy(isLoading = false)
+                        }
+                    }
+                }
                 extrasDeferred.awaitAll().forEach { (tf, candles) ->
                     if (candles.isNotEmpty()) extraTfCandles[tf] = candles
                 }
-                extraSmcCandles.keys.retainAll(neededSmcTfs.toSet())
                 smcDeferred.awaitAll().forEach { (tf, candles) ->
                     if (candles.isNotEmpty()) extraSmcCandles[tf] = candles
                 }
