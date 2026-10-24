@@ -197,7 +197,9 @@ class CryptoListViewModel @Inject constructor(
                     async {
                         try {
                             val detail = repository.getPairDetail(pair.symbol, pair.source)
-                            pair.copy(
+                            // un fallo del REST llega como 0.00: se queda el precio que ya puso el socket
+                            if (detail.price.toDoubleValue() <= 0.0) pair to null
+                            else pair.copy(
                                 price = detail.price,
                                 priceChangePercent = detail.priceChangePercent,
                                 isPositive = detail.isPositive
@@ -341,10 +343,10 @@ class CryptoListViewModel @Inject constructor(
 
     private companion object {
         const val TAG = "CryptoListVM"
-        // respaldo REST cada 2s (los sockets ya cubren Binance/MEXC al segundo)
-        const val PRICE_REFRESH_MS = 2_000L
-        // widget sigue a ~60s para no spamearlo (30 ticks de 2s)
-        const val WIDGET_REFRESH_TICKS = 30
+        // respaldo REST cada 30s (los sockets ya cubren Binance/MEXC al segundo)
+        const val PRICE_REFRESH_MS = 30_000L
+        // widget sigue a ~60s para no spamearlo (2 ticks de 30s)
+        const val WIDGET_REFRESH_TICKS = 2
         const val SPARK_REFRESH_MS = 300_000L
         const val SPARK_CHUNK_DELAY_MS = 60L
     }
