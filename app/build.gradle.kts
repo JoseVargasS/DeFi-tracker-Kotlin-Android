@@ -111,10 +111,6 @@ dependencies {
     //noinspection GradleDependency
     ksp("androidx.room:room-compiler:2.6.1")
     
-    // Glance (Widgets)
-    //noinspection GradleDependency
-    implementation("androidx.glance:glance-appwidget:1.0.0")
-    
     // Coil (Images)
     //noinspection GradleDependency
     implementation("io.coil-kt:coil-compose:2.5.0")

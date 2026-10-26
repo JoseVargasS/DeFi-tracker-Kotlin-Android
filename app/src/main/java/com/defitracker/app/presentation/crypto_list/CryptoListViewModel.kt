@@ -4,14 +4,12 @@ import android.app.Application
 import android.util.Log
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
-import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.presentation.crypto_detail.toDoubleValue
-import com.defitracker.app.widget.CryptoWidget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -32,10 +30,6 @@ class CryptoListViewModel @Inject constructor(
     private val pairOrderRepo: PairOrderRepository,
     application: Application
 ) : AndroidViewModel(application) {
-
-    private fun logWidgetUpdateFailure(throwable: Throwable) {
-        Log.w(TAG, "Widget update failed", throwable)
-    }
 
     private val _state = mutableStateOf(CryptoListState())
     val state: State<CryptoListState> = _state
@@ -141,7 +135,6 @@ class CryptoListViewModel @Inject constructor(
                     pairs = pairs
                 )
                 refreshPrices()
-                updateWidget()
             }
             .launchIn(viewModelScope)
     }
@@ -149,14 +142,9 @@ class CryptoListViewModel @Inject constructor(
     private fun startPriceUpdates() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            var tick = 0
             while (true) {
                 delay(PRICE_REFRESH_MS)
                 refreshPrices()
-                tick++
-                if (tick % WIDGET_REFRESH_TICKS == 0) {
-                    updateWidget()
-                }
             }
         }
     }
@@ -289,16 +277,6 @@ class CryptoListViewModel @Inject constructor(
         } catch (_: Exception) {}
     }
 
-    private suspend fun updateWidget() {
-        try {
-            CryptoWidget().updateAll(getApplication())
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            logWidgetUpdateFailure(e)
-        }
-    }
-
     fun onAddPair(symbol: String, baseAsset: String, quoteAsset: String, source: String) {
         viewModelScope.launch {
             repository.addTrackedPair(symbol, baseAsset, quoteAsset, source)
@@ -345,8 +323,6 @@ class CryptoListViewModel @Inject constructor(
         const val TAG = "CryptoListVM"
         // respaldo REST cada 30s (los sockets ya cubren Binance/MEXC al segundo)
         const val PRICE_REFRESH_MS = 30_000L
-        // widget sigue a ~60s para no spamearlo (2 ticks de 30s)
-        const val WIDGET_REFRESH_TICKS = 2
         const val SPARK_REFRESH_MS = 300_000L
         const val SPARK_CHUNK_DELAY_MS = 60L
     }
