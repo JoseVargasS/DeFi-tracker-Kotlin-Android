@@ -1,5 +1,8 @@
 package com.defitracker.app.presentation.crypto_detail
 
+import com.defitracker.app.core.Timeframes
+import com.defitracker.app.ui.theme.ChartColors
+
 // anclas por tiempo para que los dibujos sobrevivan al cambio de intervalo
 data class FibAnchor(
     val time: Long,
@@ -7,7 +10,7 @@ data class FibAnchor(
 )
 
 data class FibConfig(
-    val colorHex: String = "#FFFFFF",
+    val colorHex: String = ChartColors.WHITE_HEX,
     val width: Float = 1f,
     val enabledLevels: Set<Float> = DEFAULT_FIB_LEVELS.toSet(),
     val hidden: Boolean = false
@@ -18,7 +21,7 @@ data class FibOverlay(
     val id: String,
     val start: FibAnchor,
     val end: FibAnchor,
-    val colorHex: String = "#FFFFFF",
+    val colorHex: String = ChartColors.WHITE_HEX,
     val width: Float = 1f,
     val enabledLevels: Set<Float> = DEFAULT_FIB_LEVELS.toSet(),
     val hidden: Boolean = false,
@@ -42,24 +45,7 @@ fun fibLevelPrice(start: Double, end: Double, ratio: Float): Double =
     start + (end - start) * ratio
 
 // duracion de cada vela en ms, compartida por chart, ViewModel y worker de alertas
-fun candleDurationMs(interval: String): Long = when (interval.trim()) {
-    "1m" -> 60_000L
-    "5m" -> 300_000L
-    "15m" -> 900_000L
-    "30m" -> 1_800_000L
-    "1h" -> 3_600_000L
-    "2h" -> 7_200_000L
-    "4h" -> 14_400_000L
-    "6h" -> 21_600_000L
-    "12h" -> 43_200_000L
-    "1d" -> 86_400_000L
-    "3d" -> 259_200_000L
-    "5d" -> 432_000_000L
-    "1w" -> 604_800_000L
-    "2w" -> 1_209_600_000L
-    "1mo" -> 2_592_000_000L
-    else -> 0L
-}
+fun candleDurationMs(interval: String): Long = Timeframes.durationMs(interval)
 
 // timestamp -> indice mas cercano, asi el fibo se reubica solo al agregar temporalidades
 fun timeToIndex(candles: List<CandleData>, time: Long): Int {
@@ -123,7 +109,7 @@ fun decodeFibOverlays(raw: String?): List<FibOverlay> {
             id = p[0].ifBlank { return@mapNotNull null },
             start = FibAnchor(sTime, sPrice),
             end = FibAnchor(eTime, ePrice),
-            colorHex = p[5].ifBlank { "#FFFFFF" },
+            colorHex = p[5].ifBlank { ChartColors.WHITE_HEX },
             width = p.reqWidth(6),
             enabledLevels = p[7].split("+").mapNotNull { it.toFloatOrNull() }
                 .filter { it in ALL_FIB_LEVELS }.toSet().ifEmpty { DEFAULT_FIB_LEVELS.toSet() },

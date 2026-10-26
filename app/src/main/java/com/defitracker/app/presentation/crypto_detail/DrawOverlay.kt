@@ -1,5 +1,7 @@
 package com.defitracker.app.presentation.crypto_detail
 
+import com.defitracker.app.ui.theme.ChartColors
+
 // dibujos estilo OKX, anclados por tiempo como los fibos
 
 enum class DrawKind {
@@ -14,7 +16,7 @@ data class DrawOverlay(
     val kind: DrawKind,
     val start: FibAnchor,
     val end: FibAnchor,
-    val colorHex: String = "#FFD60A",
+    val colorHex: String = ChartColors.GOLD_HEX,
     val width: Float = 1f,
     val hidden: Boolean = false,
     val locked: Boolean = false,
@@ -66,7 +68,7 @@ fun decodeDrawOverlays(raw: String?): List<DrawOverlay> {
             kind = kind,
             start = FibAnchor(sTime, sPrice),
             end = FibAnchor(eTime, ePrice),
-            colorHex = p[6].ifBlank { "#FFD60A" },
+            colorHex = p[6].ifBlank { ChartColors.GOLD_HEX },
             width = p.reqWidth(7),
             hidden = p.flag(8),
             locked = p.flag(9),

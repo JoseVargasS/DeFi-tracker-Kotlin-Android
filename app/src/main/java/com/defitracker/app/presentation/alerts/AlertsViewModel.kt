@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.defitracker.app.alerts.DivMonitorPrefs
 import com.defitracker.app.alerts.DivScanService
+import com.defitracker.app.core.Timeframes
 import com.defitracker.app.data.local.DivAlertDao
 import com.defitracker.app.data.local.DivAlertEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,7 +21,7 @@ data class AlertsState(
     val alerts: List<DivAlertEntity> = emptyList(),
     val unread: Int = 0,
     val monitoring: Boolean = true,
-    val intervals: Set<String> = setOf("5m", "15m", "30m", "1h"),
+    val intervals: Set<String> = Timeframes.DEFAULT_ALERT_INTERVALS,
     val confluence: Boolean = true,
     val signals: Set<String> = setOf("MA_REJECT", "FVG_TAP", "SWEEP")
 )

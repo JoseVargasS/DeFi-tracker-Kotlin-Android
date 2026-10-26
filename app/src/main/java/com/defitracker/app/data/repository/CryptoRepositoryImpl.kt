@@ -1,7 +1,9 @@
 package com.defitracker.app.data.repository
 
 import android.util.Log
+import com.defitracker.app.BuildConfig
 import com.defitracker.app.core.Constants
+import com.defitracker.app.core.Timeframes
 import com.defitracker.app.data.local.TrackedPairDao
 import com.defitracker.app.data.local.TrackedPairEntity
 import com.defitracker.app.data.local.WalletDao
@@ -25,6 +27,7 @@ import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import com.defitracker.app.domain.model.TakerVolume
 import com.defitracker.app.presentation.crypto_detail.toDoubleValue
+import com.defitracker.app.presentation.crypto_detail.formatRepositoryPrice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -55,6 +58,12 @@ class CryptoRepositoryImpl @Inject constructor(
     private fun logNonFatal(context: String, throwable: Throwable) {
         Log.w(TAG, context, throwable)
     }
+
+    private fun requireCoinStatsApiKey(): String =
+        BuildConfig.COINSTATS_API_KEY.trim().takeIf { it.isNotEmpty() }
+            ?: throw IllegalStateException(
+                "CoinStats API key is not configured. Add COINSTATS_API_KEY to local.properties."
+            )
 
     private var cachedSymbols: List<AvailableCryptoPair> = emptyList()
     private var cachedMexcSymbols: List<AvailableCryptoPair> = emptyList()
@@ -167,7 +176,7 @@ class CryptoRepositoryImpl @Inject constructor(
                     if (t.close <= 0 || t.open24h <= 0) return@mapNotNull null
                     val pct = (t.close - t.open24h) / t.open24h * 100.0
                     "$symbol-Binance" to LiveQuote(
-                        price = formatPrice(t.close),
+                        price = formatRepositoryPrice(t.close),
                         priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
                         isPositive = pct >= 0,
                         quoteVolume = t.quoteVolume
@@ -181,7 +190,7 @@ class CryptoRepositoryImpl @Inject constructor(
                     if (t.lastPrice <= 0) return@mapNotNull null
                     val pct = t.riseFallRate * 100.0
                     "$symbol-MEXC" to LiveQuote(
-                        price = formatPrice(t.lastPrice),
+                        price = formatRepositoryPrice(t.lastPrice),
                         priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
                         isPositive = pct >= 0,
                         // el push no trae amount24: precio*contratos como aprox, el REST lo corrige
@@ -372,6 +381,7 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     suspend fun getWalletBalances(address: String): Map<String, List<CoinStatsBalanceDto>> = coroutineScope {
+        val apiKey = requireCoinStatsApiKey()
         val results = linkedMapOf<String, List<CoinStatsBalanceDto>>()
 
         walletBalanceChains.forEachIndexed { index, chain ->
@@ -381,7 +391,7 @@ class CryptoRepositoryImpl @Inject constructor(
                 val balances = coinStatsApi.getWalletBalance(
                     address,
                     chain.id,
-                    Constants.COINSTATS_API_KEY
+                    apiKey
                 )
 
                 val filtered = balances.filter { balance ->
@@ -414,6 +424,7 @@ class CryptoRepositoryImpl @Inject constructor(
         limit: Int = 5,
         forceRefresh: Boolean = true
     ): List<EtherscanTransactionDto> = coroutineScope {
+        val apiKey = requireCoinStatsApiKey()
         val allTransactions = mutableListOf<EtherscanTransactionDto>()
         val normalizedLimit = limit.coerceIn(TRANSACTION_MIN_DISPLAY_LIMIT, TRANSACTION_MAX_DISPLAY_LIMIT)
         val queryWindow = TransactionQueryWindow.recent(TRANSACTION_QUERY_DAYS)
@@ -423,14 +434,15 @@ class CryptoRepositoryImpl @Inject constructor(
                 if (index > 0) delay(TRANSACTION_CHAIN_DELAY_MS)
 
                 if (forceRefresh) {
-                    syncWalletTransactions(address, chain)
+                    syncWalletTransactions(address, chain, apiKey)
                 }
 
                 val transactions = getWalletTransactionsForChain(
                     address = address,
                     chain = chain,
                     limit = normalizedLimit,
-                    queryWindow = queryWindow
+                    queryWindow = queryWindow,
+                    apiKey = apiKey
                 )
 
                 allTransactions += transactions
@@ -458,13 +470,17 @@ class CryptoRepositoryImpl @Inject constructor(
             .take(normalizedLimit)
     }
 
-    private suspend fun syncWalletTransactions(address: String, chain: CoinStatsChain) {
+    private suspend fun syncWalletTransactions(
+        address: String,
+        chain: CoinStatsChain,
+        apiKey: String
+    ) {
         val syncKey = "${address.lowercase()}:${chain.id}"
         if (isFreshTransactionSync(syncKey)) return
 
         try {
             val response = coinStatsApi.syncWalletTransactions(
-                apiKey = Constants.COINSTATS_API_KEY,
+                apiKey = apiKey,
                 body = CoinStatsTransactionSyncRequest(
                     wallets = listOf(
                         CoinStatsTransactionSyncWalletDto(
@@ -475,7 +491,7 @@ class CryptoRepositoryImpl @Inject constructor(
                 )
             )
             if (response.status.equals("syncing", ignoreCase = true)) {
-                waitForWalletTransactionsSync(address, chain)
+                waitForWalletTransactionsSync(address, chain, apiKey)
             }
             transactionSyncTimes[syncKey] = System.currentTimeMillis()
         } catch (e: CancellationException) {
@@ -488,7 +504,7 @@ class CryptoRepositoryImpl @Inject constructor(
                 throw IllegalStateException("CoinStats rate limit reached. Try again later.")
             }
             if (e.code() == 409) {
-                waitForWalletTransactionsSync(address, chain)
+                waitForWalletTransactionsSync(address, chain, apiKey)
                 transactionSyncTimes[syncKey] = System.currentTimeMillis()
             } else {
                 logNonFatal("Wallet transactions sync failed for ${chain.name}", e)
@@ -503,14 +519,18 @@ class CryptoRepositoryImpl @Inject constructor(
         return System.currentTimeMillis() - syncedAt <= TRANSACTION_SYNC_TTL_MS
     }
 
-    private suspend fun waitForWalletTransactionsSync(address: String, chain: CoinStatsChain) {
+    private suspend fun waitForWalletTransactionsSync(
+        address: String,
+        chain: CoinStatsChain,
+        apiKey: String
+    ) {
         repeat(TRANSACTION_SYNC_STATUS_ATTEMPTS) {
             delay(TRANSACTION_SYNC_STATUS_DELAY_MS)
 
             val status = coinStatsApi.getWalletTransactionSyncStatus(
                 address = address,
                 chainId = chain.id,
-                apiKey = Constants.COINSTATS_API_KEY
+                apiKey = apiKey
             ).status
 
             if (status.equals("synced", ignoreCase = true)) {
@@ -523,7 +543,8 @@ class CryptoRepositoryImpl @Inject constructor(
         address: String,
         chain: CoinStatsChain,
         limit: Int,
-        queryWindow: TransactionQueryWindow
+        queryWindow: TransactionQueryWindow,
+        apiKey: String
     ): List<EtherscanTransactionDto> {
         val transactions = mutableListOf<EtherscanTransactionDto>()
         val pageLimit = limit.coerceIn(TRANSACTION_MIN_DISPLAY_LIMIT, TRANSACTION_PAGE_LIMIT)
@@ -535,7 +556,7 @@ class CryptoRepositoryImpl @Inject constructor(
             limit = pageLimit,
             from = queryWindow.from,
             to = queryWindow.to,
-            apiKey = Constants.COINSTATS_API_KEY
+            apiKey = apiKey
         ).result
 
         transactions += result
@@ -576,11 +597,7 @@ class CryptoRepositoryImpl @Inject constructor(
     private fun tvTicker(symbol: String) =
         if (symbol.startsWith("CRYPTOCAP:")) symbol else "CRYPTOCAP:$symbol"
 
-    private fun tvCountbackFor(interval: String): Int = when (interval) {
-        "1m", "5m", "15m" -> 3000
-        "30m", "1h" -> 2000
-        else -> 1000
-    }
+    private fun tvCountbackFor(interval: String): Int = Timeframes.tvCountback(interval)
 
     private suspend fun getTvPairDetail(symbol: String): PairDetail {
         val rows = tradingViewClient.getKlines(tvTicker(symbol), "1D", 3)
@@ -595,11 +612,11 @@ class CryptoRepositoryImpl @Inject constructor(
         val pct = if (prevClose == 0.0) 0.0 else change / prevClose * 100.0
         return PairDetail(
             symbol = symbol,
-            price = formatPrice(close),
-            priceChange = formatPrice(change),
+            price = formatRepositoryPrice(close),
+            priceChange = formatRepositoryPrice(change),
             priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
-            highPrice = formatPrice(last[2].toString().toDoubleValue()),
-            lowPrice = formatPrice(last[3].toString().toDoubleValue()),
+            highPrice = formatRepositoryPrice(last[2].toString().toDoubleValue()),
+            lowPrice = formatRepositoryPrice(last[3].toString().toDoubleValue()),
             volume = last[5].toString(),
             quoteVolume = "0.00",
             isPositive = pct >= 0
@@ -612,7 +629,7 @@ class CryptoRepositoryImpl @Inject constructor(
             val priceDouble = stats.lastPrice.toDoubleValue()
             PairDetail(
                 symbol = symbol,
-                price = formatPrice(priceDouble),
+                price = formatRepositoryPrice(priceDouble),
                 priceChange = stats.priceChange,
                 priceChangePercent = stats.priceChangePercent,
                 highPrice = stats.highPrice,
@@ -626,7 +643,7 @@ class CryptoRepositoryImpl @Inject constructor(
             val fallbackPrice = binanceApi.getPrice(symbol).price.toDoubleValue()
             PairDetail(
                 symbol = symbol,
-                price = formatPrice(fallbackPrice),
+                price = formatRepositoryPrice(fallbackPrice),
                 priceChange = "0.00",
                 priceChangePercent = "0.00",
                 highPrice = "0.00",
@@ -671,11 +688,11 @@ class CryptoRepositoryImpl @Inject constructor(
         val changePct = t.riseFallRate * 100.0
         return PairDetail(
             symbol = symbol,
-            price = formatPrice(t.lastPrice),
-            priceChange = formatPrice(t.riseFallValue),
+            price = formatRepositoryPrice(t.lastPrice),
+            priceChange = formatRepositoryPrice(t.riseFallValue),
             priceChangePercent = String.format(java.util.Locale.US, "%.2f", changePct),
-            highPrice = formatPrice(t.high24Price),
-            lowPrice = formatPrice(t.lower24Price),
+            highPrice = formatRepositoryPrice(t.high24Price),
+            lowPrice = formatRepositoryPrice(t.lower24Price),
             volume = t.volume24.toString(),
             quoteVolume = t.amount24.toString(),
             isPositive = changePct >= 0
@@ -731,7 +748,7 @@ class CryptoRepositoryImpl @Inject constructor(
 
     private fun aggregateRows(rows: List<List<Any>>, factor: Int, mexcInterval: String): List<List<Any>> {
         if (factor <= 1 || rows.isEmpty()) return rows
-        val chunkDurMs = mexcBaseDurMs(mexcInterval) * factor
+        val chunkDurMs = Timeframes.mexcBaseDurationMs(mexcInterval) * factor
         if (chunkDurMs <= 0L) return rows
         // buckets anclados a calendario, no al indice; si no los bordes bailan cada fetch
         val weekAnchored = mexcInterval == "Week1"
@@ -784,37 +801,7 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // base MEXC mas cercana + factor para agregar en repo
-    private fun mexcBaseDurMs(mexcInterval: String): Long = when (mexcInterval) {
-        "Min1" -> 60_000L
-        "Min5" -> 300_000L
-        "Min15" -> 900_000L
-        "Min30" -> 1_800_000L
-        "Min60" -> 3_600_000L
-        "Hour4" -> 14_400_000L
-        "Day1" -> 86_400_000L
-        "Week1" -> 604_800_000L
-        else -> 0L
-    }
-    private fun mexcKlinePlan(interval: String): Pair<String, Int> {
-        return when (interval) {
-            "1m" -> "Min1" to 1
-            "5m" -> "Min5" to 1
-            "15m" -> "Min15" to 1
-            "30m" -> "Min30" to 1
-            "1h" -> "Min60" to 1
-            "2h" -> "Min60" to 2
-            "4h" -> "Hour4" to 1
-            "6h" -> "Min60" to 6
-            "12h" -> "Hour4" to 3
-            "1d" -> "Day1" to 1
-            "3d" -> "Day1" to 3
-            "5d" -> "Day1" to 5
-            "1w" -> "Week1" to 1
-            "2w" -> "Week1" to 2
-            "1mo" -> "Month1" to 1
-            else -> "Min60" to 1
-        }
-    }
+    private fun mexcKlinePlan(interval: String): Pair<String, Int> = Timeframes.mexcKlinePlan(interval)
 
     private fun getFreshCachedKlines(cacheKey: String): List<List<Any>>? {
         val cached = klineCache[cacheKey] ?: return null
@@ -822,24 +809,7 @@ class CryptoRepositoryImpl @Inject constructor(
         return cached.rows.takeIf { ageMs <= KLINE_CACHE_TTL_MS && it.isNotEmpty() }
     }
 
-    private fun chartPageCountForInterval(interval: String): Int {
-        return when (interval) {
-            // 2 paginas (2000 velas) sobran pa' la MA200 y el arranque en 100;
-            // la tercera solo alargaba la apertura
-            "1m", "5m", "15m" -> 2
-            "30m", "1h" -> 2
-            else -> 1
-        }
-    }
-
-    private fun formatPrice(price: Double): String {
-        return when {
-            price < 1.0 -> String.format(java.util.Locale.US, "%.6f", price)
-            // nota: banda de cruce $1-10 con 4 decimales; la UI recorta a 2 si es consolidada
-            price < 10.0 -> String.format(java.util.Locale.US, "%.4f", price)
-            else -> String.format(java.util.Locale.US, "%.2f", price)
-        }
-    }
+    private fun chartPageCountForInterval(interval: String): Int = Timeframes.chartPageCount(interval)
 
     private data class CachedKlines(
         val createdAtMs: Long,
@@ -873,7 +843,7 @@ class CryptoRepositoryImpl @Inject constructor(
         const val KLINE_CACHE_TTL_MS = 30_000L
         const val TAIL_SYNC_LIMIT = 10
         // TFs con periodo taker nativo en Binance Futuros
-        val TAKER_NATIVE_INTERVALS = setOf("5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d")
+        val TAKER_NATIVE_INTERVALS = Timeframes.TAKER_NATIVE_KEYS
         // lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
         const val WEEK_ANCHOR_MS = 1_578_182_400_000L
         const val TRANSACTION_MIN_DISPLAY_LIMIT = 5

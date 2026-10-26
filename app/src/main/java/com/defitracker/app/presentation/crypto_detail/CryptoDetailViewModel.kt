@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.defitracker.app.data.remote.tv.tvResolution
+import com.defitracker.app.core.Timeframes
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.domain.model.PairDetail
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -365,7 +365,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     }
 
     private fun intervalForSource(tf: String): String =
-        if (source == "MEXC") tf else if (source == "TV") tvResolution(tf) else tf.toBinanceInterval()
+                if (source == "MEXC") tf else if (source == "TV") Timeframes.tradingViewResolution(tf) else tf.toBinanceInterval()
 
     // trae las velas de los TFs que piden las MAs visibles, luego re-alinea sin tocar zoom
     fun refreshExtraMas(force: Boolean = false) {
@@ -1346,23 +1346,14 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     }
 
     private fun String.toBinanceInterval(): String {
-        return when (this) {
-            "5d" -> "1d"
-            "2w" -> "1w"
-            "1mo" -> "1M"
-            else -> this
-        }
+        return Timeframes.binanceInterval(this)
     }
 
     private fun List<CandleData>.aggregateForInterval(interval: String): List<CandleData> {
-        val chunkDurMs = when (interval) {
-            "5d" -> 5 * 86_400_000L
-            "2w" -> 14 * 86_400_000L
-            else -> return this
-        }
+        val chunkDurMs = Timeframes.calendarAggregation(interval) ?: return this
         if (isEmpty()) return this
         // buckets anclados a calendario, no al indice; si no los times bailan cada fetch
-        val weekAnchored = interval == "2w"
+        val weekAnchored = Timeframes.find(interval)?.weekAnchored == true
         val buckets = LinkedHashMap<Long, MutableList<CandleData>>()
         for (c in this) {
             val key = if (weekAnchored) {
@@ -1394,7 +1385,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         const val TV_DETAIL_MS = 15_000L
         // nota: gracia post-cierre pa' que el exchange publique la vela antes del tail
         const val CLOSE_SYNC_GRACE_MS = 1_200L
-        const val DEFAULT_CHART_INTERVAL = "5m"
+        const val DEFAULT_CHART_INTERVAL = Timeframes.DEFAULT_CHART_KEY
         const val STOCH_RSI_PERIOD = 14
         // pulso: throttle entre recomputos + TTL de las 15m
         const val ANALYSIS_THROTTLE_MS = 15_000L

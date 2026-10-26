@@ -1,6 +1,6 @@
 # Octopus DeFi Tracker
 
-Android app for tracking crypto pairs, interactive price charts, multi-chain wallet balances, and transaction history. The app is built with Kotlin, Jetpack Compose, Hilt, Room, Retrofit, MPAndroidChart, Coil, and Glance widgets.
+Android app for tracking crypto pairs, interactive price charts, multi-chain wallet balances, and transaction history. The app is built with Kotlin, Jetpack Compose, Hilt, Room, Retrofit, OkHttp WebSockets, MPAndroidChart, Coil, and DataStore.
 
 ## What The App Does
 
@@ -22,7 +22,9 @@ The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI
 - Saved wallet list backed by Room.
 - Multi-chain wallet balances through CoinStats.
 - Transaction history through CoinStats, grouped by network.
-- Home screen widget for tracked crypto pairs using Jetpack Glance.
+- Price alerts per pair, supporting LONG/SHORT targets or ranges, persisted locally and delivered by the foreground monitor.
+- Chart drawings, Fibonacci retracements, and LONG/SHORT position overlays persisted per symbol.
+- Pulse analysis sheet with multi-timeframe moving-average confluence, support/resistance, RSI divergence, sweep/reclaim, and market-structure context.
 - Compose navigation with animated transitions.
 - Dark Material 3 UI tuned for a trading/portfolio app.
 - Splash screen with app branding.
@@ -34,11 +36,11 @@ The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI
 - Navigation: Navigation Compose
 - Dependency Injection: Hilt
 - Persistence: Room
-- Networking: Retrofit + Gson
+- Networking: Retrofit + Gson and OkHttp WebSockets
 - Async: Kotlin Coroutines and Flow
 - Charts: MPAndroidChart through `AndroidView`
 - Images: Coil
-- Widgets: Jetpack Glance
+- Preferences: Jetpack DataStore Preferences
 - Minimum SDK: 26
 - Target/Compile SDK: 34
 - Java/Kotlin target: JVM 17
@@ -48,7 +50,8 @@ The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI
 ```text
 app/src/main/java/com/defitracker/app/
 |-- core/
-|   `-- Constants.kt
+|   |-- Constants.kt
+|   `-- Timeframes.kt
 |-- alerts/
 |   |-- DivAlertNotifier.kt
 |   |-- DivMonitorPrefs.kt
@@ -58,15 +61,22 @@ app/src/main/java/com/defitracker/app/
 |   |   |-- AppDatabase.kt
 |   |   |-- DivAlertDao.kt
 |   |   |-- DivAlertEntity.kt
+|   |   |-- PriceAlertDao.kt
+|   |   |-- PriceAlertEntity.kt
 |   |   |-- TrackedPairDao.kt
 |   |   |-- TrackedPairEntity.kt
 |   |   |-- WalletDao.kt
 |   |   `-- WalletEntity.kt
 |   |-- remote/
 |   |   |-- BinanceApi.kt
+|   |   |-- BinanceFuturesApi.kt
+|   |   |-- BinanceTickerStream.kt
 |   |   |-- CoinStatsApi.kt
 |   |   |-- MexcFuturesApi.kt
-|   |   `-- dto/
+|   |   |-- MexcTickerStream.kt
+|   |   |-- dto/
+|   |   `-- tv/
+|   |       `-- TradingViewClient.kt
 |   `-- repository/
 |       `-- CryptoRepositoryImpl.kt
 |-- di/
@@ -79,42 +89,55 @@ app/src/main/java/com/defitracker/app/
 |   |   |-- AlertsBottomSheet.kt
 |   |   `-- AlertsViewModel.kt
 |   |-- crypto_detail/
+|   |   |-- Analysis.kt
+|   |   |-- CryptoDetailScreen.kt
+|   |   |-- CryptoDetailViewModel.kt
+|   |   |-- DrawOverlay.kt
+|   |   |-- FibDrawing.kt
+|   |   |-- IndicatorPrefs.kt
+|   |   |-- MacdCalc.kt
+|   |   |-- PositionOverlay.kt
+|   |   |-- PriceAlertSheet.kt
+|   |   |-- PriceFormat.kt
 |   |   |-- RsiCalc.kt
-|   |   `-- RsiDiv.kt
+|   |   |-- RsiDiv.kt
+|   |   |-- Signals.kt
+|   |   `-- Smc.kt
 |   |-- crypto_list/
 |   |-- transactions/
 |   `-- wallet/
 |-- ui/theme/
-|-- widget/
 |-- DeFiTrackerApp.kt
 `-- MainActivity.kt
 ```
+
+`core/Timeframes.kt` is the single catalog for interval labels, candle durations, Binance/MEXC/TradingView mappings, alert intervals, MA timeframes, taker support, and chart aggregation. Chart colors are centralized in `ui/theme/Color.kt` under `ChartColors`.
 
 ## Data Sources
 
 The app currently has clients for several APIs:
 
 - Binance: symbol search, ticker stats, prices, and klines.
-- MEXC Futures: perpetual contract list, tickers, and klines backing futures tracking and RSI divergence scans.
+- Binance WebSocket: `BinanceTickerStream` streams spot mini-tickers for live Pairs prices.
+- Binance Futures: `BinanceFuturesApi` supplies unauthenticated taker buy/sell volume for the optional chart subpanel.
+- MEXC Futures: perpetual contract list, REST tickers/klines, and `MexcTickerStream` for live futures prices and RSI divergence scans.
+- TradingView: `TradingViewClient` uses a WebSocket chart session for the `TV` source, including timeframe resolution mapping and short-lived memoization.
 - CoinStats: wallet balances and transaction history.
 
 ### API Keys
 
-API keys are currently stored in:
+The CoinStats API key is read locally from `local.properties` and exposed to the app through Gradle `BuildConfig`. This file is ignored by Git and must not be committed.
 
-```text
-app/src/main/java/com/defitracker/app/core/Constants.kt
+To configure it:
+
+1. Copy `local.properties.example` to `local.properties` in the repository root.
+2. Set `COINSTATS_API_KEY` to your CoinStats API key:
+
+```properties
+COINSTATS_API_KEY=your_coinstats_api_key
 ```
 
-Current constants include:
-
-- `COINSTATS_API_KEY`
-
-For production, move these keys out of source control. Recommended options:
-
-- `local.properties` + Gradle `buildConfigField`
-- encrypted remote config
-- backend proxy for third-party APIs
+The build uses an empty value when the property is missing. Wallet and History show a configuration error until the key is added.
 
 ## Setup
 
@@ -134,18 +157,18 @@ For production, move these keys out of source control. Recommended options:
 
 ### Command Line Build
 
-This repository currently contains `gradle/wrapper/gradle-wrapper.properties`, but does not include the wrapper scripts/JAR in the working tree. If wrapper files are restored, use:
+The repository includes `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, and the wrapper properties. The wrapper is configured for Gradle 8.14.5.
 
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
-On Windows with an installed/cached Gradle distribution, build with Gradle and JDK 17:
+On Windows with JDK 17:
 
 ```powershell
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
-gradle :app:assembleDebug
+.\gradlew.bat :app:assembleDebug
 ```
 
 In this workspace, the debug APK is generated at:
@@ -169,7 +192,7 @@ Behavior:
 - Loads available USDT symbols from Binance (spot) and MEXC (futures).
 - Adds/removes tracked pairs stored in Room.
 - Refreshes prices periodically.
-- Updates the Glance widget at a lower cadence than UI price refreshes.
+- Receives live Binance spot and MEXC futures prices through reconnecting WebSocket streams.
 - Bell icon with unread dot opens the alerts bottom sheet (RSI divergence history, timeframe filters, monitoring toggle, mark-all-seen).
 - Tapping an alert navigates to the pair chart on the alert timeframe.
 
@@ -199,14 +222,29 @@ Files:
 
 - `presentation/crypto_detail/CryptoDetailScreen.kt`
 - `presentation/crypto_detail/CryptoDetailViewModel.kt`
+- `presentation/crypto_detail/Analysis.kt`
+- `presentation/crypto_detail/DrawOverlay.kt`
+- `presentation/crypto_detail/FibDrawing.kt`
+- `presentation/crypto_detail/IndicatorPrefs.kt`
+- `presentation/crypto_detail/MacdCalc.kt`
+- `presentation/crypto_detail/PositionOverlay.kt`
+- `presentation/crypto_detail/PriceAlertSheet.kt`
+- `presentation/crypto_detail/PriceFormat.kt`
+- `presentation/crypto_detail/RsiCalc.kt`, `RsiDiv.kt`, `Signals.kt`, and `Smc.kt`
 
 Behavior:
 
 - Reads `symbol`, `source`, and optional `interval` from navigation arguments (alerts open the chart directly on their timeframe).
-- Loads pair details and kline data.
-- Computes Bollinger Bands and StochRSI off the main thread.
+- Loads pair details and kline data from Binance, MEXC Futures, or TradingView depending on `source`.
+- Receives Binance Futures taker buy/sell volume when the optional `C/V Taker` subchart is enabled and aligns it by candle time.
+- Computes Bollinger Bands, moving averages, StochRSI, RSI, MACD, RSI divergences, SMC overlays, and Pulse inputs off the main thread where applicable.
 - Paints confirmed (`Bull`/`Bear`) and early (`Pre-Bull`/`Pre-Bear`) RSI divergence marks, plus OKX-style text-only SMC tags (BOS/CHoCH/EQ/FVG) placed off candle bodies.
+- Supports per-symbol drawings, Fibonacci retracements, LONG/SHORT position overlays, and price-alert configuration from the detail chart.
+- Persists indicator visibility/configuration in DataStore, including moving-average type/period/timeframe/color/width, SMC toggles, Fibonacci settings, and overlay data.
+- The Pulse sheet evaluates support/resistance zones, 21/50/200 MA confluence across 15m/1h/4h, fresh RSI divergence, sweep/reclaim, and latest structure.
 - Uses MPAndroidChart in Compose through `AndroidView`.
+
+Timeframe selection and exchange resolution use `core/Timeframes.kt`. Price formatting lives in `PriceFormat.kt`: chart, Pulse, and repository policies remain named separately because they preserve different existing output contracts. Chart and overlay colors use `ui/theme/Color.kt:ChartColors` without changing their visible values.
 
 ### Wallet Explorer
 
@@ -250,14 +288,16 @@ Entities:
 - `TrackedPairEntity`
 - `WalletEntity`
 - `DivAlertEntity` (RSI divergence alerts with `PRE`/`CONFIRMED` status)
+- `PriceAlertEntity` (point/range LONG/SHORT price alerts)
 
 DAOs:
 
 - `TrackedPairDao`
 - `WalletDao`
 - `DivAlertDao`
+- `PriceAlertDao`
 
-The database uses `fallbackToDestructiveMigration()` in `AppModule.kt`. This is convenient during early development, but production migrations should be added before real release use.
+The database is version 6. `MIGRATION_5_6` adds the `price_alerts` table without changing existing data, and `AppModule.kt` registers it before the development fallback `fallbackToDestructiveMigration()`. Add an explicit migration for every future production-facing schema change.
 
 ## Dependency Injection
 
@@ -270,15 +310,16 @@ app/src/main/java/com/defitracker/app/di/AppModule.kt
 It provides:
 
 - Retrofit API clients.
+- Binance/MEXC WebSocket ticker streams and the TradingView WebSocket client through a shared OkHttp client.
 - Room database and DAOs.
-- `CryptoRepository` implementation.
+- `CryptoRepositoryImpl` implementation.
 
 ## Known Notes And Caveats
 
 - Do not make aggressive parallel calls to CoinStats; it can hit rate limits quickly.
 - Keep divergence scans sequential with delays; parallelizing MEXC kline calls risks 429s. Android requires the monitor's foreground service notification; its channel stays silent and icon-free by design.
 - Some third-party wallet transaction feeds include spam/fake tokens. UI should display the data clearly, but future filtering may be needed.
-- `fallbackToDestructiveMigration()` can wipe local Room data after schema changes.
+- `MIGRATION_5_6` preserves existing Room data while adding price alerts; the fallback can still wipe local Room data if a future schema change has no registered migration.
 - API keys should not remain hard-coded for a public release.
 
 ## Troubleshooting
@@ -287,7 +328,7 @@ It provides:
 
 Check:
 
-- `COINSTATS_API_KEY` is valid.
+- `COINSTATS_API_KEY` is configured in `local.properties` and is valid.
 - The address is a public wallet address supported by CoinStats.
 - The API did not return 401/403/429.
 
@@ -311,7 +352,13 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 
 ### Build cannot find Gradle
 
-Open in Android Studio, or restore the Gradle wrapper scripts and wrapper JAR. The project expects Gradle 8.10 based on `gradle/wrapper/gradle-wrapper.properties`.
+Use the versioned wrapper from the repository:
+
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
+
+The project uses Gradle 8.14.5 as configured in `gradle/wrapper/gradle-wrapper.properties`.
 
 ## License
 

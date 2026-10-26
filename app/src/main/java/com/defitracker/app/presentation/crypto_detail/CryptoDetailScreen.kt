@@ -79,11 +79,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.R
+import com.defitracker.app.core.Timeframes
 import com.defitracker.app.ui.theme.AppGold
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
 import com.defitracker.app.ui.theme.Black
 import com.defitracker.app.ui.theme.CardBg
+import com.defitracker.app.ui.theme.ChartColors
 import com.defitracker.app.ui.theme.Geist
 import com.defitracker.app.ui.theme.InputBg
 import com.defitracker.app.ui.theme.LineDiv
@@ -206,7 +208,7 @@ fun CryptoDetailScreen(
                         modifier = Modifier
                             .background(
                                 color = if (state.source == "MEXC") AppGreen.copy(alpha = 0.2f)
-                                else Color(0xFF2196F3).copy(alpha = 0.2f),
+                                else ChartColors.blue.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 5.dp, vertical = 2.dp),
@@ -214,7 +216,7 @@ fun CryptoDetailScreen(
                     ) {
                         Text(
                             text = sourceLabel(state.source),
-                            color = if (state.source == "MEXC") AppGreen else Color(0xFF64B5F6),
+                            color = if (state.source == "MEXC") AppGreen else ChartColors.lightBlue,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -657,7 +659,7 @@ fun IntervalRow(selected: String, onPick: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // orden ascendente estilo OKX, cortos a la izq (misma lista del monitor)
-        com.defitracker.app.alerts.DivMonitorPrefs.ALL_INTERVALS.forEach { tf ->
+        Timeframes.KEYS.forEach { tf ->
             val isSelected = selected == tf
             Box(
                 modifier = Modifier
@@ -756,7 +758,7 @@ enum class DrawingTool {
 // velas virtuales a la derecha para que el fibo pase la ultima vela
 private const val FIB_VIRTUAL_EXTEND = 50
 
-private fun fibStepMs(candles: List<CandleData>, interval: String): Long {
+internal fun fibStepMs(candles: List<CandleData>, interval: String): Long {
     if (candles.size >= 2) {
         val s = candles.last().time - candles[candles.size - 2].time
         if (s > 0L) return s
@@ -764,7 +766,7 @@ private fun fibStepMs(candles: List<CandleData>, interval: String): Long {
     return candleDurationMs(interval)
 }
 
-private fun fibIndexToTime(candles: List<CandleData>, idx: Int, interval: String): Long {
+internal fun fibIndexToTime(candles: List<CandleData>, idx: Int, interval: String): Long {
     if (candles.isEmpty()) return 0L
     if (idx < candles.size) return candles[idx.coerceIn(0, candles.size - 1)].time
     val step = fibStepMs(candles, interval)
@@ -773,7 +775,7 @@ private fun fibIndexToTime(candles: List<CandleData>, idx: Int, interval: String
 }
 
 // tiempos futuros mapean a indice virtual, el pasado usa timeToIndex
-private fun fibTimeToIndexVirtual(candles: List<CandleData>, time: Long, interval: String): Int {
+internal fun fibTimeToIndexVirtual(candles: List<CandleData>, time: Long, interval: String): Int {
     if (candles.isEmpty()) return 0
     if (time <= candles.last().time) return timeToIndex(candles, time)
     val step = fibStepMs(candles, interval)
@@ -782,7 +784,7 @@ private fun fibTimeToIndexVirtual(candles: List<CandleData>, time: Long, interva
     return candles.size - 1 + k.coerceIn(1, FIB_VIRTUAL_EXTEND)
 }
 
-private fun formatCandleCountdown(interval: String, candleTime: Long): String {
+internal fun formatCandleCountdown(interval: String, candleTime: Long): String {
     val dur = candleDurationMs(interval)
     if (dur <= 0L) return "--:--"
     val now = System.currentTimeMillis()
@@ -815,7 +817,7 @@ private fun formatCandleCountdown(interval: String, candleTime: Long): String {
 }
 
 private fun String.isCalendarInterval(): Boolean {
-    return this in setOf("1d", "3d", "5d", "1w", "2w", "1mo")
+    return trim() in Timeframes.CALENDAR_KEYS
 }
 
 private fun List<CandleData>.spansMultipleYears(): Boolean {
@@ -1029,19 +1031,19 @@ fun PriceChart(
                     style = Paint.Style.FILL
                 }
                 private val fibHandleStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#2196F3")
+                    color = GraphicsColor.parseColor(ChartColors.BLUE_HEX)
                     strokeWidth = 3f
                     style = Paint.Style.STROKE
                 }
                 // dibujos OKX, color por overlay
                 private val drawLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FFD60A")
+                    color = GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                     strokeWidth = 2f
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
                 }
                 private val drawDashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FFD60A")
+                    color = GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                     strokeWidth = 2f
                     style = Paint.Style.STROKE
                     pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
@@ -1057,7 +1059,7 @@ fun PriceChart(
                 }
                 // relleno de figuras con su transparencia, estilo TV
                 private val drawFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FFD60A")
+                    color = GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                     style = Paint.Style.FILL
                 }
                 // punteada sutil pa' niveles TP/SL de posiciones
@@ -1084,7 +1086,7 @@ fun PriceChart(
                     style = Paint.Style.FILL
                 }
                 private val drawHandleStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FFD60A")
+                    color = GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                     strokeWidth = 3f
                     style = Paint.Style.STROKE
                 }
@@ -1271,7 +1273,7 @@ fun PriceChart(
                 }
                 // escala Y fija a pantalla como OKX
                 private val pinnedYLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#ADB1B8")
+                    color = GraphicsColor.parseColor(ChartColors.TEXT_SECONDARY_HEX)
                     textSize = context.resources.displayMetrics.density * 10f
                     textAlign = Paint.Align.RIGHT
                 }
@@ -1460,9 +1462,9 @@ fun PriceChart(
                     val py = pts[1].coerceIn(contentTop, contentBottom)
 
                     val tagColor = if (last.close >= last.open) {
-                        GraphicsColor.parseColor("#0ECB81")
+                        GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX)
                     } else {
-                        GraphicsColor.parseColor("#EF5350")
+                        GraphicsColor.parseColor(ChartColors.CHART_RED_HEX)
                     }
                     lastPriceLinePaint.color = tagColor
                     lastPriceTagPaint.color = tagColor
@@ -2290,7 +2292,7 @@ fun PriceChart(
                     if (selected) {
                         val r = 20f
                         drawHandleStroke.color = if (o.locked) GraphicsColor.GRAY
-                        else GraphicsColor.parseColor("#FFD60A")
+                        else GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                         if (o.kind != DrawKind.H_LINE && o.kind != DrawKind.PRICE_LINE) {
                             canvas.drawCircle(s.x, s.y, r, drawHandleFill)
                             canvas.drawCircle(s.x, s.y, r, drawHandleStroke)
@@ -2616,7 +2618,7 @@ fun PriceChart(
                     if (selected) {
                         val r = 22f
                         fibHandleStroke.color = if (o.locked) GraphicsColor.GRAY
-                        else GraphicsColor.parseColor("#2196F3")
+                        else GraphicsColor.parseColor(ChartColors.BLUE_HEX)
                         canvas.drawCircle(sPts[0], sPts[1], r, fibHandleFill)
                         canvas.drawCircle(sPts[0], sPts[1], r, fibHandleStroke)
                         canvas.drawCircle(ePts[0], ePts[1], r, fibHandleFill)
@@ -3708,7 +3710,7 @@ fun PriceChart(
                     setDrawAxisLine(false)
                     setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART)
                     setLabelCount(6, false)
-                    textColor = "#ADB1B8".toColorInt()
+                    textColor = ChartColors.TEXT_SECONDARY_HEX.toColorInt()
                     valueFormatter = object : ValueFormatter() {
                         override fun getFormattedValue(value: Float): String {
                             return formatAxisPrice(
@@ -3723,7 +3725,7 @@ fun PriceChart(
                 axisLeft.apply {
                     setDrawLabels(false)
                     setDrawGridLines(true)
-                    gridColor = "#1A1D23".toColorInt()
+                    gridColor = ChartColors.CARD_HEX.toColorInt()
                     setDrawAxisLine(false)
                     setLabelCount(6, false)
                     valueFormatter = object : ValueFormatter() {
@@ -3987,8 +3989,8 @@ fun PriceChart(
                         val offsetIndex = index + (state.candles.size - state.bbLower.size)
                         lowerEntries.add(Entry(offsetIndex.toFloat(), value.second.toFloat()))
                     }
-                    val bbColor = GraphicsColor.parseColor("#FF9800")
-                    val middleColor = GraphicsColor.parseColor("#E91E63")
+                    val bbColor = GraphicsColor.parseColor(ChartColors.ORANGE_HEX)
+                    val middleColor = GraphicsColor.parseColor(ChartColors.PINK_HEX)
                     val areaEntries = ArrayList<CandleEntry>(state.bbUpper.size)
                     state.bbUpper.forEachIndexed { index, value ->
                         val offsetIndex = index + (state.candles.size - state.bbUpper.size)
@@ -4106,7 +4108,7 @@ fun PriceChart(
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp)
-                    .background(Color(0xB3000000), RoundedCornerShape(8.dp))
+                    .background(ChartColors.darkOverlay, RoundedCornerShape(8.dp))
                     .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
             FlowRow(
@@ -4133,7 +4135,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = if (measureActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        color = if (measureActive) ChartColors.activeGreen else ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable {
@@ -4163,7 +4165,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = if (fiboActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        color = if (fiboActive) ChartColors.activeGreen else ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable {
@@ -4186,7 +4188,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = if (longActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        color = if (longActive) ChartColors.activeGreen else ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable {
@@ -4211,7 +4213,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = if (shortActive) Color(0xCCF6465D) else Color(0xCC1A1D23),
+                        color = if (shortActive) ChartColors.activeRed else ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable {
@@ -4239,7 +4241,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = if (prefs.overlaysHidden) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        color = if (prefs.overlaysHidden) ChartColors.activeGreen else ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable { viewModel.toggleOverlaysHidden() }
@@ -4256,7 +4258,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = Color(0xCC1A1D23),
+                        color = ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable { onOpenIndicators() }
@@ -4275,7 +4277,7 @@ fun PriceChart(
             Box(
                 modifier = Modifier
                     .background(
-                        color = if (dibujoActive) Color(0xCC1ECB81) else Color(0xCC1A1D23),
+                        color = if (dibujoActive) ChartColors.activeGreen else ChartColors.activeSurface,
                         shape = RoundedCornerShape(6.dp)
                     )
                     .clickable { showDrawingSheet.value = true }
@@ -4564,7 +4566,7 @@ fun PriceChart(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 8.dp, bottom = 28.dp)
-                .background(Color(0x66000000), CircleShape)
+                .background(ChartColors.overlayBlack, CircleShape)
                 .border(1.dp, Color.Gray.copy(alpha = 0.5f), CircleShape)
                 .clickable {
                     viewModel.setAnalysisOpen(true)
@@ -4690,19 +4692,19 @@ fun StochRSIChart(
                     pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
                 }
                 private val kPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FF9800")
+                    color = GraphicsColor.parseColor(ChartColors.ORANGE_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val dPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#E91E63")
+                    color = GraphicsColor.parseColor(ChartColors.PINK_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val lvlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#ADB1B8")
+                    color = GraphicsColor.parseColor(ChartColors.TEXT_SECONDARY_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.RIGHT
                 }
@@ -4809,8 +4811,8 @@ fun StochRSIChart(
                     state.stochD.forEach { value ->
                         dEntries.add(Entry(value.first.toFloat(), value.second.toFloat()))
                     }
-                    lineData.addDataSet(createBBLineDataSet(kEntries, "K", GraphicsColor.parseColor("#FF9800"), 1f, highlight = true))
-                    lineData.addDataSet(createBBLineDataSet(dEntries, "D", GraphicsColor.parseColor("#E91E63"), 1f, highlight = true))
+                    lineData.addDataSet(createBBLineDataSet(kEntries, "K", GraphicsColor.parseColor(ChartColors.ORANGE_HEX), 1f, highlight = true))
+                    lineData.addDataSet(createBBLineDataSet(dEntries, "D", GraphicsColor.parseColor(ChartColors.PINK_HEX), 1f, highlight = true))
                 }
                 chart.data = lineData
             } else if (state.stochK.isNotEmpty()) {
@@ -4843,24 +4845,24 @@ fun RsiChart(
                     pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
                 }
                 private val rsiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#B39DDB")
+                    color = GraphicsColor.parseColor(ChartColors.PURPLE_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val rsiMaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FFD60A")
+                    color = GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 // divergencias estilo TV, linea + chip Bull/Bear
                 private val divBullLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#0ECB81")
+                    color = GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX)
                     strokeWidth = 3f
                 }
                 private val divBearLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#EF5350")
+                    color = GraphicsColor.parseColor(ChartColors.CHART_RED_HEX)
                     strokeWidth = 3f
                 }
                 // ocultas un poco mas suaves para diferenciarlas, como el Pine
@@ -4873,13 +4875,13 @@ fun RsiChart(
                     strokeWidth = 2.5f
                 }
                 private val divBullLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#0ECB81")
+                    color = GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX)
                     textSize = 24f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val divBearLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#EF5350")
+                    color = GraphicsColor.parseColor(ChartColors.CHART_RED_HEX)
                     textSize = 24f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -4889,7 +4891,7 @@ fun RsiChart(
                 }
                 private val divRect = RectF()
                 private val lvlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#ADB1B8")
+                    color = GraphicsColor.parseColor(ChartColors.TEXT_SECONDARY_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.RIGHT
                 }
@@ -5064,7 +5066,7 @@ fun RsiChart(
                         createBBLineDataSet(
                             rsiEntries,
                             "RSI",
-                            GraphicsColor.parseColor("#B39DDB"),
+                            GraphicsColor.parseColor(ChartColors.PURPLE_HEX),
                             1.2f,
                             highlight = true
                         )
@@ -5079,7 +5081,7 @@ fun RsiChart(
                         createBBLineDataSet(
                             maEntries,
                             "RSI MA",
-                            GraphicsColor.parseColor("#FFD60A"),
+                            GraphicsColor.parseColor(ChartColors.GOLD_HEX),
                             1.2f,
                             highlight = true
                         )
@@ -5109,31 +5111,31 @@ fun MacdChart(
         factory = { context ->
             object : CombinedChart(context) {
                 private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#ADB1B8")
+                    color = GraphicsColor.parseColor(ChartColors.TEXT_SECONDARY_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val difPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#FFD60A")
+                    color = GraphicsColor.parseColor(ChartColors.GOLD_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val deaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#E91E63")
+                    color = GraphicsColor.parseColor(ChartColors.PINK_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val histPosPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#0ECB81")
+                    color = GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val histNegPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#F6465D")
+                    color = GraphicsColor.parseColor(ChartColors.APP_RED_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5231,8 +5233,8 @@ fun MacdChart(
                         deaEntries.add(Entry(value.first.toFloat(), value.second.toFloat()))
                     }
                     val lineData = LineData()
-                    lineData.addDataSet(createBBLineDataSet(difEntries, "DIF", GraphicsColor.parseColor("#FFD60A"), 1f, highlight = true))
-                    lineData.addDataSet(createBBLineDataSet(deaEntries, "DEA", GraphicsColor.parseColor("#E91E63"), 1f, highlight = true))
+                    lineData.addDataSet(createBBLineDataSet(difEntries, "DIF", GraphicsColor.parseColor(ChartColors.GOLD_HEX), 1f, highlight = true))
+                    lineData.addDataSet(createBBLineDataSet(deaEntries, "DEA", GraphicsColor.parseColor(ChartColors.PINK_HEX), 1f, highlight = true))
                     cd.setData(lineData)
                     val posEntries = ArrayList<BarEntry>(state.macdHist.size)
                     val negEntries = ArrayList<BarEntry>(state.macdHist.size)
@@ -5244,12 +5246,12 @@ fun MacdChart(
                     }
                     val barData = BarData(
                         BarDataSet(posEntries, "HIST+").apply {
-                            color = GraphicsColor.parseColor("#0ECB81")
+                            color = GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX)
                             setDrawValues(false)
                             isHighlightEnabled = true
                         },
                         BarDataSet(negEntries, "HIST-").apply {
-                            color = GraphicsColor.parseColor("#F6465D")
+                            color = GraphicsColor.parseColor(ChartColors.APP_RED_HEX)
                             setDrawValues(false)
                             isHighlightEnabled = true
                         }
@@ -5319,7 +5321,7 @@ fun TakerChart(
         factory = { context ->
             object : BarChart(context) {
                 private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#ADB1B8")
+                    color = GraphicsColor.parseColor(ChartColors.TEXT_SECONDARY_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5331,13 +5333,13 @@ fun TakerChart(
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val buyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#0ECB81")
+                    color = GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
                 private val sellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = GraphicsColor.parseColor("#F6465D")
+                    color = GraphicsColor.parseColor(ChartColors.APP_RED_HEX)
                     textSize = context.resources.displayMetrics.density * 8f
                     textAlign = Paint.Align.LEFT
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5448,8 +5450,8 @@ fun TakerChart(
                     barData.addDataSet(
                         BarDataSet(entries, "T/S").apply {
                             colors = listOf(
-                                GraphicsColor.parseColor("#0ECB81"),
-                                GraphicsColor.parseColor("#F6465D")
+                                GraphicsColor.parseColor(ChartColors.CHART_GREEN_HEX),
+                                GraphicsColor.parseColor(ChartColors.APP_RED_HEX)
                             )
                             setDrawValues(false)
                             isHighlightEnabled = true
@@ -5744,15 +5746,15 @@ private fun BarLineChartBase<*>.setupCommonChartParams() {
     isAutoScaleMinMaxEnabled = true
     xAxis.apply {
         position = XAxis.XAxisPosition.BOTTOM
-        textColor = "#ADB1B8".toColorInt()
-        gridColor = "#1A1D23".toColorInt()
+        textColor = ChartColors.TEXT_SECONDARY_HEX.toColorInt()
+        gridColor = ChartColors.CARD_HEX.toColorInt()
         setDrawLabels(true)
         setAvoidFirstLastClipping(true)
         setLabelCount(5, false) // Fix 1: Limit label count to avoid crowding
         granularity = 1f
     }
-    axisLeft.textColor = "#ADB1B8".toColorInt()
-    axisLeft.gridColor = "#1A1D23".toColorInt()
+    axisLeft.textColor = ChartColors.TEXT_SECONDARY_HEX.toColorInt()
+    axisLeft.gridColor = ChartColors.CARD_HEX.toColorInt()
     axisLeft.setDrawAxisLine(false)
     axisRight.isEnabled = false
 }
@@ -5775,19 +5777,19 @@ private fun BarLineChartBase<*>.applyCompactSubAxes() {
 // ─── DATASET HELPERS ─────────────────────────────────────────────────────────
 private fun createCandleDataSet(entries: List<CandleEntry>) = CandleDataSet(entries, "Klines").apply {
     axisDependency = YAxis.AxisDependency.RIGHT
-    shadowColor = "#F4F4F4".toColorInt()
+    shadowColor = ChartColors.CANDLE_SHADOW_HEX.toColorInt()
     // mecha fina estilo OKX, el ancho fijo en px se ve grueso al alejar
     shadowWidth = 0.7f
-    decreasingColor = "#EF5350".toColorInt()
-    increasingColor = "#0ECB81".toColorInt()
-    neutralColor = "#ADB1B8".toColorInt()
+    decreasingColor = ChartColors.CHART_RED_HEX.toColorInt()
+    increasingColor = ChartColors.CHART_GREEN_HEX.toColorInt()
+    neutralColor = ChartColors.TEXT_SECONDARY_HEX.toColorInt()
     decreasingPaintStyle = Paint.Style.FILL
     increasingPaintStyle = Paint.Style.FILL
     setDrawValues(false)
     shadowColorSameAsCandle = true
     // cuerpos gruesos pegaditos estilo OKX, poco gap para que la mecha no domine
     barSpace = 0.18f
-    highLightColor = "#ADB1B8".toColorInt()
+    highLightColor = ChartColors.TEXT_SECONDARY_HEX.toColorInt()
     highlightLineWidth = 1f
     setDrawHorizontalHighlightIndicator(false)
     setDrawVerticalHighlightIndicator(false)
@@ -5809,7 +5811,7 @@ private fun createBBLineDataSet(
     setDrawValues(false)
     isHighlightEnabled = highlight // Fix: Disable highlight for BB lines, but allow for indicators
     mode = LineDataSet.Mode.CUBIC_BEZIER
-    highLightColor = "#ADB1B8".toColorInt()
+    highLightColor = ChartColors.TEXT_SECONDARY_HEX.toColorInt()
     highlightLineWidth = 1f
     enableDashedHighlightLine(10f, 5f, 0f)
     if (highlight) {
@@ -5973,9 +5975,9 @@ class OKXChartMarker(
                 val changePct = if (candle.open != 0.0) change / candle.open * 100 else 0.0
                 val isUp = change >= 0
                 val changeColor = if (isUp)
-                    GraphicsColor.parseColor("#1ECB81")
+                    GraphicsColor.parseColor(ChartColors.APP_GREEN_HEX)
                 else
-                    GraphicsColor.parseColor("#F6465D")
+                    GraphicsColor.parseColor(ChartColors.APP_RED_HEX)
 
                 val isDaily = state.selectedInterval.isCalendarInterval()
                 val sdf = when {
@@ -6225,7 +6227,7 @@ fun MaListSheet(
                     Row(
                         modifier = Modifier
                             .background(InputBg, RoundedCornerShape(8.dp))
-                            .border(1.dp, Color(0xFF3A3F47), RoundedCornerShape(8.dp))
+                            .border(1.dp, ChartColors.border, RoundedCornerShape(8.dp))
                             .clip(RoundedCornerShape(8.dp)),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -6312,7 +6314,7 @@ fun MaListSheet(
                                     .background(Color(ma.colorHex.toColorInt()), CircleShape)
                                     .border(
                                         if (expandedColorId == ma.id) 2.dp else 1.dp,
-                                        if (expandedColorId == ma.id) Color.White else Color(0xFF3A3F47),
+                                        if (expandedColorId == ma.id) Color.White else ChartColors.border,
                                         CircleShape
                                     )
                             )
@@ -6867,7 +6869,7 @@ private fun ChartResizeDivider(onDrag: (Float) -> Unit) {
                 .width(36.dp)
                 .height(3.dp)
                 .background(
-                    if (active) AppGreen else Color(0xFF3A3F47),
+                    if (active) AppGreen else ChartColors.border,
                     RoundedCornerShape(1.dp)
                 )
         )
@@ -6942,7 +6944,7 @@ fun OverlayEditBar(
     Row(
         modifier = modifier
             .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
-            .background(Color(0xEE141518), RoundedCornerShape(8.dp))
+            .background(ChartColors.sheetOverlay, RoundedCornerShape(8.dp))
             .clip(RoundedCornerShape(8.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -7112,7 +7114,7 @@ fun OverlayEditBar(
             Icon(
                 imageVector = if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
                 contentDescription = "Bloquear",
-                tint = if (locked) Color(0xFF2196F3) else Color.Gray,
+                tint = if (locked) ChartColors.blue else Color.Gray,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -7148,7 +7150,7 @@ private fun PositionBar(
     Row(
         modifier = modifier
             .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
-            .background(Color(0xEE141518), RoundedCornerShape(8.dp))
+            .background(ChartColors.sheetOverlay, RoundedCornerShape(8.dp))
             .clip(RoundedCornerShape(8.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {

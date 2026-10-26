@@ -1,5 +1,6 @@
 package com.defitracker.app.presentation.crypto_detail
 
+import com.defitracker.app.core.Timeframes
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -84,16 +85,6 @@ fun detectSrZones(candles: List<CandleData>): List<SrZone> {
         cluster(swings.filter { it.isHigh }.map { it.price }, false)
 }
 
-fun fmtPulsePrice(v: Double): String {
-    if (!v.isFinite()) return "--"
-    val s = when {
-        v >= 1000.0 -> String.format(java.util.Locale.US, "%,.1f", v)
-        v >= 1.0 -> String.format(java.util.Locale.US, "%.4f", v)
-        else -> String.format(java.util.Locale.US, "%.6f", v)
-    }
-    return if (s.contains('.')) s.trimEnd('0').trimEnd('.') else s
-}
-
 private fun smaLast(values: List<Double>, period: Int): Double? {
     if (values.size < period) return null
     return values.takeLast(period).average()
@@ -117,7 +108,7 @@ data class MaMatrix(
 )
 
 val PULSE_MA_PERIODS = listOf(21, 50, 200)
-val PULSE_MA_TFS = listOf("15m", "1h", "4h")
+val PULSE_MA_TFS = Timeframes.PULSE_KEYS
 
 fun maMatrixScore(
     closesByTf: Map<String, List<Double>>,

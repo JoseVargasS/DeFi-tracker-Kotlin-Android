@@ -1,5 +1,6 @@
 package com.defitracker.app.presentation.crypto_detail
 
+import com.defitracker.app.core.Timeframes
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -406,21 +407,7 @@ fun aggregateByCount(candles: List<CandleData>, n: Int): List<CandleData> {
 
 // 15m x4 -> 1h, etiqueta corta para el chip gris
 fun higherTfLabel(interval: String, factor: Int): String {
-    val baseMs = when (interval.trim()) {
-        "1m" -> 60_000L
-        "5m" -> 300_000L
-        "15m" -> 900_000L
-        "30m" -> 1_800_000L
-        "1h" -> 3_600_000L
-        "2h" -> 7_200_000L
-        "4h" -> 14_400_000L
-        "6h" -> 21_600_000L
-        "12h" -> 43_200_000L
-        "1d", "3d", "5d" -> 86_400_000L
-        "1w", "2w" -> 604_800_000L
-        "1mo", "1M" -> 2_592_000_000L
-        else -> 0L
-    }
+    val baseMs = Timeframes.higherTfBaseDurationMs(interval)
     if (baseMs <= 0L) return "HTF"
     val ms = baseMs * factor
     val mins = ms / 60_000L
@@ -465,7 +452,7 @@ fun detectFvgConfluence(
 }
 // FVG reales de TFs superiores (mismo exchange, por red) solapados con tus FVG = bandas grises.
 // TFs importantes; bajo 1h se salta 12h para que entre 1d en el tope de 5.
-private val SMC_CONFLUENCE_CANON = listOf("5m", "15m", "30m", "1h", "4h", "12h", "1d", "1w")
+private val SMC_CONFLUENCE_CANON = Timeframes.SMC_CONFLUENCE_KEYS
 
 fun higherConfluenceTfs(current: String): List<String> {
     val idx = SMC_CONFLUENCE_CANON.indexOf(current.trim())
@@ -531,9 +518,7 @@ private fun mergeConfluenceBands(bands: List<SmcConfluenceBand>): List<SmcConflu
 }
 
 // ordena TFs de menor a mayor para el tag compuesto
-private val SMC_TF_ORDER = listOf(
-    "1m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "5d", "1w", "2w", "1mo"
-)
+private val SMC_TF_ORDER = Timeframes.KEYS
 
 fun sortTfsForTag(tfs: Set<String>): List<String> =
     tfs.sortedBy { SMC_TF_ORDER.indexOf(it).let { i -> if (i < 0) Int.MAX_VALUE else i } }

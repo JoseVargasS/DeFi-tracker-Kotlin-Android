@@ -1,11 +1,13 @@
 package com.defitracker.app.presentation.crypto_detail
 
+import com.defitracker.app.ui.theme.ChartColors
+
 // posicion LONG/SHORT estilo TV: entrada + SL + TP con cantidad y leverage.
 // Anclas por tiempo como fibos/dibujos: sobreviven al cambio de intervalo.
 
 // verde/rojo los que ya usa la app
-const val POS_PROFIT_HEX = "#1ECB81"
-const val POS_LOSS_HEX = "#F6465D"
+const val POS_PROFIT_HEX = ChartColors.APP_GREEN_HEX
+const val POS_LOSS_HEX = ChartColors.APP_RED_HEX
 
 const val MAX_POSITIONS_PER_SYMBOL = 20
 const val DEFAULT_POSITION_QTY_USDT = 750.0

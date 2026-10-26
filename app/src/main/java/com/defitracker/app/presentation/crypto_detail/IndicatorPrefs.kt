@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.defitracker.app.core.Timeframes
+import com.defitracker.app.ui.theme.ChartColors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -66,23 +68,20 @@ data class IndicatorPrefs(
     companion object {
         val MA_PERIODS = listOf(20, 55, 75, 100, 200)
         // TFs elegibles para una MA, "chart" = la del grafico
-        val MA_TFS = listOf(
-            "chart", "1m", "5m", "15m", "30m", "1h", "2h", "4h",
-            "6h", "12h", "1d", "3d", "5d", "1w", "2w", "1mo"
-        )
+        val MA_TFS = Timeframes.MA_OPTIONS
         // sin tope de cantidad, lista libre
         val PRESET_COLORS = listOf(
-            "#E91E63", "#22D8EB", "#FFFFFF", "#FFD60A",
-            "#0ECB81", "#FF9800", "#B39DDB", "#F6465D"
+            ChartColors.PINK_HEX, ChartColors.CYAN_HEX, ChartColors.WHITE_HEX, ChartColors.GOLD_HEX,
+            ChartColors.CHART_GREEN_HEX, ChartColors.ORANGE_HEX, ChartColors.PURPLE_HEX, ChartColors.APP_RED_HEX
         )
-        val ADD_COLORS = listOf("#E91E63", "#22D8EB", "#FFD60A", "#0ECB81", "#B39DDB", "#FF9800", "#FFFFFF", "#F6465D")
+        val ADD_COLORS = listOf(ChartColors.PINK_HEX, ChartColors.CYAN_HEX, ChartColors.GOLD_HEX, ChartColors.CHART_GREEN_HEX, ChartColors.PURPLE_HEX, ChartColors.ORANGE_HEX, ChartColors.WHITE_HEX, ChartColors.APP_RED_HEX)
 
         fun defaultMas() = listOf(
-            MaConfig("ma20", 20, MaType.SMA, "chart", "#E91E63", 1.2f, true),
-            MaConfig("ma55", 55, MaType.SMA, "chart", "#22D8EB", 1.2f, true),
-            MaConfig("ma75", 75, MaType.SMA, "chart", "#FFFFFF", 1.2f, true),
-            MaConfig("ma100", 100, MaType.SMA, "chart", "#FFD60A", 1.2f, true),
-            MaConfig("ma200", 200, MaType.SMA, "chart", "#0ECB81", 1.4f, true)
+            MaConfig("ma20", 20, MaType.SMA, "chart", ChartColors.PINK_HEX, 1.2f, true),
+            MaConfig("ma55", 55, MaType.SMA, "chart", ChartColors.CYAN_HEX, 1.2f, true),
+            MaConfig("ma75", 75, MaType.SMA, "chart", ChartColors.WHITE_HEX, 1.2f, true),
+            MaConfig("ma100", 100, MaType.SMA, "chart", ChartColors.GOLD_HEX, 1.2f, true),
+            MaConfig("ma200", 200, MaType.SMA, "chart", ChartColors.CHART_GREEN_HEX, 1.4f, true)
         )
 
         val DEFAULT = IndicatorPrefs()
@@ -130,7 +129,7 @@ class IndicatorPrefsRepository @Inject constructor(
             },
             // config visual del fibo, el dibujo va aparte por simbolo
             fib = FibConfig(
-                colorHex = p[stringPreferencesKey("fib_color")] ?: "#FFFFFF",
+                colorHex = p[stringPreferencesKey("fib_color")] ?: ChartColors.WHITE_HEX,
                 width = p[floatPreferencesKey("fib_width")] ?: 1f,
                 enabledLevels = p[stringPreferencesKey("fib_levels")]
                     ?.split(",").orEmpty()
@@ -190,7 +189,7 @@ class IndicatorPrefsRepository @Inject constructor(
             id = java.util.UUID.randomUUID().toString(),
             start = FibAnchor(sTime, sPrice),
             end = FibAnchor(eTime, ePrice),
-            colorHex = p[stringPreferencesKey("fib_color")] ?: "#FFFFFF",
+            colorHex = p[stringPreferencesKey("fib_color")] ?: ChartColors.WHITE_HEX,
             width = p[floatPreferencesKey("fib_width")] ?: 1f,
             enabledLevels = p[stringPreferencesKey("fib_levels")]
                 ?.split(",").orEmpty().mapNotNull { it.toFloatOrNull() }
@@ -259,7 +258,7 @@ private fun decodeMas(raw: String?): List<MaConfig>? {
                 period = period,
                 type = type,
                 timeframe = tf,
-                colorHex = p[3].ifBlank { "#FFFFFF" },
+            colorHex = p[3].ifBlank { ChartColors.WHITE_HEX },
                 width = p[4].toFloatOrNull()?.coerceIn(0.5f, 3f) ?: 1.2f,
                 visible = p.flag(5)
             )

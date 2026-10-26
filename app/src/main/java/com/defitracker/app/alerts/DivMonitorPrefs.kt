@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.defitracker.app.core.Timeframes
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,7 +17,7 @@ private val Context.divMonitorDataStore by preferencesDataStore("div_monitor")
 
 data class DivMonitorConfig(
     val enabled: Boolean = true,
-    val intervals: Set<String> = setOf("5m", "15m", "30m", "1h"),
+    val intervals: Set<String> = Timeframes.DEFAULT_ALERT_INTERVALS,
     val confluence: Boolean = true,
     val signals: Set<String> = setOf("MA_REJECT", "FVG_TAP", "SWEEP"),
     // uri del tono de alerta de precio, vacio = default del sistema
@@ -67,10 +68,7 @@ class DivMonitorPrefs @Inject constructor(
     }
 
     companion object {
-        val ALL_INTERVALS = listOf(
-            "1m", "5m", "15m", "30m", "1h", "2h", "4h",
-            "6h", "12h", "1d", "3d", "5d", "1w", "2w", "1mo"
-        )
+        val ALL_INTERVALS = Timeframes.KEYS
         val ALL_SIGNALS = listOf("MA_REJECT", "FVG_TAP", "SWEEP")
     }
 }

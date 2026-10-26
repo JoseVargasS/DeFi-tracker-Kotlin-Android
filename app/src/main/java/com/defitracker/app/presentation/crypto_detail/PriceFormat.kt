@@ -2,6 +2,9 @@ package com.defitracker.app.presentation.crypto_detail
 
 import kotlin.math.abs
 
+// Tres salidas conviven a proposito: chart adapta precision y compacta B/T,
+// Pulse recorta ceros para frases y el repositorio conserva decimales fijos para DTOs.
+
 // bandas compartidas: 0, sub-$1, $1-10, miles y billones/trillones estilo TV (796.75B).
 // Solo B/T son compactos: ningun precio normal llega a 1M, asi los pares quedan intactos.
 private fun formatAdaptive(value: Double, extended: Boolean): String? = when {
@@ -44,4 +47,20 @@ fun formatCompactVol(value: Double): String {
         v >= 1_000.0 -> String.format(java.util.Locale.US, "%.2fK", value / 1_000.0)
         else -> String.format(java.util.Locale.US, "%.2f", value)
     }
+}
+
+fun fmtPulsePrice(value: Double): String {
+    if (!value.isFinite()) return "--"
+    val formatted = when {
+        value >= 1000.0 -> String.format(java.util.Locale.US, "%,.1f", value)
+        value >= 1.0 -> String.format(java.util.Locale.US, "%.4f", value)
+        else -> String.format(java.util.Locale.US, "%.6f", value)
+    }
+    return if (formatted.contains('.')) formatted.trimEnd('0').trimEnd('.') else formatted
+}
+
+fun formatRepositoryPrice(price: Double): String = when {
+    price < 1.0 -> String.format(java.util.Locale.US, "%.6f", price)
+    price < 10.0 -> String.format(java.util.Locale.US, "%.4f", price)
+    else -> String.format(java.util.Locale.US, "%.2f", price)
 }

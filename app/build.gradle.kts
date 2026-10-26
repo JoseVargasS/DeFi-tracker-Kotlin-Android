@@ -1,9 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun String.toBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")}\""
+
+val coinStatsApiKey = localProperties.getProperty("COINSTATS_API_KEY", "")
 
 android {
     namespace = "com.defitracker.app"
@@ -22,6 +36,7 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        buildConfigField("String", "COINSTATS_API_KEY", coinStatsApiKey.toBuildConfigString())
     }
 
     buildTypes {
@@ -42,6 +57,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -65,6 +81,8 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+
     //noinspection GradleDependency
     implementation("androidx.core:core-ktx:1.12.0")
     //noinspection GradleDependency
