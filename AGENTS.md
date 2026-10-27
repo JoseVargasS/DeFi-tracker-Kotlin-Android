@@ -98,7 +98,19 @@ app/src/main/java/com/defitracker/app/data/repository/CryptoRepositoryImpl.kt
 
 `presentation/crypto_detail/` currently contains these responsibilities:
 
-- `CryptoDetailScreen.kt`: Compose entry point, the MPAndroidChart price chart and subcharts, chart gestures, overlays, indicators sheet, analysis sheet, drawing tools, position configuration, and price-alert sheet wiring. Do not add new code here; extract new behavior to a focused file.
+- `CryptoDetailScreen.kt`: Compose entry point plus the existing `PriceChart`, price-chart gesture handling, overlay rendering, and wiring. Do not add new code here; keep `PriceChart` and its `onTouchEvent` stable unless a task explicitly targets them.
+- `chart/ChartSynchronization.kt`: shared subchart references, pan forwarding, viewport/zoom synchronization, highlight propagation, and `highlightXSafe`.
+- `chart/ChartRendering.kt`: shared chart axes, renderer, typography, datasets, MA labels, and initial candle-window constant.
+- `chart/ChartUpdates.kt`: in-place live-tick updates for candles, MAs, StochRSI, RSI, and MACD.
+- `chart/StochRsiChart.kt`, `RsiChart.kt`, `MacdChart.kt`, `TakerChart.kt`: the four optional subchart composables and their chart-specific drawing/formatting.
+- `sheets/IndicatorsSheet.kt`: indicator visibility controls and the entry point for MA settings.
+- `sheets/MaListSheet.kt`: MA list/configuration UI and MA row helpers.
+- `sheets/WideColorPicker.kt`: shared HSV/hex color picker used by MA, drawing, position, and Fibonacci controls.
+- `sheets/AnalysisSheet.kt`: Pulse analysis sheet and its time formatter.
+- `sheets/DrawingToolsSheet.kt`: drawing-tool sheet, tool cells, overlay edit bar, and drawing actions.
+- `sheets/PositionConfigSheet.kt`: floating position bar, leverage choices, and position configuration form.
+- `sheets/FibLevelsSheet.kt`: Fibonacci level/color/width configuration sheet.
+- `sheets/SheetPrimitives.kt`: shared sheet grid cells, dividers, and chart resize divider.
 - `CryptoDetailViewModel.kt`: owns detail state, source-specific loads, tail synchronization, off-main chart computation, indicator toggles, Pulse refresh, taker alignment, and CRUD/selection for Fibonacci, drawings, positions, and price alerts.
 - `Analysis.kt`: pure Pulse analysis, support/resistance zones, multi-timeframe MA matrix, bias, score, and explanatory items.
 - `DrawOverlay.kt`: OKX-style drawing models, supported drawing kinds, limits, labels, and persistence codecs.
@@ -119,7 +131,12 @@ Choose the file by change type:
 - Chart state, loading, alignment, persistence actions, or network-fed derived data: `CryptoDetailViewModel.kt`.
 - Indicator settings or overlay persistence: `IndicatorPrefs.kt` and the corresponding model/codec file.
 - Price-alert UI: `PriceAlertSheet.kt`; storage and monitoring are in `data/local` and `alerts`.
-- Chart rendering, gesture handling, layout, or subchart synchronization: create a focused file and keep `CryptoDetailScreen.kt` as wiring only.
+- Main price-chart rendering or its gesture contract: `CryptoDetailScreen.kt`; do not touch `PriceChart.onTouchEvent` for unrelated work.
+- Subchart composable: the matching file under `chart/`.
+- Subchart viewport, zoom, highlight, or pan behavior: `chart/ChartSynchronization.kt`.
+- Shared chart axes, renderers, datasets, or labels: `chart/ChartRendering.kt`.
+- Live in-place dataset updates: `chart/ChartUpdates.kt`.
+- Bottom-sheet UI: the matching file under `sheets/`; shared sheet controls belong in `SheetPrimitives.kt` or `WideColorPicker.kt`.
 
 ### File Size And Chart Contracts
 

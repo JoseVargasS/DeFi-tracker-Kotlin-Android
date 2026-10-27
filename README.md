@@ -90,6 +90,14 @@ app/src/main/java/com/defitracker/app/
 |   |   `-- AlertsViewModel.kt
 |   |-- crypto_detail/
 |   |   |-- Analysis.kt
+|   |   |-- chart/
+|   |   |   |-- ChartRendering.kt
+|   |   |   |-- ChartSynchronization.kt
+|   |   |   |-- ChartUpdates.kt
+|   |   |   |-- MacdChart.kt
+|   |   |   |-- RsiChart.kt
+|   |   |   |-- StochRsiChart.kt
+|   |   |   `-- TakerChart.kt
 |   |   |-- CryptoDetailScreen.kt
 |   |   |-- CryptoDetailViewModel.kt
 |   |   |-- DrawOverlay.kt
@@ -100,6 +108,15 @@ app/src/main/java/com/defitracker/app/
 |   |   |-- PriceAlertSheet.kt
 |   |   |-- PriceFormat.kt
 |   |   |-- RsiCalc.kt
+|   |   |-- sheets/
+|   |   |   |-- AnalysisSheet.kt
+|   |   |   |-- DrawingToolsSheet.kt
+|   |   |   |-- FibLevelsSheet.kt
+|   |   |   |-- IndicatorsSheet.kt
+|   |   |   |-- MaListSheet.kt
+|   |   |   |-- PositionConfigSheet.kt
+|   |   |   |-- SheetPrimitives.kt
+|   |   |   `-- WideColorPicker.kt
 |   |   |-- RsiDiv.kt
 |   |   |-- Signals.kt
 |   |   `-- Smc.kt
@@ -243,6 +260,7 @@ Behavior:
 - Persists indicator visibility/configuration in DataStore, including moving-average type/period/timeframe/color/width, SMC toggles, Fibonacci settings, and overlay data.
 - The Pulse sheet evaluates support/resistance zones, 21/50/200 MA confluence across 15m/1h/4h, fresh RSI divergence, sweep/reclaim, and latest structure.
 - Uses MPAndroidChart in Compose through `AndroidView`.
+- Chart subcomponents, synchronization, rendering helpers, live updates, and bottom sheets live in the focused `crypto_detail/chart/` and `crypto_detail/sheets/` packages; `CryptoDetailScreen.kt` keeps the main screen and price-chart wiring.
 
 Timeframe selection and exchange resolution use `core/Timeframes.kt`. Price formatting lives in `PriceFormat.kt`: chart, Pulse, and repository policies remain named separately because they preserve different existing output contracts. Chart and overlay colors use `ui/theme/Color.kt:ChartColors` without changing their visible values.
 
