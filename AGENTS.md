@@ -169,6 +169,7 @@ Choose the file by change type:
 - Always use `highlightXSafe` for subchart highlights. `CombinedChart` requires `Highlight(x, 0, 0)` so `dataIndex` points to its `LineData`; calling `highlightValue(x, 0)` directly on a `CombinedChart` can produce `IndexOutOfBoundsException`. Keep its `try/catch` fallback that clears the highlight.
 - Main-chart pan/zoom updates the shared matrix and immediately resynchronizes all subcharts. Horizontal drags that begin in a subchart are forwarded to the price chart; subcharts must never pan independently.
 - All indicator and taker series must remain aligned to candle indices, and live ticks should update datasets in place where the current implementation supports it instead of recreating Android views.
+- Every `ACTION_DOWN` must initialize the general gesture state before overlay hit-tests, so panning from a locked Fibonacci or drawing overlay starts at the current touch position without a jump.
 
 #### Shared presentation sources of truth
 

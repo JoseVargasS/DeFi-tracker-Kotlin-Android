@@ -24,6 +24,7 @@ The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI
 - Transaction history through CoinStats, grouped by network.
 - Price alerts per pair, supporting LONG/SHORT targets or ranges, persisted locally and delivered by the foreground monitor.
 - Chart drawings, Fibonacci retracements, and LONG/SHORT position overlays persisted per symbol.
+- Pan started on a locked Fibonacci or drawing overlay keeps the chart smooth from the current touch position.
 - Pulse analysis sheet with multi-timeframe moving-average confluence, support/resistance, RSI divergence, sweep/reclaim, and market-structure context.
 - Compose navigation with animated transitions.
 - Dark Material 3 UI tuned for a trading/portfolio app.

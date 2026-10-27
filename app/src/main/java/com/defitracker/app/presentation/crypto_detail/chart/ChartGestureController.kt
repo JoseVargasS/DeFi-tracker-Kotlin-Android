@@ -18,6 +18,17 @@ internal class ChartGestureController(
 ) {
     fun onTouchEvent(event: MotionEvent?): Boolean = with(chart) {
         if (event == null) return false
+
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            downX = event.x
+            downY = event.y
+            lastGestureX = event.x
+            lastGestureY = event.y
+            zoomPivotX = matrixPivotX(event.x)
+            zoomPivotY = matrixPivotY(event.y)
+            touchMode = ChartTouchMode.UNDECIDED
+            gestureMoved = false
+        }
         
         // fibo primero en cualquier modo (menos Medir); vacio = sigue al flujo normal
         when (event.action) {
@@ -431,14 +442,6 @@ internal class ChartGestureController(
         
         when (event.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
-                downX = event.x
-                downY = event.y
-                lastGestureX = event.x
-                lastGestureY = event.y
-                zoomPivotX = matrixPivotX(event.x)
-                zoomPivotY = matrixPivotY(event.y)
-                touchMode = ChartTouchMode.UNDECIDED
-                gestureMoved = false
                 parent.requestDisallowInterceptTouchEvent(true)
                 return true
             }
