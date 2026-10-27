@@ -19,10 +19,18 @@ internal fun PriceCombinedChart.drawSmcBackground(
     if (!prefsRef.value.smcPremium) return
     val range = stateRef.value.smc.premium ?: return
     if (candles.isEmpty()) return
-    val trans = getTransformer(YAxis.AxisDependency.LEFT)
     val contentLeft = viewPortHandler.contentLeft()
     val contentRight = viewPortHandler.contentRight()
-    val x0 = floatArrayOf(visibleStart.toFloat(), 0f)
+    val contentTop = viewPortHandler.contentTop()
+    val contentBottom = viewPortHandler.contentBottom()
+    if (contentRight <= contentLeft || contentBottom <= contentTop) return
+
+    val rangeStart = max(0, candles.size - SMC_PREMIUM_LOOKBACK)
+    if (rangeStart > visibleEnd) return
+    val startX = max(visibleStart, rangeStart)
+
+    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+    val x0 = floatArrayOf(startX.toFloat(), 0f)
     trans.pointValuesToPixel(x0)
     val x1 = floatArrayOf(visibleEnd.toFloat(), 0f)
     trans.pointValuesToPixel(x1)
@@ -34,11 +42,18 @@ internal fun PriceCombinedChart.drawSmcBackground(
     trans.pointValuesToPixel(eq)
     val lo = floatArrayOf(0f, range.low.toFloat())
     trans.pointValuesToPixel(lo)
-    yTagRect.set(leftX, min(hi[1], eq[1]), rightX, max(hi[1], eq[1]))
-    canvas.drawRect(yTagRect, smcPremPaint)
-    yTagRect.set(leftX, min(eq[1], lo[1]), rightX, max(eq[1], lo[1]))
-    canvas.drawRect(yTagRect, smcDiscPaint)
-    canvas.drawLine(leftX, eq[1], rightX, eq[1], smcEqLinePaint)
+
+    canvas.save()
+    canvas.clipRect(contentLeft, contentTop, contentRight, contentBottom)
+    try {
+        yTagRect.set(leftX, min(hi[1], eq[1]), rightX, max(hi[1], eq[1]))
+        canvas.drawRect(yTagRect, smcPremPaint)
+        yTagRect.set(leftX, min(eq[1], lo[1]), rightX, max(eq[1], lo[1]))
+        canvas.drawRect(yTagRect, smcDiscPaint)
+        canvas.drawLine(leftX, eq[1], rightX, eq[1], smcEqLinePaint)
+    } finally {
+        canvas.restore()
+    }
 }
 
 // cajas y estructura sobre el chart pero tenues, las velas mandan
@@ -57,7 +72,11 @@ internal fun PriceCombinedChart.drawSmcForeground(
     val contentRight = viewPortHandler.contentRight()
     val contentTop = viewPortHandler.contentTop()
     val contentBottom = viewPortHandler.contentBottom()
+    if (contentRight <= contentLeft || contentBottom <= contentTop) return
 
+    canvas.save()
+    canvas.clipRect(contentLeft, contentTop, contentRight, contentBottom)
+    try {
     if (smcPrefs.smcOrderBlocks || smcPrefs.smcFvg) {
         var lastZoneTagY = Float.NEGATIVE_INFINITY
         smc.zones.forEach { z ->
@@ -260,6 +279,9 @@ internal fun PriceCombinedChart.drawSmcForeground(
                 confTy += confH
             }
         }
+    }
+    } finally {
+        canvas.restore()
     }
 }
 

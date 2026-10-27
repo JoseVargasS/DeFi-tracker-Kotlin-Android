@@ -130,8 +130,8 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
         // avanza referencias con swings ya confirmados a esta altura
         while (s < swings.size && swings[s].idx <= i) {
             val sw = swings[s]
-            if (sw.isHigh && sw.idx > (refHigh?.idx ?: -1)) refHigh = sw
-            if (!sw.isHigh && sw.idx > (refLow?.idx ?: -1)) refLow = sw
+            if (sw.isHigh && (refHigh == null || sw.idx > refHigh.idx)) refHigh = sw
+            if (!sw.isHigh && (refLow == null || sw.idx > refLow.idx)) refLow = sw
             s++
         }
         val rh = refHigh
@@ -140,8 +140,18 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
             val kind = if (trend == 1) SmcEventKind.BOS else SmcEventKind.CHOCH
             events.add(SmcEvent(i, rh.idx, rh.price, kind, true))
             trend = 1
-            // la referencia avanza al maximo del quiebre o se repite el BOS
-            refHigh = SmcSwing(i, candles[i].high, true)
+            // Buscamos el Higher Low que origino el quiebre para proteger la estructura alcista
+            var minLow = candles[rh.idx].low
+            var minIdx = rh.idx
+            for (k in rh.idx..i) {
+                if (candles[k].low < minLow) {
+                    minLow = candles[k].low
+                    minIdx = k
+                }
+            }
+            refLow = SmcSwing(minIdx, minLow, false)
+            // El nivel quebrado queda consumido; se espera al siguiente swing high confirmado
+            refHigh = null
             i++
             continue
         }
@@ -149,7 +159,18 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
             val kind = if (trend == -1) SmcEventKind.BOS else SmcEventKind.CHOCH
             events.add(SmcEvent(i, rl.idx, rl.price, kind, false))
             trend = -1
-            refLow = SmcSwing(i, candles[i].low, false)
+            // Buscamos el Lower High que origino el quiebre para proteger la estructura bajista
+            var maxHigh = candles[rl.idx].high
+            var maxIdx = rl.idx
+            for (k in rl.idx..i) {
+                if (candles[k].high > maxHigh) {
+                    maxHigh = candles[k].high
+                    maxIdx = k
+                }
+            }
+            refHigh = SmcSwing(maxIdx, maxHigh, true)
+            // El nivel quebrado queda consumido; se espera al siguiente swing low confirmado
+            refLow = null
             i++
             continue
         }
@@ -180,13 +201,17 @@ fun detectOrderBlocks(
         }
         val f = found ?: return@forEach
         val c = candles[f]
-        // mitigacion por cierre dentro de la zona
+        // mitigacion evaluada a partir de que se completa el rompimiento
         var end = candles.size - 1
         var mitigated = false
-        var m = f + 1
+        var m = ev.breakIdx + 1
         while (m < candles.size) {
             val cl = candles[m].close
-            if (cl >= c.low && cl <= c.high) {
+            // en compras, se invalida si el precio rompe y cierra por debajo del minimo del OB
+            // en ventas, si rompe y cierra por encima del maximo del OB
+            val violated = if (ev.bullish) cl < c.low || candles[m].low < c.low
+                           else cl > c.high || candles[m].high > c.high
+            if (violated) {
                 end = m
                 mitigated = true
                 break
@@ -205,9 +230,15 @@ fun detectOrderBlocks(
             )
         )
     }
-    // solo los recientes por lado, el chart manda no las cajas
-    val bull = out.filter { it.bullish }.takeLast(SMC_MAX_ZONES_PER_SIDE)
-    val bear = out.filter { !it.bullish }.takeLast(SMC_MAX_ZONES_PER_SIDE)
+    // priorizamos las zonas activas y las mitigadas mas recientes
+    val bullActive = out.filter { it.bullish && !it.mitigated }
+    val bullMitigated = out.filter { it.bullish && it.mitigated }
+    val bull = (bullMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bullActive.size)) + bullActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
+
+    val bearActive = out.filter { !it.bullish && !it.mitigated }
+    val bearMitigated = out.filter { !it.bullish && it.mitigated }
+    val bear = (bearMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bearActive.size)) + bearActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
+
     return (bull + bear).sortedBy { it.startIdx }
 }
 
@@ -224,7 +255,8 @@ fun detectFvg(candles: List<CandleData>): List<SmcZone> {
             var mitigated = false
             var m = i + 1
             while (m < candles.size) {
-                if (candles[m].low <= c.low) {
+                // FVG alcista: se mitiga cuando el precio cubre todo el gap
+                if (candles[m].low <= a.high || candles[m].close < a.high) {
                     end = m
                     mitigated = true
                     break
@@ -237,7 +269,8 @@ fun detectFvg(candles: List<CandleData>): List<SmcZone> {
             var mitigated = false
             var m = i + 1
             while (m < candles.size) {
-                if (candles[m].high >= c.high) {
+                // FVG bajista: se mitiga cuando el precio cubre todo el gap
+                if (candles[m].high >= a.low || candles[m].close > a.low) {
                     end = m
                     mitigated = true
                     break
@@ -247,8 +280,15 @@ fun detectFvg(candles: List<CandleData>): List<SmcZone> {
             out.add(SmcZone(i - 2, end, a.low, c.high, false, SmcZoneKind.FVG, mitigated))
         }
     }
-    val bull = out.filter { it.bullish }.takeLast(SMC_MAX_ZONES_PER_SIDE)
-    val bear = out.filter { !it.bullish }.takeLast(SMC_MAX_ZONES_PER_SIDE)
+    // priorizamos las zonas activas y las mitigadas mas recientes
+    val bullActive = out.filter { it.bullish && !it.mitigated }
+    val bullMitigated = out.filter { it.bullish && it.mitigated }
+    val bull = (bullMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bullActive.size)) + bullActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
+
+    val bearActive = out.filter { !it.bullish && !it.mitigated }
+    val bearMitigated = out.filter { !it.bullish && it.mitigated }
+    val bear = (bearMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bearActive.size)) + bearActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
+
     return (bull + bear).sortedBy { it.startIdx }
 }
 

@@ -227,11 +227,17 @@ internal fun PriceCombinedChart.drawPriceChart(canvas: Canvas) {
 
     drawPriceRangeSelection(canvas, entries)
     if (!prefsRef.value.overlaysHidden) {
-        drawFibOverlays(canvas, entries)
-        drawDrawOverlays(canvas, entries)
-        drawPositionOverlays(canvas, entries)
-        drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
-        drawMaTfTags(canvas, entries)
+        canvas.save()
+        canvas.clipRect(contentLeft, contentTop, contentRight, contentBottom)
+        try {
+            drawFibOverlays(canvas, entries)
+            drawDrawOverlays(canvas, entries)
+            drawPositionOverlays(canvas, entries)
+            drawSmcForeground(canvas, entries, visibleStart, visibleEnd)
+            drawMaTfTags(canvas, entries)
+        } finally {
+            canvas.restore()
+        }
     }
     drawPinnedYLabels(canvas, entries)
     drawLastPriceTag(canvas, entries)
