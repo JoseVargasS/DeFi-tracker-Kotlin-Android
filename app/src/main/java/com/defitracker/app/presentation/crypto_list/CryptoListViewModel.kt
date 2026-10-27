@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
@@ -153,21 +154,34 @@ class CryptoListViewModel @Inject constructor(
     private fun startLivePrices() {
         viewModelScope.launch {
             try {
-                repository.observeLivePrices().collect { quotes ->
-                    val pairs = state.value.pairs
-                    if (pairs.isEmpty() || quotes.isEmpty()) return@collect
-                    var changed = false
-                    val updated = pairs.map { pair ->
-                        val q = quotes[pairKey(pair.symbol, pair.source)]
-                        if (q != null && (q.price != pair.price || q.priceChangePercent != pair.priceChangePercent)) {
-                            changed = true
-                            pair.copy(price = q.price, priceChangePercent = q.priceChangePercent, isPositive = q.isPositive)
-                        } else pair
+                repository.observeLivePrices()
+                    .conflate()
+                    .collect { quotes ->
+                        val pairs = state.value.pairs
+                        if (pairs.isEmpty() || quotes.isEmpty()) return@collect
+                        var changed = false
+                        val updated = pairs.map { pair ->
+                            val q = quotes[pairKey(pair.symbol, pair.source)]
+                            if (q != null && (q.price != pair.price || q.priceChangePercent != pair.priceChangePercent)) {
+                                changed = true
+                                pair.copy(price = q.price, priceChangePercent = q.priceChangePercent, isPositive = q.isPositive)
+                            } else pair
+                        }
+                        if (changed) _state.value = state.value.copy(pairs = updated)
+
+                        val currentVols = _volumes.value
+                        var volsChanged = false
+                        val newVols = HashMap(currentVols)
+                        for (p in pairs) {
+                            val k = pairKey(p.symbol, p.source)
+                            val qv = quotes[k]?.quoteVolume
+                            if (qv != null && qv > 0.0 && currentVols[k] != qv) {
+                                newVols[k] = qv
+                                volsChanged = true
+                            }
+                        }
+                        if (volsChanged) _volumes.value = newVols
                     }
-                    if (changed) _state.value = state.value.copy(pairs = updated)
-                    val vols = quotes.mapValues { it.value.quoteVolume }
-                    if (vols.isNotEmpty()) _volumes.value = _volumes.value + vols
-                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}

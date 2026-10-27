@@ -159,7 +159,7 @@ fun CryptoListScreen(
     val sparklines = viewModel.sparklines.value
     val volumes = viewModel.volumes.value
     val basePairs = localOrder.value ?: visiblePairs
-    val displayPairs = remember(basePairs, sortMode, volumes) {
+    val displayPairs = remember(basePairs, sortMode, if (sortMode == SortMode.VOL_DESC) volumes else Unit) {
         when (sortMode) {
             SortMode.DEFAULT -> basePairs
             SortMode.VOL_DESC -> basePairs.sortedByDescending { volumes["${it.symbol}-${it.source}"] ?: 0.0 }

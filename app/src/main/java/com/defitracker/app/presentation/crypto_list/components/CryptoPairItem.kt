@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -63,6 +64,15 @@ fun CryptoPairItem(
         formatPriceForChart(pair.price.toDoubleValue(), extended)
     }
 
+    val iconRequest = remember(pair.baseAsset) {
+        ImageRequest.Builder(context)
+            .data("https://assets.coincap.io/assets/icons/${pair.baseAsset.lowercase()}@2x.png")
+            .crossfade(false)
+            .memoryCacheKey("coin-${pair.baseAsset}")
+            .diskCacheKey("coin-${pair.baseAsset}")
+            .build()
+    }
+
     Surface(
         color = Color.Transparent,
         modifier = Modifier
@@ -84,12 +94,7 @@ fun CryptoPairItem(
                     .padding(4.dp)
             ) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data("https://assets.coincap.io/assets/icons/${pair.baseAsset.lowercase()}@2x.png")
-                        .crossfade(false)
-                        .memoryCacheKey("coin-${pair.baseAsset}")
-                        .diskCacheKey("coin-${pair.baseAsset}")
-                        .build(),
+                    model = iconRequest,
                     contentDescription = pair.baseAsset,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
@@ -211,22 +216,34 @@ private fun Sparkline(values: List<Double>, positive: Boolean) {
         return
     }
     val color = if (positive) AppGreen else AppRed
+    val strokeWidth = with(LocalDensity.current) { 1.8.dp.toPx() }
+    val dotRadius = with(LocalDensity.current) { 2.dp.toPx() }
+    val path = remember { Path() }
+
     Canvas(modifier = Modifier.width(54.dp).height(28.dp)) {
         val min = values.minOrNull() ?: return@Canvas
         val max = values.maxOrNull() ?: return@Canvas
-        val range = (max - min).takeIf { it > 0 } ?: 1.0
+        val range = (max - min).takeIf { it > 0.0 } ?: 1.0
         val stepX = size.width / (values.size - 1)
-        val pts = values.mapIndexed { i, v ->
-            Offset(
-                i * stepX,
-                size.height - ((v - min) / range * size.height).toFloat()
-            )
+        val h = size.height
+
+        path.reset()
+        var lastX = 0f
+        var lastY = 0f
+        for (i in values.indices) {
+            val x = i * stepX
+            val y = h - ((values[i] - min) / range * h).toFloat()
+            if (i == 0) {
+                path.moveTo(x, y)
+            } else {
+                path.lineTo(x, y)
+            }
+            if (i == values.lastIndex) {
+                lastX = x
+                lastY = y
+            }
         }
-        val path = Path().apply {
-            moveTo(pts[0].x, pts[0].y)
-            for (i in 1..pts.lastIndex) lineTo(pts[i].x, pts[i].y)
-        }
-        drawPath(path, color, style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round))
-        drawCircle(color, radius = 2.dp.toPx(), center = pts.last())
+        drawPath(path, color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+        drawCircle(color, radius = dotRadius, center = Offset(lastX, lastY))
     }
 }
