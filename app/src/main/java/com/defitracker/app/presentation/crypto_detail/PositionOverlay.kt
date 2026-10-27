@@ -31,9 +31,6 @@ data class PositionOverlay(
     val profitAlpha: Float = DEFAULT_POSITION_PROFIT_ALPHA,
     val lossAlpha: Float = DEFAULT_POSITION_LOSS_ALPHA
 ) {
-    // linea ganadora arriba en LONG, abajo en SHORT
-    val profitPrice: Double get() = tp
-    val lossPrice: Double get() = sl
 }
 
 // % del movimiento apalancado + monto en USDT, pa' las etiquetas

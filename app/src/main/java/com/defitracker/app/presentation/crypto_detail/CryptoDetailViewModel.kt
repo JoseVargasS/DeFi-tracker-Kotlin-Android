@@ -296,16 +296,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         recomputeIndicatorsFromCache()
     }
     fun toggleRsiDivHidden() = updatePrefs { it.copy(rsiDivHidden = !it.rsiDivHidden) }
-    fun toggleMA(period: Int) = updatePrefs { cur ->
-        cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(visible = !ma.visible) else ma })
-    }
-    fun setMAColor(period: Int, colorHex: String) = updatePrefs { cur ->
-        cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(colorHex = colorHex) else ma })
-    }
-    fun setMAWidth(period: Int, width: Float) = updatePrefs { cur ->
-        cur.copy(mas = cur.mas.map { ma -> if (ma.period == period) ma.copy(width = width) else ma })
-    }
-
     // MAs por id (SMA/EMA, periodo, color, grosor, TF)
     fun toggleMAById(id: String) {
         updatePrefs { cur ->
@@ -502,14 +492,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private fun updateFib(id: String, transform: (FibOverlay) -> FibOverlay, persist: Boolean = true) {
         _fibOverlays.value = _fibOverlays.value.map { if (it.id == id) transform(it) else it }
         if (persist) persistFibs()
-    }
-
-    fun moveFibAnchor(id: String, isStart: Boolean, anchor: FibAnchor, persist: Boolean = true) {
-        updateFib(id, { if (isStart) it.copy(start = anchor) else it.copy(end = anchor) }, persist)
-    }
-
-    fun moveFibWhole(id: String, start: FibAnchor, end: FibAnchor, persist: Boolean = true) {
-        updateFib(id, { it.copy(start = start, end = end) }, persist)
     }
 
     fun setFibColor(id: String, hex: String) {

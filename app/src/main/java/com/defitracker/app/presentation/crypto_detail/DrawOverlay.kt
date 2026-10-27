@@ -78,17 +78,3 @@ fun decodeDrawOverlays(raw: String?): List<DrawOverlay> {
         )
     }.take(MAX_DRAWS_PER_SYMBOL)
 }
-
-fun drawKindLabel(kind: DrawKind): String = when (kind) {
-    DrawKind.SEGMENT -> "Segmento"
-    DrawKind.LINE -> "Línea"
-    DrawKind.RAY -> "Recta"
-    DrawKind.ARROW -> "Flecha"
-    DrawKind.H_SEGMENT -> "Segmento H"
-    DrawKind.H_LINE -> "Línea H"
-    DrawKind.H_RAY -> "Recta H"
-    DrawKind.RECT -> "Rectángulo"
-    DrawKind.CIRCLE -> "Círculo"
-    DrawKind.TRIANGLE -> "Triángulo"
-    DrawKind.PRICE_LINE -> "Línea de precio"
-}

@@ -109,10 +109,6 @@ internal class PriceCombinedChart(
         // sombra sutil para leer sin fondo que tape el grafico
         setShadowLayer(4f, 0f, 0f, GraphicsColor.argb(200, 0, 0, 0))
     }
-    internal val fibChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = GraphicsColor.argb(220, 26, 29, 35)
-        style = Paint.Style.FILL
-    }
     internal val fibHandleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = GraphicsColor.argb(60, 33, 150, 243)
         style = Paint.Style.FILL
@@ -185,10 +181,6 @@ internal class PriceCombinedChart(
     }
     val smcObBearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = GraphicsColor.argb(42, 239, 83, 80)
-        style = Paint.Style.FILL
-    }
-    val smcObMitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = GraphicsColor.argb(16, 173, 177, 184)
         style = Paint.Style.FILL
     }
     val smcFvgBullPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

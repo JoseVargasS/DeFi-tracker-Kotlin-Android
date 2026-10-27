@@ -69,6 +69,5 @@ class DivMonitorPrefs @Inject constructor(
 
     companion object {
         val ALL_INTERVALS = Timeframes.KEYS
-        val ALL_SIGNALS = listOf("MA_REJECT", "FVG_TAP", "SWEEP")
     }
 }
