@@ -98,7 +98,18 @@ app/src/main/java/com/defitracker/app/data/repository/CryptoRepositoryImpl.kt
 
 `presentation/crypto_detail/` currently contains these responsibilities:
 
-- `CryptoDetailScreen.kt`: Compose entry point plus the existing `PriceChart`, price-chart gesture handling, overlay rendering, and wiring. Do not add new code here; keep `PriceChart` and its `onTouchEvent` stable unless a task explicitly targets them.
+- `CryptoDetailScreen.kt`: Compose entry point, `PriceChart` AndroidView wiring, toolbar/sheet state, and dataset updates. The large chart view, gestures, and overlay rendering now live under `chart/`; do not add new chart implementation code here.
+- `chart/PriceCombinedChart.kt`: the dedicated `CombinedChart` subclass, shared chart paints, explicit `updateState(...)` boundary, callbacks, and Android callback delegation.
+- `chart/ChartGestureController.kt`: the complete touch-event flow for pan/zoom, drawing mode, overlay selection/dragging, range measurement, crosshair selection, pinch, and long-press behavior.
+- `chart/ChartGestureMath.kt`: viewport matrix helpers, touch-to-candle conversion, resize preservation, pan/Y-zoom/pinch primitives, and range-tap helpers used by the gesture controller.
+- `chart/PriceChartMainRenderer.kt`: base price-chart drawing, extrema labels, price/crosshair tags, MA timeframe tags, and the draw dispatcher.
+- `chart/SmcOverlayRenderer.kt`: SMC background/foreground zones, tags, liquidity/equilibrium labels, and ratio formatting.
+- `chart/VolumeOverlayRenderer.kt`: normal volume, taker volume, and fixed-range volume-profile overlays.
+- `chart/RangeSelectionRenderer.kt`: measurement/range selection rendering and hit testing.
+- `chart/FibOverlayRenderer.kt`: Fibonacci hit testing, dragging callbacks, level rendering, and pending Fibonacci hints.
+- `chart/DrawOverlayRenderer.kt`: drawing-tool hit testing, dragging callbacks, shape rendering, and pending drawing hints.
+- `chart/PositionOverlayRenderer.kt`: LONG/SHORT geometry, labels, hit testing, dragging callbacks, and position rendering.
+- `chart/PriceChartRenderState.kt`: shared chart-tool types (`DrawingTool`, `MeasureZone`) and the virtual Fibonacci extension constant.
 - `chart/ChartSynchronization.kt`: shared subchart references, pan forwarding, viewport/zoom synchronization, highlight propagation, and `highlightXSafe`.
 - `chart/ChartRendering.kt`: shared chart axes, renderer, typography, datasets, MA labels, and initial candle-window constant.
 - `chart/ChartUpdates.kt`: in-place live-tick updates for candles, MAs, StochRSI, RSI, and MACD.
@@ -131,7 +142,11 @@ Choose the file by change type:
 - Chart state, loading, alignment, persistence actions, or network-fed derived data: `CryptoDetailViewModel.kt`.
 - Indicator settings or overlay persistence: `IndicatorPrefs.kt` and the corresponding model/codec file.
 - Price-alert UI: `PriceAlertSheet.kt`; storage and monitoring are in `data/local` and `alerts`.
-- Main price-chart rendering or its gesture contract: `CryptoDetailScreen.kt`; do not touch `PriceChart.onTouchEvent` for unrelated work.
+- PriceChart Compose wiring, callbacks, or dataset rebuilding: `CryptoDetailScreen.kt`.
+- Price chart lifecycle/state boundary: `chart/PriceCombinedChart.kt`.
+- Pan, zoom, pinch, selection, drawing mode, range measurement, or long-press behavior: `chart/ChartGestureController.kt` and its `ChartGestureMath.kt` helpers.
+- Fibonacci, drawing, position, volume-profile/taker, or range overlays: the corresponding `chart/*OverlayRenderer.kt` file.
+- Main price/crosshair/MA/SMC rendering: `chart/PriceChartMainRenderer.kt` or `chart/SmcOverlayRenderer.kt`.
 - Subchart composable: the matching file under `chart/`.
 - Subchart viewport, zoom, highlight, or pan behavior: `chart/ChartSynchronization.kt`.
 - Shared chart axes, renderers, datasets, or labels: `chart/ChartRendering.kt`.

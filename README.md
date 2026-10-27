@@ -94,10 +94,21 @@ app/src/main/java/com/defitracker/app/
 |   |   |   |-- ChartRendering.kt
 |   |   |   |-- ChartSynchronization.kt
 |   |   |   |-- ChartUpdates.kt
+|   |   |   |-- ChartGestureController.kt
+|   |   |   |-- ChartGestureMath.kt
+|   |   |   |-- DrawOverlayRenderer.kt
+|   |   |   |-- FibOverlayRenderer.kt
 |   |   |   |-- MacdChart.kt
+|   |   |   |-- PositionOverlayRenderer.kt
+|   |   |   |-- PriceChartMainRenderer.kt
+|   |   |   |-- PriceChartRenderState.kt
+|   |   |   |-- PriceCombinedChart.kt
+|   |   |   |-- RangeSelectionRenderer.kt
 |   |   |   |-- RsiChart.kt
+|   |   |   |-- SmcOverlayRenderer.kt
 |   |   |   |-- StochRsiChart.kt
-|   |   |   `-- TakerChart.kt
+|   |   |   |-- TakerChart.kt
+|   |   |   `-- VolumeOverlayRenderer.kt
 |   |   |-- CryptoDetailScreen.kt
 |   |   |-- CryptoDetailViewModel.kt
 |   |   |-- DrawOverlay.kt
@@ -260,7 +271,7 @@ Behavior:
 - Persists indicator visibility/configuration in DataStore, including moving-average type/period/timeframe/color/width, SMC toggles, Fibonacci settings, and overlay data.
 - The Pulse sheet evaluates support/resistance zones, 21/50/200 MA confluence across 15m/1h/4h, fresh RSI divergence, sweep/reclaim, and latest structure.
 - Uses MPAndroidChart in Compose through `AndroidView`.
-- Chart subcomponents, synchronization, rendering helpers, live updates, and bottom sheets live in the focused `crypto_detail/chart/` and `crypto_detail/sheets/` packages; `CryptoDetailScreen.kt` keeps the main screen and price-chart wiring.
+- Chart subcomponents, synchronization, live updates, the `PriceCombinedChart` view, gesture controller, overlay renderers, and bottom sheets live in the focused `crypto_detail/chart/` and `crypto_detail/sheets/` packages; `CryptoDetailScreen.kt` keeps the main screen and Compose/AndroidView wiring.
 
 Timeframe selection and exchange resolution use `core/Timeframes.kt`. Price formatting lives in `PriceFormat.kt`: chart, Pulse, and repository policies remain named separately because they preserve different existing output contracts. Chart and overlay colors use `ui/theme/Color.kt:ChartColors` without changing their visible values.
 
