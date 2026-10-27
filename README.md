@@ -271,6 +271,7 @@ Behavior:
 - Persists indicator visibility/configuration in DataStore, including moving-average type/period/timeframe/color/width, SMC toggles, Fibonacci settings, and overlay data.
 - The Pulse sheet evaluates support/resistance zones, 21/50/200 MA confluence across 15m/1h/4h, fresh RSI divergence, sweep/reclaim, and latest structure.
 - Uses MPAndroidChart in Compose through `AndroidView`.
+- The candle countdown updates only its price-tag area; price/data refreshes remain independent.
 - Chart subcomponents, synchronization, live updates, the `PriceCombinedChart` view, gesture controller, overlay renderers, and bottom sheets live in the focused `crypto_detail/chart/` and `crypto_detail/sheets/` packages; `CryptoDetailScreen.kt` keeps the main screen and Compose/AndroidView wiring.
 
 Timeframe selection and exchange resolution use `core/Timeframes.kt`. Price formatting lives in `PriceFormat.kt`: chart, Pulse, and repository policies remain named separately because they preserve different existing output contracts. Chart and overlay colors use `ui/theme/Color.kt:ChartColors` without changing their visible values.

@@ -92,6 +92,7 @@ app/src/main/java/com/defitracker/app/data/repository/CryptoRepositoryImpl.kt
 - `BinanceTickerStream` and `MexcTickerStream` provide reconnecting WebSocket live-price flows consumed by `CryptoRepositoryImpl.observeLivePrices()` and the Pairs screen.
 - `TradingViewClient` is a WebSocket client for the `TV` chart source, with timeframe resolution mapping and a short memo cache.
 - `BinanceFuturesApi` provides unauthenticated taker buy/sell volume. The detail ViewModel aligns it to candle timestamps and exposes it as the optional `C/V Taker` subchart; it is not part of `ChartComputation`.
+- Retrofit's Binance, Binance Futures, CoinStats, and MEXC clients share the named REST `OkHttpClient` from `AppModule`; the WebSocket client remains separate with its long-lived timeout and ping settings.
 - Price list refresh should stay conservative. Avoid very short intervals or per-item busy loops.
 
 ### Chart Detail Map
@@ -198,6 +199,7 @@ Choose the file by change type:
 - Show loading, empty, and error states distinctly.
 - Avoid one giant decorative redesign. Improve the actual workflow.
 - For charts, remember MPAndroidChart is embedded through `AndroidView`; avoid unnecessary recreation.
+- The price countdown refreshes only its tag area when the text changes; keep that path separate from price/data invalidations.
 
 ## Performance Guidelines
 

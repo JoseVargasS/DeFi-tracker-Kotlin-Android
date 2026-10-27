@@ -17,6 +17,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -25,9 +28,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideBinanceApi(): BinanceApi {
+    fun provideBinanceApi(@Named("rest") okHttpClient: OkHttpClient): BinanceApi {
         return Retrofit.Builder()
             .baseUrl(Constants.BINANCE_BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(BinanceApi::class.java)
@@ -35,9 +39,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideBinanceFuturesApi(): BinanceFuturesApi {
+    fun provideBinanceFuturesApi(@Named("rest") okHttpClient: OkHttpClient): BinanceFuturesApi {
         return Retrofit.Builder()
             .baseUrl(Constants.BINANCE_FUTURES_BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(BinanceFuturesApi::class.java)
@@ -45,9 +50,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideCoinStatsApi(): CoinStatsApi {
+    fun provideCoinStatsApi(@Named("rest") okHttpClient: OkHttpClient): CoinStatsApi {
         return Retrofit.Builder()
             .baseUrl(Constants.COINSTATS_BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(CoinStatsApi::class.java)
@@ -55,12 +61,25 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideMexcFuturesApi(): MexcFuturesApi {
+    fun provideMexcFuturesApi(@Named("rest") okHttpClient: OkHttpClient): MexcFuturesApi {
         return Retrofit.Builder()
             .baseUrl(Constants.MEXC_FUTURES_BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(MexcFuturesApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    @Named("rest")
+    fun provideRestOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .build()
     }
 
     // un solo pool de conexiones para los 3 websockets (streams + TV con su propio timeout)

@@ -17,6 +17,7 @@ import android.view.MotionEvent
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.core.view.ViewCompat
 import com.defitracker.app.presentation.crypto_detail.*
 import com.github.mikephil.charting.charts.BarChart
 import com.github.mikephil.charting.charts.CombinedChart
@@ -374,6 +375,7 @@ internal class PriceCombinedChart(
     }
     internal val yTagRect = RectF()
     internal val xTagRect = RectF()
+    internal var lastPriceCountdown: String = ""
     
     internal var lastTouchYPx = -1f
     // X libre del dedo pa' que la cruz pase la ultima vela (lienzo infinito)
@@ -495,6 +497,20 @@ internal class PriceCombinedChart(
 
     internal fun drawBaseChart(canvas: Canvas) {
         super.onDraw(canvas)
+    }
+
+    internal fun invalidateCountdownIfChanged() {
+        val lastCandle = stateRef.value.candles.lastOrNull() ?: return
+        val countdown = formatCandleCountdown(stateRef.value.selectedInterval, lastCandle.time)
+        if (countdown == lastPriceCountdown) return
+        lastPriceCountdown = countdown
+        if (yTagRect.isEmpty) {
+            invalidate()
+            return
+        }
+        val top = (yTagRect.top - 8f).toInt().coerceAtLeast(0)
+        val bottom = (yTagRect.bottom + 8f).toInt().coerceAtMost(height)
+        ViewCompat.postInvalidateOnAnimation(this, 0, top, width, bottom)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

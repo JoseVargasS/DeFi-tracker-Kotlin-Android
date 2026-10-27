@@ -77,6 +77,7 @@ internal fun PriceCombinedChart.drawLastPriceTag(canvas: Canvas, candles: List<C
         max(contentTop, contentBottom - tagH)
     )
     yTagRect.set(tagLeft, tagTop, tagRight, tagTop + tagH)
+    lastPriceCountdown = countdown
     canvas.drawRoundRect(yTagRect, 6f, 6f, lastPriceTagPaint)
     canvas.drawText(priceText, yTagRect.centerX(), tagTop + padY + textSize, lastPriceTextPaint)
     canvas.drawText(countdown, yTagRect.centerX(), tagTop + padY + textSize * 2f + 4f, lastPriceTextPaint)

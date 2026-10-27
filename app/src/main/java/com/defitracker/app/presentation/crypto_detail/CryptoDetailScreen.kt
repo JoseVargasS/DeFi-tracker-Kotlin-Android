@@ -909,7 +909,7 @@ fun PriceChart(
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(1000L)
-            priceChartRef.value?.invalidate()
+            (priceChartRef.value as? PriceCombinedChart)?.invalidateCountdownIfChanged()
         }
     }
 
