@@ -19,10 +19,21 @@ internal fun PriceCombinedChart.drawPinnedYLabels(canvas: Canvas, candles: List<
     val contentTop = viewPortHandler.contentTop()
     val contentBottom = viewPortHandler.contentBottom()
     val refClose = candles.lastOrNull()?.close ?: 0.0
+    // rango del eje como respaldo: con un rect/transform degenerado el eje se
+    // quedaba sin numeros hasta que salias y volvias a entrar
+    val axisA = axisLeft.axisMinimum
+    val axisB = axisLeft.axisMaximum
+    val axisLo = (if (axisA < axisB) axisA else axisB).toDouble()
+    val axisHi = (if (axisA > axisB) axisA else axisB).toDouble()
     val n = 6
     for (i in 0 until n) {
         val py = contentTop + (contentBottom - contentTop) * i / (n - 1)
-        val v = trans.getValuesByTouchPoint(0f, py).y
+        val raw = trans.getValuesByTouchPoint(0f, py).y
+        val v: Double = when {
+            raw.isFinite() -> raw.toDouble()
+            axisHi > axisLo -> axisHi - (axisHi - axisLo) * i / (n - 1)
+            else -> refClose
+        }
         if (!v.isFinite()) continue
         canvas.drawText(
             formatAxisPrice(v, refClose, stateRef.value.daySubDollar),

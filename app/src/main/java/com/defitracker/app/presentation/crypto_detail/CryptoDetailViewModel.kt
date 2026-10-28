@@ -174,8 +174,11 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
 
     init {
         _state.value = state.value.copy(symbol = symbol, source = source)
-        // si viene de una alerta, abre directo en ese TF
-        val startInterval = initialInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
+        // si viene de una alerta, abre directo en ese TF; si no, retoma el ultimo
+        // TF que estabas mirando en vez de volver siempre a 5m
+        val startInterval = initialInterval.ifEmpty {
+            prefsRepo.lastChartInterval.ifEmpty { DEFAULT_CHART_INTERVAL }
+        }
         _state.value = state.value.copy(selectedInterval = startInterval)
         // semilla de la lista: el header ya muestra precio/%/vol antes del primer fetch
         if (seed.price.toDoubleValue() > 0.0) {
@@ -920,6 +923,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     fun loadChartData(interval: String, force: Boolean = false) {
         val normalizedInterval = interval.trim()
         if (!force && normalizedInterval == state.value.selectedInterval && state.value.candles.isNotEmpty()) return
+        // recordado para cuando vuelvas a entrar al detalle de este par
+        if (normalizedInterval.isNotEmpty()) prefsRepo.lastChartInterval = normalizedInterval
         // debounce: toques locos de TF no encolan cargas, solo vale el ultimo
         val now = System.currentTimeMillis()
         if (!force && now - lastTfPickMs < 250L) return

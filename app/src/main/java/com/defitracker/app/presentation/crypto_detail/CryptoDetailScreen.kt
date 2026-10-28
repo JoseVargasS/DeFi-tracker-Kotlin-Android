@@ -811,8 +811,12 @@ internal fun List<CandleData>.spansMultipleYears(): Boolean {
 }
 
 internal fun CryptoDetailState.viewportKey(): String {
-    // solo moneda + temporalidad: agregar velas no invalida los indices dibujados
-    return "$symbol-$selectedInterval"
+    // la ventana de velas SI manda: si entra una vela nueva (o historia al panear)
+    // el dataset dibujado tiene que reconstruirse, si no el chart se queda congelado
+    // mientras las velas de estado siguen avanzando. Cambia ~1 vez por cierre de vela.
+    val first = candles.firstOrNull()?.time ?: 0L
+    val last = candles.lastOrNull()?.time ?: 0L
+    return "$symbol-$selectedInterval-${candles.size}-$first-$last"
 }
 
 internal fun List<Pair<Long, Double>>.getValueAtCandleIndex(index: Int): Double? {
@@ -1220,7 +1224,29 @@ fun PriceChart(
             val viewportKey = state.viewportKey()
             val isNewDataset = lastRenderedDataKey.value != viewportKey
             val prefsKey = prefs.prefsKey()
-            val rebuildData = isNewDataset || lastPrefsKey.value != prefsKey
+            // cambio de TF en curso: el estado todavia arrastra las velas del TF anterior
+            // (isLoading ya cambio el interval). Repintarlas aca ensucia el zoom/marco,
+            // asi que el chart se queda con lo que ya tenia hasta que lleguen las nuevas.
+            val intervalChanged = state.selectedInterval != lastCandleInterval.value
+            val tfSwitching = state.isLoading &&
+                isNewDataset &&
+                state.candles.isNotEmpty() &&
+                intervalChanged
+            // lo dibujado tiene que ser SIEMPRE las velas del estado y de este TF.
+            // si el dataset quedo corto/largo (TF nuevo, cola que crecio, recarga) o el
+            // interval no es el pintado, se reconstruye: parchear en sitio con indices
+            // de otra lista es lo que metia velas viejas y mechones fuera de escala.
+            val drawnCandles = chart.data?.candleData
+                ?.takeIf { it.dataSetCount > 0 }
+                ?.getDataSetByIndex(0)
+                ?.entryCount ?: 0
+            val datasetStale = drawnCandles != state.candles.size
+            val rebuildData = !tfSwitching && (
+                isNewDataset ||
+                    lastPrefsKey.value != prefsKey ||
+                    intervalChanged ||
+                    datasetStale
+                )
 
             chart.xAxis.applyTimeAxis(state)
 
@@ -1346,7 +1372,7 @@ fun PriceChart(
                     })
                     syncHighlights(chart, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                 }
-            } else if (state.candles.isNotEmpty()) {
+            } else if (!tfSwitching && state.candles.isNotEmpty()) {
                 updateLastCandleInPlace(chart, state)
                 updateLastMAInPlace(chart, state)
             }
@@ -1357,7 +1383,7 @@ fun PriceChart(
                 lastCandleInterval.value = state.selectedInterval
             }
             // panes con el mismo rect X para que la cruz del overlay calce en todos (OKX)
-            chart.alignViewportXWith(isNewDataset, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
+            chart.alignViewportXWith(isNewDataset && !tfSwitching, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
         }
     )
 

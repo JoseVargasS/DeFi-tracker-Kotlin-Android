@@ -168,8 +168,10 @@ internal fun updateLastCandleInPlace(chart: CombinedChart, state: CryptoDetailSt
     val cd = chart.data ?: return
     val last = state.candles.lastOrNull() ?: return
     val lastIdx = state.candles.size - 1
+    // solo se parchea si el dataset dibujado es exactamente esta lista: con un dataset
+    // de otro tamano (TF viejo) escribir el ultimo indice dejaba mechones sin sentido.
     cd.candleData?.dataSets?.forEach { ds ->
-        if (ds.entryCount > lastIdx) {
+        if (ds.entryCount == state.candles.size) {
             val e = ds.getEntryForIndex(lastIdx)
             e.open = last.open.toFloat()
             e.close = last.close.toFloat()

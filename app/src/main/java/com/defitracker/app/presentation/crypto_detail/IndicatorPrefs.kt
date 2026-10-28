@@ -96,6 +96,10 @@ class IndicatorPrefsRepository @Inject constructor(
 ) {
     private val defaults = IndicatorPrefs.DEFAULT
 
+    // ultimo TF usado en el chart: al volver al detalle no debe resetearse a 5m
+    @Volatile
+    var lastChartInterval: String = ""
+
     val prefsFlow: Flow<IndicatorPrefs> = context.indicatorDataStore.data.map { p ->
         defaults.copy(
             bbVisible = p[booleanPreferencesKey("bb_visible")] ?: true,
