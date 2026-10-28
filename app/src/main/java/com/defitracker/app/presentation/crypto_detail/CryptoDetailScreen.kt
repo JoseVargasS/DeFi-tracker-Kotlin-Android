@@ -811,9 +811,8 @@ internal fun List<CandleData>.spansMultipleYears(): Boolean {
 }
 
 internal fun CryptoDetailState.viewportKey(): String {
-    val first = candles.firstOrNull()?.time ?: 0L
-    val last = candles.lastOrNull()?.time ?: 0L
-    return "$symbol-${candles.size}-$first-$last"
+    // solo moneda + temporalidad: agregar velas no invalida los indices dibujados
+    return "$symbol-$selectedInterval"
 }
 
 internal fun List<Pair<Long, Double>>.getValueAtCandleIndex(index: Int): Double? {
@@ -1119,6 +1118,8 @@ fun PriceChart(
                 drawKind = drawKindRef.value,
                 magnetOn = magnetRef.value
             )
+            // el medidor nace en el chart: la pantalla se queda con la copia buena
+            chart.onRangeSelection = { rangeSelection.value = it }
             stateRef.value = state
             prefsRef.value = prefs
             overlaysRef.value = viewModel.fibOverlays.value

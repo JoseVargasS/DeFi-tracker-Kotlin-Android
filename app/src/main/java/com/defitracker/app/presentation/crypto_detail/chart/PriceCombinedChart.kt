@@ -439,6 +439,7 @@ internal class PriceCombinedChart(
     internal val positionsRef = mutableStateOf<List<PositionOverlay>>(emptyList())
     internal val selectedPositionRef = mutableStateOf<String?>(null)
     internal val rangeSelection = mutableStateOf<MeasureZone?>(null)
+    internal var onRangeSelection: ((MeasureZone?) -> Unit)? = null
     internal val fibPendingStart = mutableStateOf<FibAnchor?>(null)
     internal val drawPendingStart = mutableStateOf<FibAnchor?>(null)
     internal val drawKindRef = mutableStateOf<DrawKind?>(null)
@@ -481,6 +482,13 @@ internal class PriceCombinedChart(
         magnetRef.value = magnetOn
         pendingStartRef.value = fibPendingStart
         pendingDrawStartRef.value = drawPendingStart
+    }
+
+    // el dibujo vive en el chart pero la pantalla es la que manda: se avisa cada cambio interno
+    internal fun setRangeSelection(zone: MeasureZone?) {
+        if (rangeSelection.value == zone) return
+        rangeSelection.value = zone
+        onRangeSelection?.invoke(zone)
     }
 
     internal fun callSuperOnSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

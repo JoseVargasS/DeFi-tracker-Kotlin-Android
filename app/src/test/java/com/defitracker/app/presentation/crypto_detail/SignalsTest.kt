@@ -31,14 +31,25 @@ class SignalsTest {
 
     @Test
     fun `unmitigated bullish fvg tap produces bullish signal`() {
-        val candles = MutableList(10) { testCandle(it, 9.5, 10.0, 9.0, 9.5) }
-        candles[8] = testCandle(8, 12.5, 13.0, 12.0, 12.5)
-        candles[9] = testCandle(9, 13.0, 14.0, 13.0, 13.5)
+        val candles = MutableList(11) { testCandle(it, 9.5, 10.0, 9.0, 9.5) }
+        candles[8] = testCandle(8, 12.5, 13.0, 12.0, 12.5) // FVG de 10.0 a 12.0, CE 11.0
+        candles[9] = testCandle(9, 12.4, 12.6, 11.0, 12.2) // tap hasta el CE y cierra arriba
+        candles[10] = testCandle(10, 12.2, 12.6, 11.5, 12.3)
 
         assertEquals(
             TradeSignal("FVG_TAP_BULL", true, "FVG"),
             detectFvgTap(candles)
         )
+    }
+
+    @Test
+    fun `fvg tap that stops above the midpoint does not fire`() {
+        val candles = MutableList(11) { testCandle(it, 9.5, 10.0, 9.0, 9.5) }
+        candles[8] = testCandle(8, 12.5, 13.0, 12.0, 12.5) // mismo FVG, CE en 11.0
+        candles[9] = testCandle(9, 12.4, 12.6, 11.5, 12.2) // roce sin llegar al 50%
+        candles[10] = testCandle(10, 12.2, 12.6, 11.5, 12.3)
+
+        assertNull(detectFvgTap(candles))
     }
 
     @Test

@@ -274,18 +274,19 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         if (rows.isEmpty() || _state.value.selectedInterval != interval) return
         val candles = _state.value.candles
         if (candles.isEmpty()) return
-        val byTime = rows.associate { it.timeMs to it }
-        val prevBuy = _state.value.takerBuy.associate { it.first to it.second }
-        val prevSell = _state.value.takerSell.associate { it.first to it.second }
+        // lo ya traido se recuerda por hora de vela, no por posicion: la lista se corre
+        if (takerCacheKey != "$symbol-$interval") {
+            takerCache.clear()
+            takerCacheKey = "$symbol-$interval"
+        }
+        rows.forEach { takerCache[it.timeMs] = it.buy to it.sell }
+        if (takerCache.isEmpty()) return
         val buy = ArrayList<Pair<Long, Double>>(candles.size)
         val sell = ArrayList<Pair<Long, Double>>(candles.size)
         candles.forEachIndexed { i, c ->
-            val b = byTime[c.time]?.buy ?: prevBuy[i.toLong()]
-            val s = byTime[c.time]?.sell ?: prevSell[i.toLong()]
-            if (b != null && s != null) {
-                buy.add(i.toLong() to b)
-                sell.add(i.toLong() to s)
-            }
+            val q = takerCache[c.time] ?: return@forEachIndexed
+            buy.add(i.toLong() to q.first)
+            sell.add(i.toLong() to q.second)
         }
         if (buy.isNotEmpty() && _state.value.selectedInterval == interval) {
             _state.value = _state.value.copy(takerBuy = buy, takerSell = sell)
@@ -791,12 +792,16 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private var lastTickCandleKey = ""
     private var lastBaseVol24 = Double.NaN
     private var lastTakerSyncAt = 0L
+    // taker ya traido, por hora de vela; se limpia al cambiar de moneda o TF
+    private val takerCache = HashMap<Long, Pair<Double, Double>>()
+    private var takerCacheKey = ""
     private var lastTvDetailAt = 0L
 
     private fun startUpdates() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             while (true) {
+                // precio y vela en curso siempre en vivo, sin importar la temporalidad
                 delay(DETAIL_REFRESH_MS)
                 // mientras el chart esta cargando (cambio de TF / pull), el tick no pisa
                 if (_state.value.isLoading) continue
@@ -1369,6 +1374,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
 
     private companion object {
         const val TAG = "CryptoDetailVM"
+        // el precio y la vela en curso se refrescan siempre a este ritmo
         const val DETAIL_REFRESH_MS = 2_000L
         // TV sin stream intradiario: el detalle se relee a ritmo de su memo
         const val TV_DETAIL_MS = 15_000L

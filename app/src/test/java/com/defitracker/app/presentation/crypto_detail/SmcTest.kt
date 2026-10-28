@@ -184,6 +184,24 @@ class SmcTest {
     }
 
     @Test
+    fun `order block invalidates on close past its mean threshold`() {
+        val candles = mutableListOf(
+            testCandle(0, 90.0, 91.0, 89.0, 90.0),
+            testCandle(1, 90.0, 92.0, 89.0, 91.0),
+            testCandle(2, 91.0, 93.0, 88.0, 89.0), // OB: rango 88-93, mean threshold 90.5
+            testCandle(3, 90.0, 98.0, 89.5, 97.0),
+            testCandle(4, 97.0, 102.0, 96.0, 101.0)
+        )
+        val event = SmcEvent(breakIdx = 4, swingIdx = 1, levelPrice = 92.0, kind = SmcEventKind.BOS, bullish = true)
+
+        // cierra en 89.5: debajo del 50% (90.5) pero arriba del minimo (88.0) -> invalidado
+        candles.add(testCandle(5, 92.0, 93.0, 89.0, 89.5))
+
+        val ob = detectOrderBlocks(candles, listOf(event)).single { it.startIdx == 2 }
+        assertTrue("cerrar pasado el 50% del bloque lo invalida", ob.mitigated)
+    }
+
+    @Test
     fun `already broken swing does not emit a late bos`() {
         // H2 (104) es un fractal chico del impulso: cuando se confirma, el precio (105) ya
         // lo paso. No debe contar como nivel rompible ni disparar un BOS tardio.

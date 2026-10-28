@@ -202,14 +202,16 @@ fun detectOrderBlocks(
         }
         val f = found ?: return@forEach
         val c = candles[f]
+        // mean threshold del bloque: el 50% de su rango
+        val mid = (c.high + c.low) / 2.0
         // mitigacion evaluada a partir de que se completa el rompimiento
         var end = candles.size - 1
         var mitigated = false
         var m = ev.breakIdx + 1
         while (m < candles.size) {
             val cl = candles[m].close
-            // un OB se invalida con cierre fuera del bloque, no con una mecha que asusta
-            val violated = if (ev.bullish) cl < c.low else cl > c.high
+            // el bloque se invalida cuando el precio CIERRA pasado su 50%, no con una mecha
+            val violated = if (ev.bullish) cl < mid else cl > mid
             if (violated) {
                 end = m
                 mitigated = true
@@ -230,15 +232,7 @@ fun detectOrderBlocks(
         )
     }
     // priorizamos las zonas activas y las mitigadas mas recientes
-    val bullActive = out.filter { it.bullish && !it.mitigated }
-    val bullMitigated = out.filter { it.bullish && it.mitigated }
-    val bull = (bullMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bullActive.size)) + bullActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
-
-    val bearActive = out.filter { !it.bullish && !it.mitigated }
-    val bearMitigated = out.filter { !it.bullish && it.mitigated }
-    val bear = (bearMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bearActive.size)) + bearActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
-
-    return (bull + bear).sortedBy { it.startIdx }
+    return prioritizeZones(out)
 }
 
 // imbalance de 3 velas con umbral ATR (sin threshold todo nace mitigado)
@@ -280,15 +274,18 @@ fun detectFvg(candles: List<CandleData>): List<SmcZone> {
         }
     }
     // priorizamos las zonas activas y las mitigadas mas recientes
-    val bullActive = out.filter { it.bullish && !it.mitigated }
-    val bullMitigated = out.filter { it.bullish && it.mitigated }
-    val bull = (bullMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bullActive.size)) + bullActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
+    return prioritizeZones(out)
+}
 
-    val bearActive = out.filter { !it.bullish && !it.mitigated }
-    val bearMitigated = out.filter { !it.bullish && it.mitigated }
-    val bear = (bearMitigated.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - bearActive.size)) + bearActive).takeLast(SMC_MAX_ZONES_PER_SIDE)
-
-    return (bull + bear).sortedBy { it.startIdx }
+private fun prioritizeZones(zones: List<SmcZone>): List<SmcZone> {
+    val active = zones.filter { !it.mitigated }
+    val mitigated = zones.filter { it.mitigated }
+    fun side(bull: Boolean): List<SmcZone> {
+        val a = active.filter { it.bullish == bull }
+        val m = mitigated.filter { it.bullish == bull }
+        return (m.takeLast(max(0, SMC_MAX_ZONES_PER_SIDE - a.size)) + a).takeLast(SMC_MAX_ZONES_PER_SIDE)
+    }
+    return (side(true) + side(false)).sortedBy { it.startIdx }
 }
 
 // dos swings casi iguales = liquidez

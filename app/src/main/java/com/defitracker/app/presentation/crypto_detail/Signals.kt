@@ -58,10 +58,12 @@ fun detectFvgTap(candles: List<CandleData>): TradeSignal? {
     val c = candles[idx]
     val zones = detectFvg(candles).filter { !it.mitigated && it.startIdx < idx }
     for (z in zones) {
-        if (z.bullish && c.low <= z.top && c.low >= z.bottom && c.close > z.top) {
+        // canonico: la senal espera el 50% del hueco (CE) y el cierre de vuelta
+        val ce = (z.top + z.bottom) / 2.0
+        if (z.bullish && c.low <= ce && c.low >= z.bottom && c.close > z.top) {
             return TradeSignal("FVG_TAP_BULL", true, "FVG")
         }
-        if (!z.bullish && c.high >= z.bottom && c.high <= z.top && c.close < z.bottom) {
+        if (!z.bullish && c.high >= ce && c.high <= z.top && c.close < z.bottom) {
             return TradeSignal("FVG_TAP_BEAR", false, "FVG")
         }
     }

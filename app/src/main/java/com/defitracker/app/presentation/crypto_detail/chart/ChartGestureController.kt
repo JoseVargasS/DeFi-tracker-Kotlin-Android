@@ -349,24 +349,26 @@ internal class ChartGestureController(
                             val anchor = measureAnchor(event.x, event.y)
                             val orig = measureOrig
                             if (anchor != null && orig != null && orig.isComplete) {
-                                rangeSelection.value = if (measureDragZone == 3) {
-                                    // mover conserva tamaño
-                                    val candles = stateRef.value.candles
-                                    val dIdx = anchor.first - measureGrabIdx
-                                    val dPrice = anchor.second - measureGrabPrice
-                                    val s1 = (orig.startIdx + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
-                                    val e1 = (orig.endIdx!! + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
-                                    orig.copy(
-                                        startIdx = s1,
-                                        startPrice = orig.startPrice + dPrice,
-                                        endIdx = e1,
-                                        endPrice = orig.endPrice!! + dPrice
-                                    )
-                                } else if (measureDragZone == 1) {
-                                    orig.copy(startIdx = anchor.first, startPrice = anchor.second)
-                                } else {
-                                    orig.copy(endIdx = anchor.first, endPrice = anchor.second)
-                                }
+                                setRangeSelection(
+                                    if (measureDragZone == 3) {
+                                        // mover conserva tamaño
+                                        val candles = stateRef.value.candles
+                                        val dIdx = anchor.first - measureGrabIdx
+                                        val dPrice = anchor.second - measureGrabPrice
+                                        val s1 = (orig.startIdx + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                        val e1 = (orig.endIdx!! + dIdx).coerceIn(0, candles.size - 1 + FIB_VIRTUAL_EXTEND)
+                                        orig.copy(
+                                            startIdx = s1,
+                                            startPrice = orig.startPrice + dPrice,
+                                            endIdx = e1,
+                                            endPrice = orig.endPrice!! + dPrice
+                                        )
+                                    } else if (measureDragZone == 1) {
+                                        orig.copy(startIdx = anchor.first, startPrice = anchor.second)
+                                    } else {
+                                        orig.copy(endIdx = anchor.first, endPrice = anchor.second)
+                                    }
+                                )
                                 invalidate()
                             }
                         }

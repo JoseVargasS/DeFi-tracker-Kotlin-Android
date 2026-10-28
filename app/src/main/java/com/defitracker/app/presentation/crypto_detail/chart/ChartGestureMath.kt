@@ -109,16 +109,18 @@ internal fun PriceCombinedChart.applyRangeTap(x: Float, y: Float): Boolean {
     // zona completa: tap fuera del rectangulo la borra, dentro no hace nada
     if (current != null && current.isComplete) {
         if (measureHitTest(x, y) == 0) {
-            rangeSelection.value = null
+            setRangeSelection(null)
             invalidate()
         }
         return true
     }
-    rangeSelection.value = if (current == null) {
-        MeasureZone(startIdx = index, startPrice = price)
-    } else {
-        current.copy(endIdx = index, endPrice = price)
-    }
+    setRangeSelection(
+        if (current == null) {
+            MeasureZone(startIdx = index, startPrice = price)
+        } else {
+            current.copy(endIdx = index, endPrice = price)
+        }
+    )
     highlightValue(null)
     lastTouchYPx = -1f
     lastTouchXPx = -1f

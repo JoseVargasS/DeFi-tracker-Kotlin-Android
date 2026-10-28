@@ -156,14 +156,20 @@ fun CryptoListScreen(
         autoScrollJob = null
     }
     val sortMode = viewModel.sortMode.value
-    val sparklines = viewModel.sparklines.value
-    val volumes = viewModel.volumes.value
+    // sin leer .value aca: si se lee en el cuerpo, cualquier tick invalida la lista entera
+    val sparklinesState = viewModel.sparklines
+    val volumesState = viewModel.volumes
     val basePairs = localOrder.value ?: visiblePairs
-    val displayPairs = remember(basePairs, sortMode, if (sortMode == SortMode.VOL_DESC) volumes else Unit) {
-        when (sortMode) {
-            SortMode.DEFAULT -> basePairs
-            SortMode.VOL_DESC -> basePairs.sortedByDescending { volumes["${it.symbol}-${it.source}"] ?: 0.0 }
-            SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleValue() }
+    val displayPairs by remember(basePairs, sortMode) {
+        derivedStateOf {
+            when (sortMode) {
+                SortMode.DEFAULT -> basePairs
+                SortMode.VOL_DESC -> {
+                    val vols = volumesState.value
+                    basePairs.sortedByDescending { vols["${it.symbol}-${it.source}"] ?: 0.0 }
+                }
+                SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleValue() }
+            }
         }
     }
     val sortLabel = when (sortMode) {
@@ -568,7 +574,7 @@ fun CryptoListScreen(
                                     Box(modifier = Modifier.weight(1f)) {
                                         CryptoPairItem(
                                         pair = pair,
-                                        sparkline = sparklines[key] ?: emptyList(),
+                                        sparkline = sparklinesState.value[key] ?: emptyList(),
                                         extended = viewModel.dayExt.value[key] ?: false,
                                         onClick = {
                                             if (System.currentTimeMillis() - lastDropAt < 300L) return@CryptoPairItem
@@ -577,7 +583,7 @@ fun CryptoListScreen(
                                                 price = pair.price.filter { it.isDigit() || it == '.' },
                                                 pct = pair.priceChangePercent.filter { it.isDigit() || it == '.' || it == '-' },
                                                 pos = pair.isPositive,
-                                                vol = (volumes[key] ?: 0.0).toString()
+                                                vol = (volumesState.value[key] ?: 0.0).toString()
                                             )
                                             onNavigateToDetail(pair.symbol, pair.source, "", seed)
                                         },

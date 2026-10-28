@@ -225,7 +225,14 @@ internal fun PriceCombinedChart.drawPriceChart(canvas: Canvas) {
         canvas.drawText(label, textX, py + 10f, labelPaint)
     }
 
-    drawPriceRangeSelection(canvas, entries)
+    // la medicion tambien se recorta: sus etiquetas no deben invadir los ejes
+    canvas.save()
+    canvas.clipRect(contentLeft, contentTop, contentRight, contentBottom)
+    try {
+        drawPriceRangeSelection(canvas, entries)
+    } finally {
+        canvas.restore()
+    }
     if (!prefsRef.value.overlaysHidden) {
         canvas.save()
         canvas.clipRect(contentLeft, contentTop, contentRight, contentBottom)
