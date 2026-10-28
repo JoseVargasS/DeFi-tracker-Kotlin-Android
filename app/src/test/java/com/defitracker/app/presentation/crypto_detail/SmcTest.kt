@@ -164,4 +164,47 @@ class SmcTest {
         val breachedOb = detectOrderBlocks(candles, listOf(event)).single { it.startIdx == 2 }
         assertTrue("OB vulnerado por debajo del minimo debe marcarse mitigado", breachedOb.mitigated)
     }
+
+    @Test
+    fun `order block survives a wick below its low`() {
+        val candles = mutableListOf(
+            testCandle(0, 90.0, 91.0, 89.0, 90.0),
+            testCandle(1, 90.0, 92.0, 89.0, 91.0),
+            testCandle(2, 91.0, 93.0, 88.0, 89.0), // OB: low 88, high 93
+            testCandle(3, 90.0, 98.0, 89.5, 97.0),
+            testCandle(4, 97.0, 102.0, 96.0, 101.0) // Breakout
+        )
+        val event = SmcEvent(breakIdx = 4, swingIdx = 1, levelPrice = 92.0, kind = SmcEventKind.BOS, bullish = true)
+
+        // Vela 5: mecha hasta 87.0 pero cierra en 91.0 (dentro del OB) -> sigue vivo
+        candles.add(testCandle(5, 93.0, 94.0, 87.0, 91.0))
+
+        val ob = detectOrderBlocks(candles, listOf(event)).single { it.startIdx == 2 }
+        assertTrue("una mecha bajo el minimo no debe invalidar el OB", !ob.mitigated)
+    }
+
+    @Test
+    fun `already broken swing does not emit a late bos`() {
+        // H2 (104) es un fractal chico del impulso: cuando se confirma, el precio (105) ya
+        // lo paso. No debe contar como nivel rompible ni disparar un BOS tardio.
+        val swings = listOf(
+            SmcSwing(2, 100.0, true),
+            SmcSwing(4, 90.0, false),
+            SmcSwing(6, 104.0, true)
+        )
+        val candles = mutableListOf(
+            testCandle(0, 95.0, 96.0, 94.0, 95.0),
+            testCandle(1, 95.0, 97.0, 94.0, 96.0),
+            testCandle(2, 96.0, 100.0, 95.0, 99.0),
+            testCandle(3, 98.0, 98.0, 92.0, 93.0),
+            testCandle(4, 93.0, 94.0, 90.0, 91.0),
+            testCandle(5, 92.0, 103.0, 91.0, 102.0), // quiebra 100.0
+            testCandle(6, 102.0, 106.0, 101.0, 105.0), // el 104 queda debajo del close
+            testCandle(7, 105.0, 108.0, 104.0, 107.0)
+        )
+
+        val events = detectStructure(candles, swings)
+        assertEquals("un nivel ya superado no debe generar otro BOS", 1, events.size)
+        assertEquals(5, events.first().breakIdx)
+    }
 }

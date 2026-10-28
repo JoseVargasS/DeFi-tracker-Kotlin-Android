@@ -54,6 +54,14 @@ object Timeframes {
 
     fun calendarAggregation(key: String): Long? = find(key)?.calendarAggregationMs
 
+    // el taker crece local; la red solo corrige la proporcion, asi que la cadencia va por TF
+    fun takerRefreshMs(key: String): Long = when (key.trim()) {
+        "1m", "5m" -> 2_000L
+        "15m" -> 15_000L
+        "30m", "1h" -> 30_000L
+        else -> 60_000L
+    }
+
     fun binanceInterval(key: String): String = find(key)?.binanceInterval ?: key
 
     fun mexcKlinePlan(key: String): Pair<String, Int> =

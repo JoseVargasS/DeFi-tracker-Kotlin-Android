@@ -41,4 +41,12 @@ class CryptoDetailTimeUtilsTest {
         assertEquals(1, timeToIndex(candles, 70_000L))
         assertEquals(2, timeToIndex(candles, 90_000L))
     }
+
+    @Test
+    fun `taker refresh cadence grows with the timeframe`() {
+        assertEquals(2_000L, com.defitracker.app.core.Timeframes.takerRefreshMs("5m"))
+        assertEquals(15_000L, com.defitracker.app.core.Timeframes.takerRefreshMs("15m"))
+        assertEquals(30_000L, com.defitracker.app.core.Timeframes.takerRefreshMs("1h"))
+        assertEquals(60_000L, com.defitracker.app.core.Timeframes.takerRefreshMs("1d"))
+    }
 }

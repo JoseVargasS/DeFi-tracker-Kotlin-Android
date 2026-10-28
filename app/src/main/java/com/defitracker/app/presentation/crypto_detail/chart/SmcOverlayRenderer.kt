@@ -83,10 +83,11 @@ internal fun PriceCombinedChart.drawSmcForeground(
             val wantOb = smcPrefs.smcOrderBlocks && z.kind == SmcZoneKind.ORDER_BLOCK
             val wantFvg = smcPrefs.smcFvg && z.kind == SmcZoneKind.FVG
             if (!wantOb && !wantFvg) return@forEach
-            if (z.mitigated) return@forEach
-            if (z.endIdx < visibleStart || z.startIdx > visibleEnd) return@forEach
+            // la zona viva llega al borde del grafico; la mitigada se corta donde murio
+            val zoneEnd = if (z.mitigated) z.endIdx else candles.size - 1
+            if (zoneEnd < visibleStart || z.startIdx > visibleEnd) return@forEach
             val s = max(z.startIdx, 0)
-            val e = min(z.endIdx, candles.size - 1)
+            val e = min(zoneEnd, candles.size - 1)
             if (e <= s) return@forEach
             val xs = floatArrayOf(s.toFloat(), 0f)
             trans.pointValuesToPixel(xs)
@@ -108,7 +109,12 @@ internal fun PriceCombinedChart.drawSmcForeground(
                 z.bullish -> smcFvgBullPaint
                 else -> smcFvgBearPaint
             }
+            // zona mitigada: se queda como recuerdo tenue hasta que caduque, sin borde ni tag
+            val baseAlpha = paint.alpha
+            if (z.mitigated) paint.alpha = (baseAlpha * 0.35f).toInt()
             canvas.drawRect(yTagRect, paint)
+            paint.alpha = baseAlpha
+            if (z.mitigated) return@forEach
             // borde punteado del lado + tag a la derecha, texto pelado
             val edge = if (z.bullish) smcObBullEdge else smcObBearEdge
             canvas.drawRect(yTagRect, edge)

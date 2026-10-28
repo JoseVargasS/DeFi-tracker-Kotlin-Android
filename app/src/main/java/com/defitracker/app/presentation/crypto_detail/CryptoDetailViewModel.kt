@@ -262,6 +262,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     // el full de 500 solo al abrir/cambiar TF o prender el toggle
     private suspend fun syncTaker(limit: Int) {
         if (!_prefs.value.takerVisible) return
+        lastTakerSyncAt = System.currentTimeMillis()
         val interval = _state.value.selectedInterval
         val rows = try {
             repository.getTakerVolumes(symbol, interval, source, limit)
@@ -789,6 +790,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private var lastTickPrice = Double.NaN
     private var lastTickCandleKey = ""
     private var lastBaseVol24 = Double.NaN
+    private var lastTakerSyncAt = 0L
     private var lastTvDetailAt = 0L
 
     private fun startUpdates() {
@@ -877,8 +879,10 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
 
                         _state.value = _state.value.withComputation(chartData).copy(detail = detail)
                         refreshAnalysis()
-                        // taker en vivo solo si el sub va visible (peso 0, 1 llamada liviana)
-                        syncTaker(10)
+                        // taker en vivo: la barra crece local, la red solo corrige la
+                        // proporcion; cadencia por TF (2s en 1m/5m hasta 60s en semanales)
+                        val takerEvery = Timeframes.takerRefreshMs(tickInterval)
+                        if (System.currentTimeMillis() - lastTakerSyncAt >= takerEvery) syncTaker(10)
                     }
                     // nota: wake-up exacto al cierre; si la vela cierra antes del proximo tick, syncTail justo ahi
                     val lastClose = _state.value.candles.lastOrNull()
@@ -1108,6 +1112,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         }
         _state.value = _state.value.withComputation(chartData)
         refreshAnalysis()
+        // vela recien cerrada: se corrige la proporcion real del taker una sola vez
+        syncTaker(10)
     }
 
     // el mismo volcado de computo en tick, full load y tail: un solo lugar pa' los 15 campos
@@ -1227,8 +1233,9 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             macdDif = macd.dif,
             macdDea = macd.dea,
             macdHist = macd.hist,
-            // SMC derivado de las velas, se recalcula solo al cambiar TF
-            smc = if (wantSmc) computeSmc(this, interval) else SmcData(),
+            // SMC derivado de las velas cerradas: la vela en curso no debe crear ni
+            // matar zonas a media formacion (parpadeo y FVG_TAP perdido)
+            smc = if (wantSmc) computeSmc(dropLast(1), interval) else SmcData(),
             // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
             rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
                 detectRsiDivergences(this, rsiValues),

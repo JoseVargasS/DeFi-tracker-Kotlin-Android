@@ -656,7 +656,9 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     private suspend fun getBinanceKlines(symbol: String, interval: String): List<List<Any>> {
-        val allKlines = mutableListOf<List<Any>>()
+        // las paginas llegan de la mas nueva a la mas vieja: se juntan y se dan vuelta al
+        // final, insertar al inicio de la lista copiaba todo en cada pagina
+        val pages = ArrayList<List<List<Any>>>()
         var endTime: Long? = null
         var pagesFetched = 0
         val pageCount = chartPageCountForInterval(interval)
@@ -670,7 +672,7 @@ class CryptoRepositoryImpl @Inject constructor(
             )
             if (page.isEmpty()) break
 
-            allKlines.addAll(0, page)
+            pages.add(page)
             val oldestOpenTime = page.firstOrNull()?.getOrNull(0)?.toString()?.toDoubleOrNull()?.toLong()
                 ?: break
             endTime = oldestOpenTime - 1
@@ -679,7 +681,7 @@ class CryptoRepositoryImpl @Inject constructor(
             if (page.size < CHART_KLINE_PAGE_SIZE) break
         }
 
-        return allKlines
+        return pages.asReversed().flatten()
     }
 
     // riseFallRate viene en fraccion, volumen en contratos (no en monedas)
@@ -707,7 +709,8 @@ class CryptoRepositoryImpl @Inject constructor(
         singlePage: Boolean = false
     ): List<List<Any>> {
         val (mexcInterval, factor) = mexcKlinePlan(interval)
-        val allRows = mutableListOf<List<Any>>()
+        // misma idea que Binance: paginas nuevas primero, se dan vuelta al final
+        val pages = ArrayList<List<List<Any>>>()
         var end: Long? = null
         var pagesFetched = 0
         val pageCount = chartPageCountForInterval(interval)
@@ -722,9 +725,9 @@ class CryptoRepositoryImpl @Inject constructor(
             val n = data.time.size
             if (n == 0) break
 
-            for (i in n - 1 downTo 0) {
-                allRows.add(
-                    0,
+            val pageRows = ArrayList<List<Any>>(n)
+            for (i in 0 until n) {
+                pageRows.add(
                     listOf<Any>(
                         data.time[i] * 1000L,
                         data.open.getOrNull(i) ?: 0.0,
@@ -736,12 +739,14 @@ class CryptoRepositoryImpl @Inject constructor(
                     )
                 )
             }
+            pages.add(pageRows)
             end = data.time.firstOrNull()?.minus(1) ?: break
             pagesFetched++
 
             if (singlePage || n < MEXC_KLINE_PAGE_SIZE) break
         }
 
+        val allRows = pages.asReversed().flatten()
         if (factor <= 1) return allRows
         return aggregateRows(allRows, factor, mexcInterval)
     }

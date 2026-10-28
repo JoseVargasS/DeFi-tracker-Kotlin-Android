@@ -127,11 +127,12 @@ fun detectStructure(candles: List<CandleData>, swings: List<SmcSwing>): List<Smc
     var i = max(refHigh.idx, refLow.idx) + 1
     while (i < candles.size) {
         val close = candles[i].close
-        // avanza referencias con swings ya confirmados a esta altura
+        // avanza referencias con swings ya confirmados a esta altura.
+        // un swing que el precio ya supero no es nivel rompible: si no, salen BOS repetidos
         while (s < swings.size && swings[s].idx <= i) {
             val sw = swings[s]
-            if (sw.isHigh && (refHigh == null || sw.idx > refHigh.idx)) refHigh = sw
-            if (!sw.isHigh && (refLow == null || sw.idx > refLow.idx)) refLow = sw
+            if (sw.isHigh && sw.price > close) refHigh = sw
+            if (!sw.isHigh && sw.price < close) refLow = sw
             s++
         }
         val rh = refHigh
@@ -207,10 +208,8 @@ fun detectOrderBlocks(
         var m = ev.breakIdx + 1
         while (m < candles.size) {
             val cl = candles[m].close
-            // en compras, se invalida si el precio rompe y cierra por debajo del minimo del OB
-            // en ventas, si rompe y cierra por encima del maximo del OB
-            val violated = if (ev.bullish) cl < c.low || candles[m].low < c.low
-                           else cl > c.high || candles[m].high > c.high
+            // un OB se invalida con cierre fuera del bloque, no con una mecha que asusta
+            val violated = if (ev.bullish) cl < c.low else cl > c.high
             if (violated) {
                 end = m
                 mitigated = true
