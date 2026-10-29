@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
-import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -355,6 +354,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private val extraSmcCandles = mutableMapOf<String, List<CandleData>>()
     // SMC: sólo depende de velas cerradas, así que el tick de 2s reusa el resultado
     private val smcCache = ClosedCandleCache<SmcData>()
+    // series de BB/RSI/Stoch/MACD/MAs: la historia se reusa y el tick sólo mueve el último punto
+    private val indicatorTail = IndicatorTailCache()
     // sube cuando las velas cerradas pueden haber cambiado (carga, cola, prefs, TF)
     @Volatile
     private var closedCandleVersion = 0
@@ -392,7 +393,12 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         logNonFatal("Extra TF load failed for $symbol/$tf", e)
                     }
                 }
-                if (changed) recomputeMaLinesFromCache()
+                if (changed) {
+                    // las MAs de otro TF se alinean de este cache: si cambió, la cola
+                    // cacheada ya no sirve y se recalcula todo (mantiene la alineación)
+                    closedCandleVersion++
+                    recomputeMaLinesFromCache()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {}
@@ -1190,6 +1196,20 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         val wantSmc = prefs.smcStructure || prefs.smcOrderBlocks || prefs.smcFvg ||
             prefs.smcPremium || prefs.smcEqhl || prefs.smcLiquidity
 
+        // ── camino rápido: sólo cambió la última vela, se recalcula el último punto ──
+        // la clave incluye la versión de velas cerradas, el TF, los ajustes y el tamaño,
+        // así que un cache válido garantiza que la historia dibujada es la misma
+        val tailKey = "$symbol|$interval|${prefs.prefsKey()}|$closedVersion|$size" +
+            "|${if (size >= 2) this[size - 2].time else 0L}"
+        indicatorTail.seedFor(tailKey)?.let { seed ->
+            val tail = recomputeIndicatorTail(this, seed, interval, mas, prefs, smcFor(interval, wantSmc, prefs, closedVersion))
+            if (tail != null) {
+                // el estado en n-2 no cambió: se reusa para el próximo tick
+                indicatorTail.store(IndicatorTailSeed(tailKey, tail, seed.state))
+                return tail
+            }
+        }
+
         val period = 20
         val multiplier = 2.0
         val bbUpper = mutableListOf<Pair<Long, Double>>()
@@ -1261,7 +1281,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         val rsiMa = rsiMaValues.mapIndexed { i, v -> (i + (size - rsiMaValues.size)).toLong() to v }
         val macd = calculateMacd(this)
 
-        return ChartComputation(
+        val result = ChartComputation(
             candles = this,
             bbUpper = bbUpper,
             bbMiddle = bbMiddle,
@@ -1278,17 +1298,31 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             // matar zonas a media formacion (parpadeo y FVG_TAP perdido).
             // Como sólo depende de lo cerrado, entre ticks el resultado es el mismo:
             // se reusa el cache hasta que cambie la versión de velas cerradas.
-            smc = if (wantSmc) {
-                smcCache.getOrCompute("$symbol|$interval|${prefs.smcSignature()}|$closedVersion") {
-                    computeSmc(dropLast(1), interval)
-                }
-            } else SmcData(),
+            smc = smcFor(interval, wantSmc, prefs, closedVersion),
             // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
             rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
                 detectRsiDivergences(this, rsiValues),
                 detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK)
             ) else emptyList()
         )
+        // se guarda el estado en n-2 para que el próximo tick sólo mueva el último punto
+        buildIndicatorTailState(this)?.let { state ->
+            indicatorTail.store(IndicatorTailSeed(tailKey, result, state))
+        }
+        return result
+    }
+
+    // SMC cacheado: la vela en curso no participa, así que entre ticks no cambia
+    private fun List<CandleData>.smcFor(
+        interval: String,
+        wantSmc: Boolean,
+        prefs: IndicatorPrefs,
+        closedVersion: Int
+    ): SmcData {
+        if (!wantSmc) return SmcData()
+        return smcCache.getOrCompute("$symbol|$interval|${prefs.smcSignature()}|$closedVersion") {
+            computeSmc(dropLast(1), interval)
+        }
     }
 
     // MAs locales (chart) + alineadas de otro TF con el mismo source
@@ -1371,14 +1405,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             if (last != null) out.add(i.toLong() to last)
         }
         return out.ifEmpty { null }
-    }
-
-    // tempranas marcadas y sin las que ya salieron confirmadas
-    private fun mergeConfirmedAndEarly(confirmed: List<RsiDiv>, early: List<RsiDiv>): List<RsiDiv> {
-        val fresh = early.map { it.copy(early = true) }.filter { e ->
-            confirmed.none { c -> c.kind == e.kind && abs(c.idx2 - e.idx2) <= 2 }
-        }
-        return (confirmed + fresh).sortedBy { it.idx2 }
     }
 
     private fun String.toBinanceInterval(): String {
@@ -1468,21 +1494,4 @@ data class CandleData(
     val volume: Double = 0.0,
     // taker buy base volume (indice 9 de klines Binance), sell = volume - buy
     val takerBuyVol: Double = 0.0
-)
-
-private data class ChartComputation(
-    val candles: List<CandleData> = emptyList(),
-    val bbUpper: List<Pair<Long, Double>> = emptyList(),
-    val bbMiddle: List<Pair<Long, Double>> = emptyList(),
-    val bbLower: List<Pair<Long, Double>> = emptyList(),
-    val stochK: List<Pair<Long, Double>> = emptyList(),
-    val stochD: List<Pair<Long, Double>> = emptyList(),
-    val maLines: Map<String, List<Pair<Long, Double>>> = emptyMap(),
-    val rsi: List<Pair<Long, Double>> = emptyList(),
-    val rsiMa: List<Pair<Long, Double>> = emptyList(),
-    val macdDif: List<Pair<Long, Double>> = emptyList(),
-    val macdDea: List<Pair<Long, Double>> = emptyList(),
-    val macdHist: List<Pair<Long, Double>> = emptyList(),
-    val smc: SmcData = SmcData(),
-    val rsiDiv: List<RsiDiv> = emptyList()
 )
