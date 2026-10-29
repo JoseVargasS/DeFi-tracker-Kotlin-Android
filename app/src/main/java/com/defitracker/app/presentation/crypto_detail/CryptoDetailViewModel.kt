@@ -239,6 +239,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private fun updatePrefs(transform: (IndicatorPrefs) -> IndicatorPrefs) {
         val next = transform(_prefs.value)
         _prefs.value = next
+        // cualquier ajuste de indicadores invalida el cache de velas cerradas
+        closedCandleVersion++
         viewModelScope.launch {
             try {
                 prefsRepo.save(next)
@@ -351,6 +353,11 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private val extraTfCandles = mutableMapOf<String, List<CandleData>>()
     // velas de TFs superiores para confluencia FVG real (mismo exchange que el chart)
     private val extraSmcCandles = mutableMapOf<String, List<CandleData>>()
+    // SMC: sólo depende de velas cerradas, así que el tick de 2s reusa el resultado
+    private val smcCache = ClosedCandleCache<SmcData>()
+    // sube cuando las velas cerradas pueden haber cambiado (carga, cola, prefs, TF)
+    @Volatile
+    private var closedCandleVersion = 0
 
     // bandas reales si hay cache de TFs superiores, null = deja el fallback sintetico
     private fun overlaySmcConfluence(smc: SmcData): SmcData? {
@@ -839,6 +846,9 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                     if (currentPrice > 0.0) {
                         val tickInterval = _state.value.selectedInterval
                         val tickCandles = _state.value.candles
+                        // la versión va pegada al snapshot: si la cola entra mientras
+                        // este tick calcula, no se guarda un SMC viejo con clave nueva
+                        val tickClosedVersion = closedCandleVersion
                         val tickLast = tickCandles.lastOrNull()
                         // volumen vivo: el tick antes solo movia precio, la ultima barra quedaba
                         // congelada hasta el cierre. El delta del vol 24h ≈ lo tradeado entre ticks.
@@ -876,7 +886,9 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         val chartData = withContext(Dispatchers.Default) {
                             val mas = _prefs.value.mas
                             val extras = extraTfCandles.toMap()
-                            val comp = updatedCandles.toChartComputation(_state.value.selectedInterval, mas, extras)
+                            val comp = updatedCandles.toChartComputation(
+                                _state.value.selectedInterval, mas, extras, closedVersion = tickClosedVersion
+                            )
                             // confluencia real desde cache, sin red en el tick
                             val smcReal = overlaySmcConfluence(comp.smc)
                             if (smcReal != null) comp.copy(smc = smcReal) else comp
@@ -932,6 +944,10 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         noNewCandleStreak = 0
         chartGen += 1
         val gen = chartGen
+        // dataset nuevo (moneda/TF/recarga): el SMC cacheado ya no sirve
+        closedCandleVersion++
+        // la versión que corresponde a las velas que va a traer esta carga
+        val loadClosedVersion = closedCandleVersion
 
         chartJob?.cancel()
         // el analisis viejo no sigue quemando red al cambiar de TF
@@ -1005,7 +1021,10 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                     val quickCandles = withContext(Dispatchers.Default) { rawKlines.toCandleList() }
                     if (quickCandles.isNotEmpty()) {
                         val quick = withContext(Dispatchers.Default) {
-                            quickCandles.toChartComputation(normalizedInterval, masSnapshot, extraTfCandles.toMap())
+                            quickCandles.toChartComputation(
+                                normalizedInterval, masSnapshot, extraTfCandles.toMap(),
+                                closedVersion = loadClosedVersion
+                            )
                         }
                         if (gen == chartGen && _state.value.selectedInterval == normalizedInterval) {
                             val quickSmc = withContext(Dispatchers.Default) { overlaySmcConfluence(quick.smc) }
@@ -1030,7 +1049,10 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         return@withContext ChartComputation()
                     }
 
-                    candles.toChartComputation(normalizedInterval, masSnapshot, extraTfCandles.toMap())
+                    candles.toChartComputation(
+                        normalizedInterval, masSnapshot, extraTfCandles.toMap(),
+                        closedVersion = loadClosedVersion
+                    )
                 }
                 // llego tarde: otro TF ya mando, no se pinta nada viejo
                 if (gen != chartGen || _state.value.selectedInterval != normalizedInterval) return@launch
@@ -1114,8 +1136,14 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             return
         }
         noNewCandleStreak = 0
+        // la cola puede reescribir velas ya cerradas: el SMC cacheado deja de valer
+        closedCandleVersion++
+        val tailClosedVersion = closedCandleVersion
         val chartData = withContext(Dispatchers.Default) {
-            val comp = merged.toChartComputation(interval, _prefs.value.mas, extraTfCandles.toMap())
+            val comp = merged.toChartComputation(
+                interval, _prefs.value.mas, extraTfCandles.toMap(),
+                closedVersion = tailClosedVersion
+            )
             // confluencia real desde cache, sin red en el tail
             val smcReal = overlaySmcConfluence(comp.smc)
             if (smcReal != null) comp.copy(smc = smcReal) else comp
@@ -1148,7 +1176,10 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         interval: String = "",
         mas: List<MaConfig> = _prefs.value.mas,
         extras: Map<String, List<CandleData>> = emptyMap(),
-        prefs: IndicatorPrefs = _prefs.value
+        prefs: IndicatorPrefs = _prefs.value,
+        // versión de velas cerradas que corresponde a ESTA lista: se captura junto
+        // con las velas para que el cache no mezcle un cálculo viejo con una clave nueva
+        closedVersion: Int = closedCandleVersion
     ): ChartComputation {
         if (isEmpty()) return ChartComputation()
 
@@ -1244,8 +1275,14 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             macdDea = macd.dea,
             macdHist = macd.hist,
             // SMC derivado de las velas cerradas: la vela en curso no debe crear ni
-            // matar zonas a media formacion (parpadeo y FVG_TAP perdido)
-            smc = if (wantSmc) computeSmc(dropLast(1), interval) else SmcData(),
+            // matar zonas a media formacion (parpadeo y FVG_TAP perdido).
+            // Como sólo depende de lo cerrado, entre ticks el resultado es el mismo:
+            // se reusa el cache hasta que cambie la versión de velas cerradas.
+            smc = if (wantSmc) {
+                smcCache.getOrCompute("$symbol|$interval|${prefs.smcSignature()}|$closedVersion") {
+                    computeSmc(dropLast(1), interval)
+                }
+            } else SmcData(),
             // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
             rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
                 detectRsiDivergences(this, rsiValues),

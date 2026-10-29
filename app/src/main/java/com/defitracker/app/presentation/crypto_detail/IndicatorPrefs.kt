@@ -65,6 +65,11 @@ data class IndicatorPrefs(
         append(smcStructure).append(smcOrderBlocks).append(smcFvg).append(smcPremium).append(smcEqhl).append(smcLiquidity)
     }
 
+    // identidad de los ajustes que alimentan el SMC: su cache de velas cerradas
+    // sólo debe invalidarse cuando cambia alguno de estos
+    fun smcSignature(): String =
+        "$smcStructure$smcOrderBlocks$smcFvg$smcPremium$smcEqhl$smcLiquidity"
+
     companion object {
         val MA_PERIODS = listOf(20, 55, 75, 100, 200)
         // TFs elegibles para una MA, "chart" = la del grafico
