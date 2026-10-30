@@ -58,6 +58,25 @@ internal data class IndicatorTailSeed(
     val state: IndicatorTailState
 )
 
+/**
+ * Clave que decide si se puede reusar la cola cacheada.
+ *
+ * Fuera de la clave queda la vela viva (índice n-1): su cierre/high/low cambian en cada
+ * tick y son justo lo que la cola recalcula. Sí entra el tiempo de la vela n-2 (la última
+ * cerrada) porque unas MAs de otro TF se alinean por tiempo. Cambios en velas cerradas
+ * (sin cambiar tiempo ni tamaño) los cubre `closedVersion`.
+ */
+internal fun indicatorTailKey(
+    symbol: String,
+    interval: String,
+    prefs: IndicatorPrefs,
+    closedVersion: Int,
+    candles: List<CandleData>
+): String {
+    val closedTime = if (candles.size >= 2) candles[candles.size - 2].time else 0L
+    return "$symbol|$interval|${prefs.prefsKey()}|$closedVersion|${candles.size}|$closedTime"
+}
+
 internal class IndicatorTailCache {
     private var seed: IndicatorTailSeed? = null
 
@@ -278,9 +297,14 @@ internal fun recomputeIndicatorTail(
         macdDea = tailed(prev.macdDea, dea) ?: return null
         macdHist = tailed(prev.macdHist, 2.0 * (dif - dea)) ?: return null
     } else {
-        macdDif = emptyList()
-        macdDea = emptyList()
-        macdHist = emptyList()
+        // historial MACD mínimo: con exactamente slow+signal-1 velas la serie tiene
+        // UN punto y en ese índice el DEA es la semilla (media de 9 DIF), no un paso
+        // EMA, así que no se puede derivar del estado cacheado. Se recalcula sólo el
+        // MACD completo, que con esa cantidad de velas es baratísimo.
+        val macd = calculateMacd(candles)
+        macdDif = macd.dif
+        macdDea = macd.dea
+        macdHist = macd.hist
     }
 
     // ── Medias móviles ──
@@ -301,6 +325,8 @@ internal fun recomputeIndicatorTail(
         macdDea = macdDea,
         macdHist = macdHist,
         smc = smc,
+        // igual que en el cálculo completo: no se cachean porque el pivote de n-6
+        // se confirma con una ventana que incluye la vela viva
         rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
             detectRsiDivergences(candles, rsiValues),
             detectRsiDivergences(candles, rsiValues, RSI_DIV_EARLY_LOOKBACK)

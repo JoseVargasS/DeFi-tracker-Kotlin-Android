@@ -1199,8 +1199,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         // ── camino rápido: sólo cambió la última vela, se recalcula el último punto ──
         // la clave incluye la versión de velas cerradas, el TF, los ajustes y el tamaño,
         // así que un cache válido garantiza que la historia dibujada es la misma
-        val tailKey = "$symbol|$interval|${prefs.prefsKey()}|$closedVersion|$size" +
-            "|${if (size >= 2) this[size - 2].time else 0L}"
+        val tailKey = indicatorTailKey(symbol, interval, prefs, closedVersion, this)
         indicatorTail.seedFor(tailKey)?.let { seed ->
             val tail = recomputeIndicatorTail(this, seed, interval, mas, prefs, smcFor(interval, wantSmc, prefs, closedVersion))
             if (tail != null) {
@@ -1299,7 +1298,9 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             // Como sólo depende de lo cerrado, entre ticks el resultado es el mismo:
             // se reusa el cache hasta que cambie la versión de velas cerradas.
             smc = smcFor(interval, wantSmc, prefs, closedVersion),
-            // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento
+            // confirmadas (lookback 5) mas tempranas (lookback 2) sin repetir el mismo evento.
+            // NO se cachean: el pivote fractal del índice n-6 se confirma con una ventana que
+            // incluye la vela viva, así que mover sólo la última vela puede cambiarlas.
             rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
                 detectRsiDivergences(this, rsiValues),
                 detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK)

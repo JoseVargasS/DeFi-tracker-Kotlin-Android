@@ -275,4 +275,49 @@ class IndicatorTailTest {
         runTailCaseWith(trendCandles(200, -0.002), "bajista")
         runTailCaseWith(trendCandles(200, 0.002), "alcista")
     }
+
+    @Test
+    fun `cola incremental iguala el completo justo en el borde del MACD`() {
+        // 34 velas = primera vela con MACD (la serie tiene UN punto)
+        runTailCaseWith(candles(34, 11), "n=34")
+        runTailCaseWith(candles(36, 11), "n=36")
+    }
+
+    @Test
+    fun `MACD en listas cortas iguala el calculo completo`() {
+        for (n in intArrayOf(33, 34, 35, 36)) {
+            val before = candles(n, 11)
+            val seedComputation = referenceComputation(before, testMas)
+            val state = buildIndicatorTailState(before)
+            assertNotNull("el estado debe construirse para n=$n", state)
+
+            val after = ticked(before, before.last().close * 1.004)
+            val expected = calculateMacd(after)
+            val seed = IndicatorTailSeed("macd|$n", seedComputation, state!!)
+            val tail = recomputeIndicatorTail(
+                after, seed, "5m", testMas, IndicatorPrefs(rsiDivVisible = false), SmcData()
+            )
+            assertNotNull("la cola debe poder calcularse para n=$n", tail)
+            tail!!
+
+            assertEquals("dif n=$n", expected.dif.size, tail.macdDif.size)
+            assertEquals("dea n=$n", expected.dea.size, tail.macdDea.size)
+            assertEquals("hist n=$n", expected.hist.size, tail.macdHist.size)
+            if (expected.dif.isNotEmpty()) {
+                assertEquals("último índice n=$n", expected.dif.last().first, tail.macdDif.last().first)
+                assertTrue(
+                    "dif n=$n incremental=${tail.macdDif.last().second} completo=${expected.dif.last().second}",
+                    abs(tail.macdDif.last().second - expected.dif.last().second) <= tolerance
+                )
+                assertTrue(
+                    "dea n=$n incremental=${tail.macdDea.last().second} completo=${expected.dea.last().second}",
+                    abs(tail.macdDea.last().second - expected.dea.last().second) <= tolerance
+                )
+                assertTrue(
+                    "hist n=$n incremental=${tail.macdHist.last().second} completo=${expected.hist.last().second}",
+                    abs(tail.macdHist.last().second - expected.hist.last().second) <= tolerance
+                )
+            }
+        }
+    }
 }
