@@ -10,19 +10,19 @@ Octopus is organized around three main tabs:
 - `Wallet`: save wallet addresses, inspect multi-chain token balances, copy/delete wallets, and refresh balances.
 - `History`: inspect wallet transactions grouped by network using CoinStats wallet transactions.
 
-The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI, RSI divergence marks (`Bull`/`Bear` plus early `Pre-Bull`/`Pre-Bear`), and SMC overlays.
+The detail screen includes candlestick charts, volume, Bollinger Bands, StochRSI, MACD, RSI divergence marks (`Bull`/`Bear` plus early `Pre-Bull`/`Pre-Bear`), moving averages and SMC overlays.
 
 ## Current Features
 
 - Real-time pair tracking for Binance-backed symbols plus MEXC perpetual futures.
 - Search and add tracked crypto pairs.
-- Pair detail screen with candlestick chart, live price updates, volume, Bollinger Bands, StochRSI, RSI divergences, and SMC structure/zones.
+- Pair detail screen with candlestick chart, live price updates, volume, Bollinger Bands, StochRSI, RSI divergences, MACD, taker volume, moving averages, and SMC structure/zones.
 - Push alerts for RSI divergences (`Pre-Bull`/`Pre-Bear` early signals that upgrade to `Bull`/`Bear` on confirmation) on tracked MEXC futures pairs, with a foreground monitor scanning every 60s across configurable timeframes (default `5m`, `15m`, `30m`, `1h`).
 - Alerts bottom sheet behind the bell icon: unread dot, arrow icons per direction, tap-to-open chart on the alert timeframe, and mark-all-seen action.
 - Saved wallet list backed by Room.
 - Multi-chain wallet balances through CoinStats.
 - Transaction history through CoinStats, grouped by network.
-- Price alerts per pair, supporting LONG/SHORT targets or ranges, persisted locally and delivered by the foreground monitor.
+- Price alerts per pair, supporting LONG/SHORT targets or ranges, persisted locally and delivered by the foreground monitor, with a notification tone chosen from the system picker.
 - Chart drawings, Fibonacci retracements, and LONG/SHORT position overlays persisted per symbol.
 - Pan started on a locked Fibonacci or drawing overlay keeps the chart smooth from the current touch position.
 - Pulse analysis sheet with multi-timeframe moving-average confluence, support/resistance, RSI divergence, sweep/reclaim, and market-structure context.
@@ -110,11 +110,13 @@ app/src/main/java/com/defitracker/app/
 |   |   |   |-- StochRsiChart.kt
 |   |   |   |-- TakerChart.kt
 |   |   |   `-- VolumeOverlayRenderer.kt
+|   |   |-- ClosedCandleCache.kt
 |   |   |-- CryptoDetailScreen.kt
 |   |   |-- CryptoDetailViewModel.kt
 |   |   |-- DrawOverlay.kt
 |   |   |-- FibDrawing.kt
 |   |   |-- IndicatorPrefs.kt
+|   |   |-- IndicatorTail.kt
 |   |   |-- MacdCalc.kt
 |   |   |-- PositionOverlay.kt
 |   |   |-- PriceAlertSheet.kt
@@ -141,6 +143,8 @@ app/src/main/java/com/defitracker/app/
 ```
 
 `core/Timeframes.kt` is the single catalog for interval labels, candle durations, Binance/MEXC/TradingView mappings, alert intervals, MA timeframes, taker support, and chart aggregation. Chart colors are centralized in `ui/theme/Color.kt` under `ChartColors`.
+
+Developer documentation: `AGENTS.md` is the working contract for agents and contributors (rules, chart map, critical zones), with the details split into `docs/CHART_PIPELINE.md` (chart data flow, dataset rebuild gate, viewport, incremental indicator caches and their invalidation), `docs/ALERTS_NOTIFICATIONS.md` (price alerts, notification channel per tone, sound URI rules) and `docs/DESIGN.md` (color/typography tokens, shared components, chart visual values and known visual debt).
 
 ## Data Sources
 
@@ -206,6 +210,25 @@ In this workspace, the debug APK is generated at:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+### Unit Tests
+
+56 JVM unit tests cover the pure chart math (RSI, MACD, SMC, signals, formatting), the
+incremental indicator tail, its cache key contract and the alert sound rules:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest
+```
+
+### Build, Install And Launch On A Device
+
+The repo ships a helper that builds, installs with the right `adb -s <serial>` and launches the
+app (pass the device explicitly: `adb devices` usually lists a wireless serial plus an mDNS
+duplicate):
+
+```powershell
+./r -Device <adb-serial>
+```
+
 ## Main Screens
 
 ### Pairs
@@ -214,6 +237,7 @@ Files:
 
 - `presentation/crypto_list/CryptoListScreen.kt`
 - `presentation/crypto_list/CryptoListViewModel.kt`
+- `presentation/crypto_list/PairOrderRepository.kt`
 - `presentation/crypto_list/components/CryptoPairItem.kt`
 
 Behavior:
@@ -244,6 +268,7 @@ Behavior:
 - Only fresh signals notify (pivot within the last 3 closed candles); history older than 7 days is pruned.
 - Push and sheet taps deep-link to `crypto_detail/{symbol}/{source}?interval={interval}`.
 - Monitored timeframes are configurable and persisted in DataStore (default `5m`, `15m`, `30m`, `1h`).
+- Price alerts play the tone picked in the alert sheet: each tone gets its own notification channel (`price_alerts_<hash>`) and the previous tone channels are deleted. Divergence alerts use the system default tone.
 
 ### Crypto Detail
 
@@ -251,6 +276,8 @@ Files:
 
 - `presentation/crypto_detail/CryptoDetailScreen.kt`
 - `presentation/crypto_detail/CryptoDetailViewModel.kt`
+- `presentation/crypto_detail/ClosedCandleCache.kt`
+- `presentation/crypto_detail/IndicatorTail.kt`
 - `presentation/crypto_detail/Analysis.kt`
 - `presentation/crypto_detail/DrawOverlay.kt`
 - `presentation/crypto_detail/FibDrawing.kt`
@@ -267,6 +294,9 @@ Behavior:
 - Loads pair details and kline data from Binance, MEXC Futures, or TradingView depending on `source`.
 - Receives Binance Futures taker buy/sell volume when the optional `C/V Taker` subchart is enabled and aligns it by candle time.
 - Computes Bollinger Bands, moving averages, StochRSI, RSI, MACD, RSI divergences, SMC overlays, and Pulse inputs off the main thread where applicable.
+- Every 2 s tick only the last point of each series is recalculated (`IndicatorTail`) and the SMC is reused while the closed candles do not change (`ClosedCandleCache`); the full history is recomputed on candle close, timeframe change or settings change.
+- The drawn candle dataset is rebuilt only when the candle window, the interval or an indicator setting changes; otherwise the last point is patched in place. This is what keeps pan/zoom and new candles in sync.
+- Filled/mitigated SMC zones are not drawn (only active zones, with dashed border and tag), and the chart reopens on the last timeframe you were watching.
 - Paints confirmed (`Bull`/`Bear`) and early (`Pre-Bull`/`Pre-Bear`) RSI divergence marks, plus OKX-style text-only SMC tags (BOS/CHoCH/EQ/FVG) placed off candle bodies.
 - Supports per-symbol drawings, Fibonacci retracements, LONG/SHORT position overlays, and price-alert configuration from the detail chart.
 - Persists indicator visibility/configuration in DataStore, including moving-average type/period/timeframe/color/width, SMC toggles, Fibonacci settings, and overlay data.
@@ -352,6 +382,8 @@ It provides:
 - Some third-party wallet transaction feeds include spam/fake tokens. UI should display the data clearly, but future filtering may be needed.
 - `MIGRATION_5_6` preserves existing Room data while adding price alerts; the fallback can still wipe local Room data if a future schema change has no registered migration.
 - API keys should not remain hard-coded for a public release.
+- A price alert can end up silent if the saved tone stops existing (for example after the media provider reindexes its ids). The app deliberately does not probe or "validate" the URI: it has no media read permission and the sound is played by the system. Picking the tone again creates a fresh channel and fixes it.
+- `MediaPlayer: NullPointerException: uri` lines in logcat come from MIUI/HyperOS and its hour-of-day notification sound, not from this app.
 
 ## Troubleshooting
 
@@ -372,6 +404,15 @@ Check:
 - The wallet is saved and selected.
 - CoinStats supports the selected chain/address.
 - CoinStats did not return synthetic-only records. `Fill` records are intentionally filtered.
+
+### Price alert arrives silently
+
+Check, in order:
+
+- Settings -> Notifications -> Octopus -> "Alertas de precio": the channel matching the tone should exist and not be disabled.
+- Pick the tone again from the alert sheet; the app creates a new channel per tone and deletes the old ones.
+- Divergence alerts (`div_alerts`) use the system default tone by design; only price alerts carry the picked one.
+- MIUI/HyperOS sometimes keeps the previous channel cached; toggling the tone forces a new channel.
 
 ### Build cannot find Java
 
