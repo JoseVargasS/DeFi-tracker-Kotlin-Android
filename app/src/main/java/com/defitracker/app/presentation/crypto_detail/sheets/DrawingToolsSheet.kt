@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Lock
@@ -248,11 +249,23 @@ fun OverlayEditBar(
     fillOn: Boolean = false,
     fillAlpha: Float = 0.2f,
     onToggleFill: () -> Unit = {},
-    onFillAlpha: (Float) -> Unit = {}
+    onFillAlpha: (Float) -> Unit = {},
+    // texto del dibujo (lineas y figuras): contenido, color, tamano y alineacion
+    showText: Boolean = false,
+    label: String = "",
+    labelColorHex: String = "",
+    labelSize: Float = 12f,
+    labelH: DrawLabelH = DrawLabelH.CENTER,
+    labelV: DrawLabelV = DrawLabelV.MIDDLE,
+    onLabel: (String) -> Unit = {},
+    onLabelColor: (String) -> Unit = {},
+    onLabelSize: (Float) -> Unit = {},
+    onLabelAlign: (DrawLabelH, DrawLabelV) -> Unit = { _, _ -> }
 ) {
     var showColors by remember { mutableStateOf(false) }
     var showWidths by remember { mutableStateOf(false) }
     var showFillMenu by remember { mutableStateOf(false) }
+    var showTextDialog by remember { mutableStateOf(false) }
     // toque en la pestaña contrae/expande, arrastrar la mueve igual que antes
     var collapsed by remember(selectionKey) { mutableStateOf(false) }
     // pestaña para mover la barra a cualquier lado
@@ -361,6 +374,18 @@ fun OverlayEditBar(
             }
         }
         GridDivider()
+        // T = texto del dibujo (todas las herramientas)
+        if (showText) {
+            GridCell(onClick = { showTextDialog = true }) {
+                Icon(
+                    imageVector = Icons.Filled.TextFields,
+                    contentDescription = "Texto",
+                    tint = if (label.isNotBlank()) AppGreen else Color.Gray,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            GridDivider()
+        }
         // bote = relleno de figuras con transparencia, estilo TV (solo dibujos)
         if (showFill) {
             Box {
@@ -449,5 +474,20 @@ fun OverlayEditBar(
             )
         }
         }
+    }
+    if (showTextDialog) {
+        DrawTextDialog(
+            label = label,
+            colorHex = labelColorHex,
+            size = labelSize,
+            alignH = labelH,
+            alignV = labelV,
+            lineColorHex = colorHex,
+            onLabel = onLabel,
+            onColor = onLabelColor,
+            onSize = onLabelSize,
+            onAlign = onLabelAlign,
+            onDismiss = { showTextDialog = false }
+        )
     }
 }

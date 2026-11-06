@@ -377,7 +377,7 @@ fun RsiChart(
                             maEntries,
                             "RSI MA",
                             GraphicsColor.parseColor(ChartColors.GOLD_HEX),
-                            1.2f,
+                            0.7f,
                             highlight = true
                         )
                     )

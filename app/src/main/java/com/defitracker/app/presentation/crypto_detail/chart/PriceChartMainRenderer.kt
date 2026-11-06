@@ -44,6 +44,27 @@ internal fun PriceCombinedChart.drawPinnedYLabels(canvas: Canvas, candles: List<
     }
 }
 
+// chip de precio pegado al eje derecho (rectangulos y herramienta Medir)
+internal fun PriceCombinedChart.drawAxisPriceChip(canvas: Canvas, price: Double, top: Float) {
+    val refClose = stateRef.value.candles.lastOrNull()?.close ?: price
+    val txt = formatAxisPrice(price, refClose, stateRef.value.daySubDollar)
+    val h = drawLabelPaint.textSize + 8f
+    val w = drawLabelPaint.measureText(txt) + 12f
+    val leftRaw = viewPortHandler.contentRight() + 2f
+    val offRight = (leftRaw + w - (width.toFloat() - 2f)).coerceAtLeast(0f)
+    val left = leftRaw - offRight
+    val chipTop = top.coerceIn(
+        viewPortHandler.contentTop(),
+        (viewPortHandler.contentBottom() - h).coerceAtLeast(viewPortHandler.contentTop())
+    )
+    yTagRect.set(left, chipTop, left + w, chipTop + h)
+    val previousColor = drawLabelPaint.color
+    drawLabelPaint.color = GraphicsColor.WHITE
+    canvas.drawRoundRect(yTagRect, 3f, 3f, drawChipPaint)
+    canvas.drawText(txt, left + 6f, chipTop + h - 6f, drawLabelPaint)
+    drawLabelPaint.color = previousColor
+}
+
 // linea punteada + tag con precio actual y countdown al cierre
 internal fun PriceCombinedChart.drawLastPriceTag(canvas: Canvas, candles: List<CandleData>) {
     val current = stateRef.value
@@ -77,10 +98,15 @@ internal fun PriceCombinedChart.drawLastPriceTag(canvas: Canvas, candles: List<C
         lastPriceTextPaint.measureText(countdown)
     ) + padX * 2f
     val tagH = textSize * 2f + padY * 2f + 6f
-    var tagRight = contentRight - 2f + tagW
     val chartW = width.toFloat()
-    if (tagRight > chartW - 2f) {
-        tagRight = chartW - 2f
+    // paneado atras: el tag deja su sitio al boton que vuelve al vivo (OKX)
+    val atLiveEdge = highestVisibleX >= candles.size - 1.5f
+    val jumpSize = 26f * density
+    val jumpGap = 6f
+    val maxTagRight = chartW - 2f - if (atLiveEdge) 0f else jumpSize + jumpGap
+    var tagRight = contentRight - 2f + tagW
+    if (tagRight > maxTagRight) {
+        tagRight = maxTagRight
     }
     val tagLeft = tagRight - tagW
     val tagTop = (py - tagH / 2f).coerceIn(
@@ -92,6 +118,31 @@ internal fun PriceCombinedChart.drawLastPriceTag(canvas: Canvas, candles: List<C
     canvas.drawRoundRect(yTagRect, 6f, 6f, lastPriceTagPaint)
     canvas.drawText(priceText, yTagRect.centerX(), tagTop + padY + textSize, lastPriceTextPaint)
     canvas.drawText(countdown, yTagRect.centerX(), tagTop + padY + textSize * 2f + 4f, lastPriceTextPaint)
+
+    if (atLiveEdge) {
+        lastPriceJumpRect.setEmpty()
+        return
+    }
+    // boton con chevron ">>" pegado al borde derecho
+    val jumpLeft = chartW - 2f - jumpSize
+    val jumpTop = (py - jumpSize / 2f).coerceIn(
+        contentTop,
+        (contentBottom - jumpSize).coerceAtLeast(contentTop)
+    )
+    lastPriceJumpRect.set(jumpLeft, jumpTop, jumpLeft + jumpSize, jumpTop + jumpSize)
+    canvas.drawRoundRect(lastPriceJumpRect, 7f, 7f, drawChipPaint)
+    canvas.drawRoundRect(lastPriceJumpRect, 7f, 7f, lastPriceJumpBorderPaint)
+    val cx = lastPriceJumpRect.centerX()
+    val cy = lastPriceJumpRect.centerY()
+    val a = jumpSize * 0.15f
+    lastPriceJumpPath.reset()
+    lastPriceJumpPath.moveTo(cx - a * 1.7f, cy - a)
+    lastPriceJumpPath.lineTo(cx - a * 0.3f, cy)
+    lastPriceJumpPath.lineTo(cx - a * 1.7f, cy + a)
+    lastPriceJumpPath.moveTo(cx + a * 0.3f, cy - a)
+    lastPriceJumpPath.lineTo(cx + a * 1.7f, cy)
+    lastPriceJumpPath.lineTo(cx + a * 0.3f, cy + a)
+    canvas.drawPath(lastPriceJumpPath, lastPriceJumpPaint)
 }
 
 // tags de MAs de otro TF: codo punteado 45° + etiqueta al borde (1h.SMA20)
@@ -260,20 +311,28 @@ internal fun PriceCombinedChart.drawPriceChart(canvas: Canvas) {
     drawPinnedYLabels(canvas, entries)
     drawLastPriceTag(canvas, entries)
 
-    // --- Draw Crosshair Lines Manually (Exact Y, Snapped X) ---
+    // --- Draw Crosshair Lines Manually (Exact Y, X libre estilo OKX) ---
     val h = highlighted?.getOrNull(0)
     if (h == null) {
         crossX.floatValue = -1f
         return
     }
 
-    val xPts = floatArrayOf(h.x, h.y)
-    trans.pointValuesToPixel(xPts)
-    val snappedPy = xPts[1]
+    val snapped = floatArrayOf(h.x, h.y)
+    trans.pointValuesToPixel(snapped)
+    val py = if (lastTouchYPx >= 0) lastTouchYPx.coerceIn(contentTop, contentBottom) else snapped[1]
 
-    // X snapeada a la vela, Y exacto del toque
+    // X libre: la cruz sale del dedo y puede pasar la ultima vela (lienzo virtual),
+    // igual que fibo/dibujos; el highlight solo aporta el valor de la vela
+    val freeIdx = if (lastTouchXPx >= 0f) {
+        trans.getValuesByTouchPoint(lastTouchXPx, py).x.roundToInt()
+            .coerceIn(0, entries.size - 1 + FIB_VIRTUAL_EXTEND)
+    } else {
+        h.x.roundToInt().coerceIn(0, entries.size - 1 + FIB_VIRTUAL_EXTEND)
+    }
+    val xPts = floatArrayOf(freeIdx.toFloat(), 0f)
+    trans.pointValuesToPixel(xPts)
     val px = xPts[0].coerceIn(contentLeft, contentRight)
-    val py = if (lastTouchYPx >= 0) lastTouchYPx.coerceIn(contentTop, contentBottom) else snappedPy
 
     // la vertical la dibuja el overlay de Compose sobre todo el stack (OKX)
     crossX.floatValue = px
@@ -315,11 +374,10 @@ internal fun PriceCombinedChart.drawPriceChart(canvas: Canvas) {
     canvas.drawText(pctText, yTagRect.centerX(), py + tagGap + (thY * 2) + 10f, tagTextPaint)
 
     // X-Axis Tag (Date): en zona virtual hora proyectada, no la ultima vela
-    val freeIdx = trans.getValuesByTouchPoint(px, py).x.roundToInt()
-    val dateText = if (freeIdx >= entries.size && entries.isNotEmpty()) {
+    val dateText = if (freeIdx >= entries.size) {
         crossTimeSdf.format(java.util.Date(fibIndexToTime(entries, freeIdx, stateRef.value.selectedInterval)))
     } else {
-        xAxis.valueFormatter.getFormattedValue(h.x).replace("|", " ")
+        xAxis.valueFormatter.getFormattedValue(freeIdx.toFloat()).replace("|", " ")
     }
     val twX = tagTextPaint.measureText(dateText)
     xTagRect.set(px - twX/2 - 10f, contentBottom, px + twX/2 + 10f, contentBottom + thY + 16f)

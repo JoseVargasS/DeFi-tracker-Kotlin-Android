@@ -37,6 +37,9 @@ internal fun PriceCombinedChart.drawPriceRangeSelection(canvas: Canvas, candles:
         yTagRect.set(labelLeft, labelTop, labelLeft + labelWidth, labelTop + labelHeight)
         canvas.drawRoundRect(yTagRect, 5f, 5f, selectionLabelPaint)
         canvas.drawText(label, labelLeft + 9f, labelTop + labelHeight - 8f, selectionTextPaint)
+        // precio del punto en el eje Y pa' medir con referencia real
+        val chipH = drawLabelPaint.textSize + 8f
+        drawAxisPriceChip(canvas, selection.startPrice, y - chipH / 2f)
         return
     }
 
@@ -89,10 +92,24 @@ internal fun PriceCombinedChart.drawPriceRangeSelection(canvas: Canvas, candles:
         canvas.drawCircle(leftX, firstY, r, fibHandleStroke)
         canvas.drawCircle(rightX, lastY, r, fibHandleFill)
         canvas.drawCircle(rightX, lastY, r, fibHandleStroke)
+        // proyeccion punteada al eje pa' leer el precio de cada esquina
+        drawDashPaint.color = selectionStrokePaint.color
+        canvas.drawLine(rightX, firstY, contentRight, firstY, drawDashPaint)
+        canvas.drawLine(rightX, lastY, contentRight, lastY, drawDashPaint)
     } else {
         canvas.drawCircle(leftX, firstY, 6f, dotPaint)
         canvas.drawCircle(rightX, lastY, 6f, dotPaint)
     }
+
+    // precios de inicio/fin en el eje Y (herramienta Medir)
+    val chipH = drawLabelPaint.textSize + 8f
+    val firstTop = (firstY - chipH / 2f).coerceIn(contentTop, (contentBottom - chipH).coerceAtLeast(contentTop))
+    var lastTop = (lastY - chipH / 2f).coerceIn(contentTop, (contentBottom - chipH).coerceAtLeast(contentTop))
+    if (abs(firstTop - lastTop) < chipH) {
+        lastTop = (firstTop + chipH).coerceAtMost((contentBottom - chipH).coerceAtLeast(contentTop))
+    }
+    drawAxisPriceChip(canvas, firstPrice, firstTop)
+    drawAxisPriceChip(canvas, lastPrice, lastTop)
 
     val bars = rightIndex - leftIndex
     val label = "${if (changePct >= 0.0) "+" else ""}${String.format(Locale.US, "%.2f", changePct)}%  $bars velas"

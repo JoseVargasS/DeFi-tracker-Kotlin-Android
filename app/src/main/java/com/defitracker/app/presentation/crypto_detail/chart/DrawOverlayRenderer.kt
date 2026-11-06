@@ -65,15 +65,19 @@ internal fun PriceCombinedChart.drawHitTest(x: Float, y: Float): Triple<String, 
         if (o.hidden) return@forEach
         val (s, e) = drawPixels(o)
         if (s == null || e == null) return@forEach
-        val ds = kotlin.math.hypot(x - s.x, y - s.y)
-        if (ds <= 60f && ds < bestDist) {
-            bestDist = ds
-            best = Triple(o.id, 1, o.locked)
-        }
-        val de = kotlin.math.hypot(x - e.x, y - e.y)
-        if (de <= 60f && de < bestDist) {
-            bestDist = de
-            best = Triple(o.id, 2, o.locked)
+        // linea de precio / linea H: no tienen bolas de anclaje, siempre se agarra el cuerpo
+        val singleLine = o.kind == DrawKind.H_LINE || o.kind == DrawKind.PRICE_LINE
+        if (!singleLine) {
+            val ds = kotlin.math.hypot(x - s.x, y - s.y)
+            if (ds <= 60f && ds < bestDist) {
+                bestDist = ds
+                best = Triple(o.id, 1, o.locked)
+            }
+            val de = kotlin.math.hypot(x - e.x, y - e.y)
+            if (de <= 60f && de < bestDist) {
+                bestDist = de
+                best = Triple(o.id, 2, o.locked)
+            }
         }
         // rectangulo: 4 puntos medios, 4=izq 5=der 6=arriba 7=abajo
         if (o.kind == DrawKind.RECT) {
@@ -192,9 +196,8 @@ internal fun PriceCombinedChart.drawSingleDraw(canvas: Canvas, candles: List<Can
     drawDashPaint.strokeWidth = (o.width * context.resources.displayMetrics.density).coerceAtLeast(1f)
     drawLabelPaint.color = lineColor
 
-    fun hLine(py: Float, fromX: Float, toX: Float, dashed: Boolean = false) {
-        val p = if (dashed) drawDashPaint else drawLinePaint
-        canvas.drawLine(fromX.coerceIn(contentLeft, contentRight), py, toX.coerceIn(contentLeft, contentRight), py, p)
+    fun hLine(py: Float, fromX: Float, toX: Float) {
+        canvas.drawLine(fromX.coerceIn(contentLeft, contentRight), py, toX.coerceIn(contentLeft, contentRight), py, drawLinePaint)
     }
     fun seg(ax: Float, ay: Float, bx: Float, by: Float) {
         canvas.drawLine(ax, ay, bx, by, drawLinePaint)
@@ -257,19 +260,8 @@ internal fun PriceCombinedChart.drawSingleDraw(canvas: Canvas, candles: List<Can
             val rectLeft = yTagRect.left
             val rectRight = yTagRect.right
             val chipH = drawLabelPaint.textSize + 8f
-            val refClose = candles.lastOrNull()?.close ?: o.start.price
             fun chipTop(centerY: Float) = (centerY - chipH / 2f)
                 .coerceIn(contentTop, (contentBottom - chipH).coerceAtLeast(contentTop))
-            fun priceTag(price: Double, top: Float) {
-                val txt = formatAxisPrice(price, refClose, stateRef.value.daySubDollar)
-                val w = drawLabelPaint.measureText(txt) + 12f
-                val leftRaw = contentRight + 2f
-                val offRight = (leftRaw + w - (width.toFloat() - 2f)).coerceAtLeast(0f)
-                val left = leftRaw - offRight
-                yTagRect.set(left, top, left + w, top + chipH)
-                canvas.drawRoundRect(yTagRect, 3f, 3f, drawChipPaint)
-                canvas.drawText(txt, left + 6f, top + chipH - 6f, drawLabelPaint)
-            }
             val hi = maxOf(o.start.price, o.end.price)
             val lo = minOf(o.start.price, o.end.price)
             // rectangulo bajo: separar los tags pa' que no se encimen
@@ -283,8 +275,8 @@ internal fun PriceCombinedChart.drawSingleDraw(canvas: Canvas, candles: List<Can
             } else {
                 chipTop(rectBottom)
             }
-            priceTag(hi, topHi)
-            priceTag(lo, topLo)
+            drawAxisPriceChip(canvas, hi, topHi)
+            drawAxisPriceChip(canvas, lo, topLo)
             // proyeccion punteada a los ejes, solo al construir o seleccionar
             if (selected) {
                 drawDashPaint.color = lineColor
@@ -318,7 +310,8 @@ internal fun PriceCombinedChart.drawSingleDraw(canvas: Canvas, candles: List<Can
             canvas.drawPath(drawTriPath, drawLinePaint)
         }
         DrawKind.PRICE_LINE -> {
-            hLine(s.y, contentLeft, contentRight, dashed = true)
+            // linea de precio continua de borde a borde
+            hLine(s.y, contentLeft, contentRight)
             val label = formatAxisPrice(o.start.price, candles.lastOrNull()?.close ?: o.start.price, stateRef.value.daySubDollar)
             val w = drawLabelPaint.measureText(label) + 16f
             val h = drawLabelPaint.textSize + 10f
@@ -329,16 +322,62 @@ internal fun PriceCombinedChart.drawSingleDraw(canvas: Canvas, candles: List<Can
             canvas.drawText(label, rx + 8f, ly + h - 7f, drawLabelPaint)
         }
     }
+    if (o.label.isNotBlank()) {
+        // texto libre: se alinea contra la caja del dibujo (o contra la linea si es horizontal)
+        val horizontal = o.kind == DrawKind.H_SEGMENT || o.kind == DrawKind.H_LINE ||
+            o.kind == DrawKind.H_RAY || o.kind == DrawKind.PRICE_LINE
+        val boxL = when (o.kind) {
+            DrawKind.H_LINE, DrawKind.PRICE_LINE -> contentLeft
+            DrawKind.H_RAY -> if (e.x >= s.x) s.x else contentLeft
+            else -> min(s.x, e.x)
+        }
+        val boxR = when (o.kind) {
+            DrawKind.H_LINE, DrawKind.PRICE_LINE -> contentRight
+            DrawKind.H_RAY -> if (e.x >= s.x) contentRight else s.x
+            else -> max(s.x, e.x)
+        }
+        val boxT = if (horizontal) s.y else min(s.y, e.y)
+        val boxB = if (horizontal) s.y else max(s.y, e.y)
+        val textPaint = drawTextPaint
+        val density = context.resources.displayMetrics.density
+        textPaint.textSize = o.labelSize.coerceIn(8f, 28f) * density
+        textPaint.color = try {
+            if (o.labelColorHex.isBlank()) lineColor else GraphicsColor.parseColor(o.labelColorHex)
+        } catch (_: Exception) {
+            lineColor
+        }
+        val text = o.label
+        val tw = textPaint.measureText(text)
+        val pad = 4f * density
+        val rawX = when (o.labelH) {
+            DrawLabelH.LEFT -> boxL
+            DrawLabelH.CENTER -> (boxL + boxR) / 2f - tw / 2f
+            DrawLabelH.RIGHT -> boxR - tw
+        }
+        val rawY = when (o.labelV) {
+            DrawLabelV.TOP -> boxT - pad
+            DrawLabelV.MIDDLE -> (boxT + boxB) / 2f + textPaint.textSize * 0.35f
+            DrawLabelV.BOTTOM -> boxB + pad + textPaint.textSize
+        }
+        val tx = rawX.coerceIn(contentLeft, (contentRight - tw).coerceAtLeast(contentLeft))
+        val ty = rawY.coerceIn(
+            contentTop + textPaint.textSize,
+            contentBottom.coerceAtLeast(contentTop + textPaint.textSize)
+        )
+        canvas.drawText(text, tx, ty, textPaint)
+    }
     if (selected) {
         val r = 20f
         drawHandleStroke.color = if (o.locked) GraphicsColor.GRAY
         else GraphicsColor.parseColor(ChartColors.GOLD_HEX)
+        // linea de precio / linea H: una sola linea de borde a borde, se mueve entera;
+        // las bolas de anclaje quedaban fuera de la linea y no la seguian al arrastrar
         if (o.kind != DrawKind.H_LINE && o.kind != DrawKind.PRICE_LINE) {
             canvas.drawCircle(s.x, s.y, r, drawHandleFill)
             canvas.drawCircle(s.x, s.y, r, drawHandleStroke)
+            canvas.drawCircle(e.x, e.y, r, drawHandleFill)
+            canvas.drawCircle(e.x, e.y, r, drawHandleStroke)
         }
-        canvas.drawCircle(e.x, e.y, r, drawHandleFill)
-        canvas.drawCircle(e.x, e.y, r, drawHandleStroke)
         // rectangulo: puntos al medio de cada lado, estiran un solo eje
         if (o.kind == DrawKind.RECT) {
             val l = min(s.x, e.x)

@@ -136,6 +136,13 @@ internal class PriceCombinedChart(
         textSize = 24f
         textAlign = Paint.Align.LEFT
     }
+    // texto libre del dibujo, color/tamano propios (no toca los chips de precio)
+    internal val drawTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = GraphicsColor.WHITE
+        textSize = 12f * context.resources.displayMetrics.density
+        textAlign = Paint.Align.LEFT
+        setShadowLayer(4f, 0f, 0f, GraphicsColor.argb(210, 0, 0, 0))
+    }
     internal val drawChipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = GraphicsColor.argb(220, 26, 29, 35)
         style = Paint.Style.FILL
@@ -367,6 +374,21 @@ internal class PriceCombinedChart(
     }
     internal val yTagRect = RectF()
     internal val xTagRect = RectF()
+    // boton "volver al presente" que reemplaza al tag cuando paneas atras (OKX)
+    internal val lastPriceJumpRect = RectF()
+    internal val lastPriceJumpBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = GraphicsColor.argb(190, 255, 255, 255)
+        strokeWidth = 1.4f
+        style = Paint.Style.STROKE
+    }
+    internal val lastPriceJumpPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = GraphicsColor.WHITE
+        strokeWidth = 2.6f
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    internal val lastPriceJumpPath = Path()
     internal var lastPriceCountdown: String = ""
     
     internal var lastTouchYPx = -1f

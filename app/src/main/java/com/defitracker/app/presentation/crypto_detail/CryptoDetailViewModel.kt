@@ -604,6 +604,11 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     fun setDrawWidth(id: String, w: Float) = updateDraw(id, { it.copy(width = w.coerceIn(0.5f, 3f)) })
     fun setDrawFill(id: String, on: Boolean) = updateDraw(id, { it.copy(fill = on) })
     fun setDrawFillAlpha(id: String, a: Float) = updateDraw(id, { it.copy(fillAlpha = a.coerceIn(0f, 1f)) })
+    fun setDrawLabel(id: String, text: String) = updateDraw(id, { it.copy(label = text.take(60)) })
+    fun setDrawLabelColor(id: String, hex: String) = updateDraw(id, { it.copy(labelColorHex = hex) })
+    fun setDrawLabelSize(id: String, size: Float) = updateDraw(id, { it.copy(labelSize = size.coerceIn(8f, 28f)) })
+    fun setDrawLabelAlign(id: String, h: DrawLabelH, v: DrawLabelV) =
+        updateDraw(id, { it.copy(labelH = h, labelV = v) })
     fun toggleDrawHidden(id: String) = updateDraw(id, { it.copy(hidden = !it.hidden) })
     fun toggleDrawLocked(id: String) = updateDraw(id, { it.copy(locked = !it.locked) })
 
@@ -1303,7 +1308,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             // incluye la vela viva, así que mover sólo la última vela puede cambiarlas.
             rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
                 detectRsiDivergences(this, rsiValues),
-                detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK)
+                detectRsiDivergences(this, rsiValues, RSI_DIV_EARLY_LOOKBACK),
+                lastIndex
             ) else emptyList()
         )
         // se guarda el estado en n-2 para que el próximo tick sólo mueva el último punto

@@ -11,6 +11,10 @@ enum class DrawKind {
     PRICE_LINE
 }
 
+// alineacion del texto del dibujo, como las etiquetas de TV
+enum class DrawLabelH { LEFT, CENTER, RIGHT }
+enum class DrawLabelV { TOP, MIDDLE, BOTTOM }
+
 data class DrawOverlay(
     val id: String,
     val kind: DrawKind,
@@ -22,7 +26,14 @@ data class DrawOverlay(
     val locked: Boolean = false,
     // relleno de figuras (RECT/CIRCLE/TRIANGLE) con su transparencia, estilo TV
     val fill: Boolean = true,
-    val fillAlpha: Float = 0.2f
+    val fillAlpha: Float = 0.2f,
+    val label: String = "",
+    val labelH: DrawLabelH = DrawLabelH.CENTER,
+    val labelV: DrawLabelV = DrawLabelV.MIDDLE,
+    // vacio = usa el color de la linea
+    val labelColorHex: String = "",
+    // px base del texto (se multiplica por la densidad al dibujar)
+    val labelSize: Float = 12f
 )
 
 const val MAX_DRAWS_PER_SYMBOL = 20
@@ -30,8 +41,9 @@ const val MAX_DRAWS_PER_SYMBOL = 20
 // figuras que admiten relleno
 fun DrawKind.supportsFill(): Boolean = this == DrawKind.RECT || this == DrawKind.CIRCLE || this == DrawKind.TRIANGLE
 
-// encoding manual sin librerias: id;kind;sTime;sPrice;eTime;ePrice;color;width;hidden;locked;fill;fillAlpha
-// los viejos de 10 campos se leen con defaults (sin relleno)
+// encoding manual sin librerias:
+// id;kind;sTime;sPrice;eTime;ePrice;color;width;hidden;locked;fill;fillAlpha;label;labelH;labelV;labelColor;labelSize
+// los viejos de 10/12 campos se leen con defaults (sin relleno / sin texto)
 fun encodeDrawOverlays(overlays: List<DrawOverlay>): String = overlays.joinToString("|") { o ->
     listOf(
         o.id,
@@ -45,7 +57,13 @@ fun encodeDrawOverlays(overlays: List<DrawOverlay>): String = overlays.joinToStr
         bool01(o.hidden),
         bool01(o.locked),
         bool01(o.fill),
-        o.fillAlpha.toString()
+        o.fillAlpha.toString(),
+        // ";" y "|" son separadores del codec
+        o.label.replace(';', ' ').replace('|', ' '),
+        o.labelH.name,
+        o.labelV.name,
+        o.labelColorHex,
+        o.labelSize.toString()
     ).joinToString(";")
 }
 
@@ -74,7 +92,20 @@ fun decodeDrawOverlays(raw: String?): List<DrawOverlay> {
             locked = p.flag(9),
             // viejos sin esos campos: sin relleno, igual que hoy
             fill = if (p.size >= 11) p.flag(10) else false,
-            fillAlpha = if (p.size >= 12) p[11].toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.2f else 0.2f
+            fillAlpha = if (p.size >= 12) p[11].toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.2f else 0.2f,
+            label = p.getOrNull(12).orEmpty(),
+            labelH = p.getOrNull(13).toLabelH(),
+            labelV = p.getOrNull(14).toLabelV(),
+            labelColorHex = p.getOrNull(15).orEmpty(),
+            labelSize = p.getOrNull(16)?.toFloatOrNull()?.coerceIn(8f, 28f) ?: 12f
         )
     }.take(MAX_DRAWS_PER_SYMBOL)
 }
+
+internal fun String?.toLabelH(): DrawLabelH =
+    runCatching { DrawLabelH.valueOf(this.orEmpty()) }.getOrDefault(DrawLabelH.CENTER)
+
+internal fun String?.toLabelV(): DrawLabelV =
+    runCatching { DrawLabelV.valueOf(this.orEmpty()) }.getOrDefault(DrawLabelV.MIDDLE)
+
+

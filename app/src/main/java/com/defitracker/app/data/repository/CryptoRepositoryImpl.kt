@@ -264,7 +264,9 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // nota: taker siempre de Binance Futuros (peso 0, sin auth); MEXC se mapea quitando el "_"
+    // nota: taker siempre de Binance Futuros (klines, sin auth); MEXC se mapea quitando el "_".
+    // El kline en curso si trae volumen parcial (indice 9 = taker buy base), por eso
+    // la vela se forma en vivo aunque el TF sea de 1d.
     suspend fun getTakerVolumes(
         symbol: String,
         interval: String,
@@ -275,16 +277,19 @@ class CryptoRepositoryImpl @Inject constructor(
         if (source == "TV") return emptyList()
         return try {
             val binSymbol = if (source == "MEXC") symbol.replace("_", "") else symbol
-            binanceFuturesApi.getTakerVolume(
+            binanceFuturesApi.getKlines(
                 symbol = binSymbol,
-                period = interval.trim(),
+                interval = interval.trim(),
                 limit = limit.coerceIn(2, 500)
             ).mapNotNull { row ->
-                if (row.timestamp <= 0L) return@mapNotNull null
+                val time = row.getOrNull(0).toDoubleValue().toLong()
+                if (time <= 0L) return@mapNotNull null
+                val volume = row.getOrNull(5).toDoubleValue()
+                val buy = row.getOrNull(9).toDoubleValue()
                 TakerVolume(
-                    timeMs = row.timestamp,
-                    buy = row.buyVol.toDoubleValue(),
-                    sell = row.sellVol.toDoubleValue()
+                    timeMs = time,
+                    buy = buy,
+                    sell = (volume - buy).coerceAtLeast(0.0)
                 )
             }
         } catch (e: CancellationException) {

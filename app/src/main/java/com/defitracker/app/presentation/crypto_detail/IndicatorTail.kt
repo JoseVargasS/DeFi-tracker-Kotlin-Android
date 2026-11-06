@@ -95,9 +95,17 @@ internal class IndicatorTailCache {
 }
 
 // confirmadas (lookback 5) más tempranas (lookback 2) sin repetir el mismo evento
-internal fun mergeConfirmedAndEarly(confirmed: List<RsiDiv>, early: List<RsiDiv>): List<RsiDiv> {
+internal fun mergeConfirmedAndEarly(
+    confirmed: List<RsiDiv>,
+    early: List<RsiDiv>,
+    lastIndex: Int
+): List<RsiDiv> {
     val fresh = early.map { it.copy(early = true) }.filter { e ->
-        confirmed.none { c -> c.kind == e.kind && kotlin.math.abs(c.idx2 - e.idx2) <= 2 }
+        // la temprana es un adelanto de un pivote que se confirma con lookback 5:
+        // cuando esa ventana ya se evaluó (última vela >= pivote + 5) y no confirmó,
+        // la divergencia murió y no debe seguir pintada como "Pre"
+        e.idx2 + RSI_DIV_LOOKBACK > lastIndex &&
+            confirmed.none { c -> c.kind == e.kind && kotlin.math.abs(c.idx2 - e.idx2) <= 2 }
     }
     return (confirmed + fresh).sortedBy { it.idx2 }
 }
@@ -329,7 +337,8 @@ internal fun recomputeIndicatorTail(
         // se confirma con una ventana que incluye la vela viva
         rsiDiv = if (wantDiv && rsiValues.isNotEmpty()) mergeConfirmedAndEarly(
             detectRsiDivergences(candles, rsiValues),
-            detectRsiDivergences(candles, rsiValues, RSI_DIV_EARLY_LOOKBACK)
+            detectRsiDivergences(candles, rsiValues, RSI_DIV_EARLY_LOOKBACK),
+            candles.lastIndex
         ) else emptyList()
     )
 }

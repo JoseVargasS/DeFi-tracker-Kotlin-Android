@@ -5,6 +5,7 @@ import kotlin.math.*
 import android.view.MotionEvent
 import com.defitracker.app.presentation.crypto_detail.*
 import com.github.mikephil.charting.components.YAxis
+import com.github.mikephil.charting.highlight.Highlight
 
 internal enum class ChartTouchMode {
     UNDECIDED,
@@ -535,6 +536,14 @@ internal class ChartGestureController(
             android.view.MotionEvent.ACTION_UP -> {
                 val dx = abs(event.x - downX)
                 val dy = abs(event.y - downY)
+                // boton de volver al presente: gana al toggle de cruz, pero solo en tap
+                // (si no, soltar un pan sobre el borde derecho saltaria al vivo)
+                if (!gestureMoved && dx < 10f && dy < 10f &&
+                    !lastPriceJumpRect.isEmpty && lastPriceJumpRect.contains(event.x, event.y)
+                ) {
+                    jumpToLiveEdge()
+                    return true
+                }
         
                 // Detect a TAP
                 if (!gestureMoved && dx < 10f && dy < 10f) {
@@ -556,10 +565,12 @@ internal class ChartGestureController(
                         lastTouchXPx = -1f
                         syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     } else {
-                        // Toggle ON
+                        // Toggle ON: en la zona virtual no hay highlight, se ancla a la ultima vela
                         lastTouchYPx = event.y
                         lastTouchXPx = event.x
                         val h = getHighlightByTouchPoint(event.x, event.y)
+                            ?: stateRef.value.candles.lastIndex.takeIf { it >= 0 }
+                                ?.let { Highlight(it.toFloat(), 0, 0) }
                         if (h != null) highlightValue(h, true)
                     }
                     invalidate()

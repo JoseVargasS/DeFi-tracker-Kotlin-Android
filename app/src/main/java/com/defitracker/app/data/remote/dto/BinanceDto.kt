@@ -25,9 +25,3 @@ data class BinanceSymbolDto(
     val baseAsset: String,
     val quoteAsset: String
 )
-
-data class BinanceTakerVolumeDto(
-    val buyVol: String? = null,
-    val sellVol: String? = null,
-    val timestamp: Long = 0L
-)

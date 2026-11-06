@@ -78,6 +78,22 @@ internal fun PriceCombinedChart.touchToCandleIndex(x: Float, y: Float, size: Int
     return values.x.roundToInt().coerceIn(0, size - 1 + maxExtra)
 }
 
+// vuelve al borde derecho (ultima vela) desde el boton del tag de precio
+internal fun PriceCombinedChart.jumpToLiveEdge() {
+    val candles = stateRef.value.candles
+    val last = candles.lastIndex
+    if (last < 0) return
+    val trans = getTransformer(YAxis.AxisDependency.LEFT)
+    val lastPx = floatArrayOf(last.toFloat(), 0f)
+    trans.pointValuesToPixel(lastPx)
+    val prevPx = floatArrayOf((last - 1).toFloat(), 0f)
+    if (last > 0) trans.pointValuesToPixel(prevPx)
+    val halfCandle = if (last > 0) abs(lastPx[0] - prevPx[0]) / 2f else 0f
+    // mismo pan sin clamp de los gestos: deja la ultima vela pegada al borde
+    applyPan(viewPortHandler.contentRight() - halfCandle - lastPx[0], 0f)
+    invalidate()
+}
+
 internal fun PriceCombinedChart.measureAnchor(x: Float, y: Float): Pair<Int, Double>? {
     val candles = stateRef.value.candles
     if (candles.isEmpty()) return null

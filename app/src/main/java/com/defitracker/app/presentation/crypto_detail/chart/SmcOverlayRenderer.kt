@@ -115,6 +115,11 @@ internal fun PriceCombinedChart.drawSmcForeground(
             // borde punteado del lado + tag a la derecha, texto pelado
             val edge = if (z.bullish) smcObBullEdge else smcObBearEdge
             canvas.drawRect(yTagRect, edge)
+            // FVG: punteada al medio pa' marcar la zona de entrada
+            if (z.kind == SmcZoneKind.FVG) {
+                val midY = (yTagRect.top + yTagRect.bottom) / 2f
+                canvas.drawLine(yTagRect.left, midY, yTagRect.right, midY, smcEqLinePaint)
+            }
             val tagPrefix = if (z.kind == SmcZoneKind.FVG) "FVG" else "OB"
             val tag = "$tagPrefix·${stateRef.value.selectedInterval}"
             val tw = smcFvgTagPaint.measureText(tag)

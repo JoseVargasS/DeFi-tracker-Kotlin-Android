@@ -1655,6 +1655,28 @@ fun PriceChart(
                     viewModel.setDrawFillAlpha(selectedDraw.id, it)
                     priceChartRef.value?.invalidate()
                 },
+                showText = true,
+                label = selectedDraw.label,
+                labelColorHex = selectedDraw.labelColorHex,
+                labelSize = selectedDraw.labelSize,
+                labelH = selectedDraw.labelH,
+                labelV = selectedDraw.labelV,
+                onLabel = {
+                    viewModel.setDrawLabel(selectedDraw.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onLabelColor = {
+                    viewModel.setDrawLabelColor(selectedDraw.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onLabelSize = {
+                    viewModel.setDrawLabelSize(selectedDraw.id, it)
+                    priceChartRef.value?.invalidate()
+                },
+                onLabelAlign = { h, v ->
+                    viewModel.setDrawLabelAlign(selectedDraw.id, h, v)
+                    priceChartRef.value?.invalidate()
+                },
                 onToggleHide = {
                     viewModel.toggleDrawHidden(selectedDraw.id)
                     priceChartRef.value?.invalidate()

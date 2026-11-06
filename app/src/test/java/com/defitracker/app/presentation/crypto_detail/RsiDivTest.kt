@@ -41,4 +41,31 @@ class RsiDivTest {
         val candles = List(15) { testCandle(it, 10.0, 10.0, 10.0, 10.0) }
         assertTrue(detectRsiDivergences(candles, List(15) { 50.0 }, lookback = 2).isEmpty())
     }
+
+    @Test
+    fun `early divergence disappears when the confirmation window closes without confirming`() {
+        // pivote temprano en la vela 10: su confirmacion (lookback 5) se evalua en la 15
+        val early = RsiDiv(idx1 = 1, idx2 = 10, rsi1 = 40.0, rsi2 = 45.0, kind = RsiDivKind.REG_BULL)
+
+        assertEquals(
+            "mientras la ventana sigue abierta, la temprana se muestra como Pre",
+            1,
+            mergeConfirmedAndEarly(emptyList(), listOf(early), lastIndex = 14).size
+        )
+        assertTrue(
+            "con la ventana cerrada y sin confirmar, la temprana ya no debe quedar pintada",
+            mergeConfirmedAndEarly(emptyList(), listOf(early), lastIndex = 15).isEmpty()
+        )
+    }
+
+    @Test
+    fun `early divergence gives way to the confirmed one`() {
+        val early = RsiDiv(idx1 = 1, idx2 = 10, rsi1 = 40.0, rsi2 = 45.0, kind = RsiDivKind.REG_BULL)
+        val confirmed = RsiDiv(idx1 = 1, idx2 = 11, rsi1 = 40.0, rsi2 = 45.0, kind = RsiDivKind.REG_BULL)
+
+        val merged = mergeConfirmedAndEarly(listOf(confirmed), listOf(early), lastIndex = 12)
+
+        assertEquals(1, merged.size)
+        assertTrue(merged.none { it.early })
+    }
 }
