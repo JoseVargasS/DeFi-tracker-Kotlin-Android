@@ -154,6 +154,7 @@ class CryptoListViewModel @Inject constructor(
     private fun startLivePrices() {
         viewModelScope.launch {
             try {
+                var lastPublishAt = 0L
                 repository.observeLivePrices()
                     .conflate()
                     .collect { quotes ->
@@ -167,7 +168,6 @@ class CryptoListViewModel @Inject constructor(
                                 pair.copy(price = q.price, priceChangePercent = q.priceChangePercent, isPositive = q.isPositive)
                             } else pair
                         }
-                        if (changed) _state.value = state.value.copy(pairs = updated)
 
                         val currentVols = _volumes.value
                         var volsChanged = false
@@ -180,6 +180,13 @@ class CryptoListViewModel @Inject constructor(
                                 volsChanged = true
                             }
                         }
+                        if (!changed && !volsChanged) return@collect
+                        // el socket empuja mas rapido de lo que se ve: tope de 4 actualizaciones
+                        // por segundo. Si se salta esta, el siguiente push trae el dato mas nuevo
+                        val now = System.currentTimeMillis()
+                        if (now - lastPublishAt < LIVE_PUBLISH_MS) return@collect
+                        lastPublishAt = now
+                        if (changed) _state.value = state.value.copy(pairs = updated)
                         if (volsChanged) _volumes.value = newVols
                     }
             } catch (e: CancellationException) {
@@ -337,6 +344,8 @@ class CryptoListViewModel @Inject constructor(
         const val TAG = "CryptoListVM"
         // respaldo REST cada 30s (los sockets ya cubren Binance/MEXC al segundo)
         const val PRICE_REFRESH_MS = 30_000L
+        // tope de actualizaciones visuales del socket (4 por segundo)
+        const val LIVE_PUBLISH_MS = 250L
         const val SPARK_REFRESH_MS = 300_000L
         const val SPARK_CHUNK_DELAY_MS = 60L
     }
