@@ -4,7 +4,8 @@ Audience: any agent (or human) touching the price chart. Read this before editin
 `CryptoDetailScreen.kt` (the `PriceChart` block), `chart/*`, `IndicatorTail.kt`,
 `ClosedCandleCache.kt`, `MarketChart` wiring or the chart-related parts of the ViewModel.
 
-State: reflects `main` at `ce22db7` — 56 unit tests green.
+State: reflects `main` at `ce22db7` + the docs pass + the socket-fed detail — 72 unit
+tests green.
 
 > Rules live in `AGENTS.md`. This document explains them: why each one exists, the
 > measurements behind it, and how to verify it. If the two disagree, `AGENTS.md` wins.
@@ -24,6 +25,11 @@ loadChartData() / syncTail() / tick loop (2 s, DETAIL_REFRESH_MS)
               decides: rebuild dataset  OR  patch last point in place
         -> PriceCombinedChart.onDraw + chart/*Renderer
 ```
+
+The tick loop's **price** comes from the shared WebSocket (the live candle's close/high/low
+and the volume bar); the REST only refreshes the 24h high/low/percent every 30 s and takes
+over if the socket goes stale. The tick cadence itself did not change. Details:
+`docs/DATA_SOURCES.md` §4.
 
 `toChartComputation` is the only place that produces `ChartComputation`. Subcharts consume
 `state` fields; the price chart consumes the same object plus its own dataset.
@@ -158,6 +164,32 @@ proves it; keep both variants (`RSI_DIV_LOOKBACK` and `RSI_DIV_EARLY_LOOKBACK`) 
 - SMA tails compute the window sum directly (20/200 closes), not the rolling accumulator:
   the difference is far below the 1e-9 test tolerance but it is not bit-identical.
 
+### 4.8 The taker series is network-fed, not computed
+
+`C/V Taker` does not belong to `ChartComputation`. It comes from Binance Futures klines
+(`fapi/v1/klines`), aligned to candle **open time** — the tail sync shifts the list, the
+timestamps do not — and it is cached by candle time in `takerCache`.
+
+It used to come from `futures/data/takerlongshortRatio`, which only publishes **closed**
+buckets: the in-progress candle never appeared in the subchart. The klines endpoint
+carries the partial candle, so the live bar exists on every timeframe.
+
+Its network cadence is `Timeframes.takerRefreshMs` (2 s on 1m/5m up to 60 s on 2h+).
+The bar itself grows locally on every tick; the call only corrects the buy/sell split.
+See `docs/DATA_SOURCES.md` §6.
+
+### 4.9 Early divergences expire
+
+`mergeConfirmedAndEarly(confirmed, early, lastIndex)` keeps an early ("Pre") divergence
+only while its confirmation window is still open:
+
+```kotlin
+e.idx2 + RSI_DIV_LOOKBACK > lastIndex
+```
+
+When the window has been evaluated and the divergence did **not** confirm, it is dropped
+instead of staying painted forever. The confirmed list is untouched by this rule.
+
 ---
 
 ## 5. Invariant → symptom
@@ -180,9 +212,12 @@ proves it; keep both variants (`RSI_DIV_LOOKBACK` and `RSI_DIV_EARLY_LOOKBACK`) 
 |---|---|
 | `IndicatorTailTest` (6) | tail == full within 1e-9 for 12 series; sizes/indices/history; n=34/36 edge; MACD 33..36; extreme trends |
 | `IndicatorTailKeyTest` (9) | the key contract in §4.3 |
-| `RsiDivLiveCandleTest` (2) | divergences depend on the live candle; the change is the `n-6` pivot |
+| `RsiDivLiveCandleTest` (2) | divergences depend on the live candle; the change is the `n-6` pivot; it fails if it finds no case at all |
+| `MeasureContextKeyTest` (3) | the measure survives a new candle and dies when the window rolls (see §7) |
 | `ClosedCandleCacheTest` (3) | cache hit/miss semantics |
-| `RsiCalcTest`, `MacdCalcTest`, `SignalsTest`, `SmcTest`, `RsiDivTest` | the pure math the chart depends on |
+| `RsiCalcTest`, `MacdCalcTest`, `SignalsTest`, `SmcTest`, `RsiDivTest` (5) | the pure math the chart depends on |
+| `DrawOverlayCodecTest` (4) | drawing overlay persistence codec (text annotations included) |
+| `LivePriceFeedTest` (7) | the socket freshness guard: a dead socket must fall back to REST instead of freezing the price |
 
 Any change to the tail, the gate or a series shape must keep these green; if a new series
 is added, extend `IndicatorTailTest` with its last-value comparison.
@@ -202,6 +237,11 @@ is added, extend `IndicatorTailTest` with its last-value comparison.
 - **`SmcOverlayRenderer` mitigated zones** — filled/mitigated zones must stay **hidden**
   (explicit user requirement). Only active zones are drawn, with dashed border + tag.
 - **`IndicatorTail` key/state** — a false cache hit shows a stuck indicator until close.
+- **The measure tool (`rangeSelection`)** — it is stored by candle index, so it survives a
+  new candle (the last one) but dies when the window rolls (the first candle changes),
+  the pair changes or the TF changes. `measureContextKey` (`chart/MeasureContext.kt`) is
+  that contract; clearing it on every `viewportKey()` change makes the drawing vanish on
+  every candle close. Do not "simplify" it by keying on `viewportKey()`.
 
 ---
 
@@ -226,3 +266,107 @@ adb -s <serial> shell svc power stayon false
   (one per closed candle). A rebuild per tick means the gate regressed.
 - The app has no media permissions; unit tests have no Robolectric/`returnDefaultValues`,
   so keep decision logic free of `Uri`, `Settings` and `Context` if you want it tested.
+
+Full recipes (build, install, screenshots, counters) live in `docs/DEVELOPMENT.md`.
+
+---
+
+## 9. File map: which file to edit
+
+`presentation/crypto_detail/` owns the chart. Pick the file by **change type**.
+
+### 9.1 Entry points and state
+
+| File | Owns |
+|---|---|
+| `CryptoDetailScreen.kt` | Compose entry point, `PriceChart` AndroidView wiring, toolbar/sheet state, dataset rebuild gate. Legacy size (~2,090 lines): **do not add new chart code here**, create a focused file. |
+| `CryptoDetailViewModel.kt` | detail state, source-specific loads, tail synchronization, off-main chart computation, indicator toggles, Pulse refresh, taker alignment, CRUD for fibs / drawings / positions / alerts. |
+| `chart/PriceCombinedChart.kt` | the `CombinedChart` subclass, shared paints, the `updateState(...)` boundary, callbacks. |
+| `chart/MeasureContext.kt` | `measureContextKey`: what invalidates the measure tool. |
+
+### 9.2 Rendering
+
+| File | Owns |
+|---|---|
+| `chart/PriceChartMainRenderer.kt` | base price drawing, extrema labels, price/crosshair tags, MA timeframe tags, the draw dispatcher. |
+| `chart/SmcOverlayRenderer.kt` | SMC zones, tags, liquidity/equilibrium labels, ratio formatting. |
+| `chart/VolumeOverlayRenderer.kt` | normal volume, taker volume, volume-profile overlays. |
+| `chart/RangeSelectionRenderer.kt` | measurement rendering and hit testing. |
+| `chart/FibOverlayRenderer.kt` | Fibonacci hit testing, dragging, levels, pending hints. |
+| `chart/DrawOverlayRenderer.kt` | drawing tools: hit testing, dragging, shape + text rendering. |
+| `chart/PositionOverlayRenderer.kt` | LONG/SHORT geometry, labels, hit testing, dragging. |
+| `chart/ChartRendering.kt` | shared axes, renderers, typography, datasets, MA labels, initial candle window. |
+| `chart/ChartUpdates.kt` | in-place live-tick updates (candles, MAs, StochRSI, RSI, MACD). |
+| `chart/ChartSynchronization.kt` | subchart refs, pan forwarding, viewport/zoom sync, highlight propagation, `highlightXSafe`. |
+
+### 9.3 Gestures
+
+| File | Owns |
+|---|---|
+| `chart/ChartGestureController.kt` | the whole touch flow: pan/zoom, drawing mode, overlay select/drag, range measurement, crosshair, pinch, long press. |
+| `chart/ChartGestureMath.kt` | viewport matrix helpers, touch→candle, resize preservation, pan/Y-zoom/pinch primitives, range tap. |
+
+### 9.4 Maths and models (pure)
+
+| File | Owns |
+|---|---|
+| `Smc.kt` | swings, BOS/CHoCH, order blocks, FVG, premium/equilibrium, liquidity, confluence. |
+| `RsiCalc.kt` | RSI, RSI MA, EMA series, tolerant kline parsing. |
+| `RsiDiv.kt` | regular/hidden RSI divergences, confirmed and early lookbacks. |
+| `MacdCalc.kt` | MACD(12, 26, 9) aligned to candle indices. |
+| `Signals.kt` | MA rejection, FVG tap, sweep/reclaim. |
+| `Analysis.kt` | Pulse analysis, S/R zones, multi-timeframe MA matrix, bias, score. |
+| `PriceFormat.kt` | chart / Pulse / repository / axis-price / compact-volume formatting policies. |
+| `LivePriceFeed.kt` | the socket freshness guard for the detail's live price (pure functions). |
+| `FibDrawing.kt`, `DrawOverlay.kt`, `PositionOverlay.kt` | overlay models and their persistence codecs. |
+| `ClosedCandleCache.kt` | single-value cache for closed-candle-only results (today the SMC). |
+| `IndicatorTail.kt` | incremental tail of the chart series, `indicatorTailKey`, fallbacks. |
+
+### 9.5 Sheets and preferences
+
+| File | Owns |
+|---|---|
+| `sheets/IndicatorsSheet.kt` | indicator visibility toggles, entry point for MA settings. |
+| `sheets/MaListSheet.kt` | MA list and MA row helpers. |
+| `sheets/DrawingToolsSheet.kt` | drawing-tool sheet, tool cells, overlay edit bar, text annotations. |
+| `sheets/DrawTextDialog.kt` | text annotation dialog for the drawing tools. |
+| `sheets/FibLevelsSheet.kt` | Fibonacci level/colour/width configuration. |
+| `sheets/PositionConfigSheet.kt` | floating position bar, leverage, position form. |
+| `sheets/AnalysisSheet.kt` | Pulse analysis sheet. |
+| `sheets/SheetPrimitives.kt` | shared sheet primitives. |
+| `sheets/WideColorPicker.kt` | shared HSV/hex colour picker. |
+| `presentation/components/OptionPillGrid.kt` | `PillGrid` / `PillOption` / `SheetSectionTitle`. |
+| `IndicatorPrefs.kt` | `IndicatorPrefs`, MA configuration, DataStore settings, per-symbol overlay persistence. |
+| `PriceAlertSheet.kt` | price-alert UI (storage and monitoring live in `data/local` and `alerts`). |
+
+---
+
+## 10. Adding a new sub-indicator
+
+Use the MACD behaviour as the reference (`MacdCalc.kt` + `chart/MacdChart.kt`). Every new
+chart component goes in its own focused file; never grow `CryptoDetailScreen.kt`.
+
+1. **Pure calc** in `presentation/crypto_detail/<Name>Calc.kt`, aligned to candle index as
+   `List<Pair<Long, Double>>`.
+2. **State**: fields in `CryptoDetailState` + `ChartComputation`; compute inside
+   `toChartComputation` (already off-main); copy into all three `state.copy` blocks
+   (tick, `loadChartData`, `syncTail`).
+3. **Prefs**: a `*Visible` flag (default off unless requested) in `IndicatorPrefs` +
+   DataStore key + `prefsKey()` + `toggle*()` in the ViewModel.
+4. **Sub chart**: an `AndroidView` cloning `RsiChart` (viewport, time axis, in-place tick
+   update) in its own file. If it needs bars, use `CombinedChart` like `MacdChart`.
+5. **Highlight rule (crash standard)**: never call `highlightValue(x, 0)` directly on a
+   `CombinedChart` sub — `CombinedData` throws `IndexOutOfBoundsException`
+   (`dataIndex -1`). Always go through `highlightXSafe(x)`, which pins `dataIndex = 0`
+   (its `LineData`), with the `try/catch` fallback that clears the highlight.
+6. **Wiring**: integrate through the extracted chart wiring (`PriceChart` refs, `sync*`
+   helpers, layout weights/dividers, `IndicatorsSheet` grid). Do not append wiring to
+   `CryptoDetailScreen.kt`.
+7. **Network-fed series** (taker C/V is the exception): fetch in `loadChartData` / tick
+   via `repository`, align by candle time in the ViewModel, keep them out of
+   `toChartComputation`.
+8. **Exactness**: if the series must stay exact on every tick, add its tail to
+   `IndicatorTail` (state at `n-2` + a last-value recompute) and cover it in
+   `IndicatorTailTest` with a 1e-9 last-value comparison. Series that depend on the live
+   candle (like RSI divergences) must stay in the full path.
+
