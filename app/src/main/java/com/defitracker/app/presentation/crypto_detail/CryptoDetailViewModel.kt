@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.defitracker.app.core.Timeframes
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
+import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -20,6 +21,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -197,6 +199,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         }
         loadDetail()
         startUpdates()
+        startLivePrices()
         analysisOpen = openAnalysisInitially
         viewModelScope.launch {
             try {
@@ -801,6 +804,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
             _state.value = state.value.copy(isLoading = true)
             try {
                 val detail = repository.getPairDetail(symbol, source)
+                lastRestAt = System.currentTimeMillis()
                 _state.value = state.value.copy(detail = detail, isLoading = false)
             } catch (e: Exception) {
                 _state.value = state.value.copy(error = e.message ?: "Error", isLoading = false)
@@ -812,11 +816,33 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     private var lastTickPrice = Double.NaN
     private var lastTickCandleKey = ""
     private var lastBaseVol24 = Double.NaN
+    private var lastSocketQuoteVol = Double.NaN
+    // de donde sale el volumen vivo: al cambiar de fuente se reinician las bases
+    // (si no, el mismo tramo se contaria dos veces)
+    private var volSource = ""
     private var lastTakerSyncAt = 0L
     // taker ya traido, por hora de vela; se limpia al cambiar de moneda o TF
     private val takerCache = HashMap<Long, Pair<Double, Double>>()
     private var takerCacheKey = ""
-    private var lastTvDetailAt = 0L
+    // ultimo REST del detalle (H/L/%, volumen de 24h)
+    private var lastRestAt = 0L
+    // ultimo push del socket para este par (null en TV o si el socket no lo trae)
+    private var liveQuote: LiveQuote? = null
+
+    // socket compartido con la lista: el precio llega sin pegarle al REST
+    private fun startLivePrices() {
+        viewModelScope.launch {
+            try {
+                repository.observeLivePrices()
+                    .conflate()
+                    .collect { quotes ->
+                        quotes["$symbol-$source"]?.let { liveQuote = it }
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {}
+        }
+    }
 
     private fun startUpdates() {
         refreshJob?.cancel()
@@ -829,15 +855,26 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                 try {
                     val nowLoop = System.currentTimeMillis()
                     val cached = _state.value.detail
-                    // TV no tiene stream intradiario: su fresco real es el memo de ~15s
-                    val detail = if (source == "TV" && cached != null && lastTickPrice.isFinite() &&
-                        nowLoop - lastTvDetailAt < TV_DETAIL_MS
-                    ) {
+                    val quote = liveQuote
+                    val socketFresh = isSocketPriceFresh(quote, nowLoop)
+                    // el socket manda en el precio; el REST solo refresca H/L/% y el volumen
+                    // de 24h. TV no tiene stream intradiario: manda su memo de ~15s.
+                    val restGap = when {
+                        source == "TV" -> TV_DETAIL_MS
+                        socketFresh -> DETAIL_REST_REFRESH_MS
+                        else -> DETAIL_REFRESH_MS
+                    }
+                    val detail = if (cached != null && !shouldFetchRest(lastRestAt, nowLoop, restGap)) {
                         cached
                     } else {
-                        repository.getPairDetail(symbol, source).also { lastTvDetailAt = nowLoop }
+                        val fresh = repository.getPairDetail(symbol, source)
+                        lastRestAt = nowLoop
+                        // un fallo del REST llega como 0.00: no se pisa el H/L que ya teniamos
+                        if (fresh.price.toDoubleValue() > 0.0 || cached == null) fresh else cached
                     }
-                    val currentPrice = detail.price.toDoubleValue()
+                    val socketPrice = quote?.priceValue ?: 0.0
+                    val useSocket = socketFresh && socketPrice > 0.0
+                    val currentPrice = if (useSocket) socketPrice else detail.price.toDoubleValue()
 
                     // al cerrar la vela se mergea la cola fresca, nunca full reload
                     val candlesNow = _state.value.candles
@@ -861,15 +898,28 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         // este tick calcula, no se guarda un SMC viejo con clave nueva
                         val tickClosedVersion = closedCandleVersion
                         val tickLast = tickCandles.lastOrNull()
-                        // volumen vivo: el tick antes solo movia precio, la ultima barra quedaba
-                        // congelada hasta el cierre. El delta del vol 24h ≈ lo tradeado entre ticks.
-                        val baseVol24 = detail.volume.toDoubleValue()
-                        var volDelta = 0.0
-                        if (lastBaseVol24.isFinite() && baseVol24 > 0.0) {
-                            val d = baseVol24 - lastBaseVol24
-                            if (d > 0.0) volDelta = d
+                        // volumen vivo: el socket trae volumen quote (delta/precio = moneda base),
+                        // el REST trae volumen base. Al cambiar de fuente se reinicia la base
+                        // para no contar dos veces el mismo tramo.
+                        val volSrc = if (useSocket) "socket" else "rest"
+                        if (volSrc != volSource) {
+                            volSource = volSrc
+                            lastBaseVol24 = Double.NaN
+                            lastSocketQuoteVol = Double.NaN
                         }
-                        if (baseVol24 > 0.0) lastBaseVol24 = baseVol24
+                        var volDelta = 0.0
+                        if (useSocket) {
+                            val qv = quote?.quoteVolume ?: 0.0
+                            volDelta = socketBaseVolumeDelta(qv, lastSocketQuoteVol, socketPrice)
+                            lastSocketQuoteVol = qv
+                        } else {
+                            val baseVol24 = detail.volume.toDoubleValue()
+                            if (lastBaseVol24.isFinite() && baseVol24 > 0.0) {
+                                val d = baseVol24 - lastBaseVol24
+                                if (d > 0.0) volDelta = d
+                            }
+                            if (baseVol24 > 0.0) lastBaseVol24 = baseVol24
+                        }
                         val liveVol = (tickLast?.volume ?: 0.0) + volDelta
                         val tickKey = if (tickLast == null) "empty"
                         else "${tickLast.time}:${tickLast.open}:${tickLast.high}:${tickLast.low}:$currentPrice:$liveVol:${tickCandles.size}"
@@ -908,7 +958,15 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         // si cambiaste de TF a mitad del calculo, este tick ya no sirve
                         if (_state.value.selectedInterval != tickInterval) continue
 
-                        _state.value = _state.value.withComputation(chartData).copy(detail = detail)
+                        // el header muestra el precio del socket (crudo -> formateado como el REST)
+                        val liveDetail = if (useSocket && quote != null) {
+                            detail.copy(
+                                price = formatRepositoryPrice(socketPrice),
+                                priceChangePercent = quote.priceChangePercent,
+                                isPositive = quote.isPositive
+                            )
+                        } else detail
+                        _state.value = _state.value.withComputation(chartData).copy(detail = liveDetail)
                         refreshAnalysis()
                         // taker en vivo: la barra crece local, la red solo corrige la
                         // proporcion; cadencia por TF (2s en 1m/5m hasta 60s en semanales)
@@ -1451,6 +1509,8 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         const val TAG = "CryptoDetailVM"
         // el precio y la vela en curso se refrescan siempre a este ritmo
         const val DETAIL_REFRESH_MS = 2_000L
+        // con el socket vivo el REST solo refresca H/L/% y el volumen de 24h
+        const val DETAIL_REST_REFRESH_MS = 30_000L
         // TV sin stream intradiario: el detalle se relee a ritmo de su memo
         const val TV_DETAIL_MS = 15_000L
         // nota: gracia post-cierre pa' que el exchange publique la vela antes del tail

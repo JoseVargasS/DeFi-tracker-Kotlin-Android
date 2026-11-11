@@ -29,12 +29,17 @@ import com.defitracker.app.domain.model.TakerVolume
 import com.defitracker.app.presentation.crypto_detail.toDoubleValue
 import com.defitracker.app.presentation.crypto_detail.formatRepositoryPrice
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import retrofit2.HttpException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -58,6 +63,12 @@ class CryptoRepositoryImpl @Inject constructor(
     private fun logNonFatal(context: String, throwable: Throwable) {
         Log.w(TAG, context, throwable)
     }
+
+    // los sockets son estado compartido de la app, no de un ViewModel: cada colector
+    // abria su propio par de conexiones (y cada par es otro par de sockets al exchange)
+    private val liveScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val sharedLivePrices: Flow<Map<String, LiveQuote>> = buildLivePrices()
+        .shareIn(liveScope, SharingStarted.WhileSubscribed(LIVE_PRICE_STOP_TIMEOUT_MS), replay = 1)
 
     private fun requireCoinStatsApiKey(): String =
         BuildConfig.COINSTATS_API_KEY.trim().takeIf { it.isNotEmpty() }
@@ -169,9 +180,12 @@ class CryptoRepositoryImpl @Inject constructor(
     }
 
     // junta ambos sockets en un mapa key "$symbol-$source"; si un socket falla emite vacio
-    fun observeLivePrices(): Flow<Map<String, LiveQuote>> {
+    fun observeLivePrices(): Flow<Map<String, LiveQuote>> = sharedLivePrices
+
+    private fun buildLivePrices(): Flow<Map<String, LiveQuote>> {
         val binance = binanceTickerStream.observe()
             .map { batch ->
+                val now = System.currentTimeMillis()
                 batch.mapNotNull { (symbol, t) ->
                     if (t.close <= 0 || t.open24h <= 0) return@mapNotNull null
                     val pct = (t.close - t.open24h) / t.open24h * 100.0
@@ -179,13 +193,16 @@ class CryptoRepositoryImpl @Inject constructor(
                         price = formatRepositoryPrice(t.close),
                         priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
                         isPositive = pct >= 0,
-                        quoteVolume = t.quoteVolume
+                        quoteVolume = t.quoteVolume,
+                        priceValue = t.close,
+                        receivedAtMs = now
                     )
                 }.toMap()
             }
             .catch { logNonFatal("Binance live stream failed", it); emit(emptyMap()) }
         val mexc = mexcTickerStream.observe()
             .map { batch ->
+                val now = System.currentTimeMillis()
                 batch.mapNotNull { (symbol, t) ->
                     if (t.lastPrice <= 0) return@mapNotNull null
                     val pct = t.riseFallRate * 100.0
@@ -194,7 +211,9 @@ class CryptoRepositoryImpl @Inject constructor(
                         priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
                         isPositive = pct >= 0,
                         // el push no trae amount24: precio*contratos como aprox, el REST lo corrige
-                        quoteVolume = t.lastPrice * t.volume24
+                        quoteVolume = t.lastPrice * t.volume24,
+                        priceValue = t.lastPrice,
+                        receivedAtMs = now
                     )
                 }.toMap()
             }
@@ -851,6 +870,8 @@ class CryptoRepositoryImpl @Inject constructor(
         const val SPARK_CACHE_MAX_ENTRIES = 60
         const val SPARK_CACHE_TTL_MS = 300_000L
         const val KLINE_CACHE_TTL_MS = 30_000L
+        // los sockets quedan abiertos 5s despues del ultimo colector (no se conectan al salir)
+        const val LIVE_PRICE_STOP_TIMEOUT_MS = 5_000L
         const val TAIL_SYNC_LIMIT = 10
         // TFs con periodo taker nativo en Binance Futuros
         val TAKER_NATIVE_INTERVALS = Timeframes.TAKER_NATIVE_KEYS

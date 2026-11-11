@@ -37,7 +37,13 @@ data class LiveQuote(
     val price: String,
     val priceChangePercent: String,
     val isPositive: Boolean,
-    val quoteVolume: Double
+    val quoteVolume: Double,
+    // precio crudo del push: el string de arriba viene formateado y el chart no puede
+    // redondear (un sub-$1 con 6 decimales pierde hasta un 3% del valor real)
+    val priceValue: Double = 0.0,
+    // momento del push: el guardian de frescura lo compara contra el reloj para saber
+    // si el socket sigue vivo o si el precio quedaria congelado
+    val receivedAtMs: Long = 0L
 )
 
 // buy/sell del tomador (Binance Futuros), en moneda base
