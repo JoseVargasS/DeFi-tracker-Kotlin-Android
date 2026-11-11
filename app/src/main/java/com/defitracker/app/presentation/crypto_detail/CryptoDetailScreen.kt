@@ -890,8 +890,13 @@ fun PriceChart(
     val pendingStartRef = remember { mutableStateOf<FibAnchor?>(null) }
     val currentViewportKey = state.viewportKey()
 
-    LaunchedEffect(currentViewportKey) {
+    // la medicion vive por indice de vela: solo se invalida si cambia la ventana, el
+    // par o el TF. Una vela nueva al final NO la borra (asi sobrevive al cierre de vela)
+    val measureContext = measureContextKey(state.symbol, state.selectedInterval, state.candles)
+    LaunchedEffect(measureContext) {
         rangeSelection.value = null
+    }
+    LaunchedEffect(currentViewportKey) {
         // los fibos NO se borran, viven por tiempo y se remapean solos
         fibPendingStart.value = null
         pendingStartRef.value = null
