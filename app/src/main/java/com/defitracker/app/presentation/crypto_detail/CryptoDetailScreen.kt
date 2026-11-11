@@ -1944,8 +1944,8 @@ fun PriceChart(
 // panes con el mismo rect X para que la cruz del overlay calce en todos (OKX)
 
 
-// estandar subs: LineChart acepta highlightValue(x, 0); CombinedChart revienta con
-// IndexOutOfBounds en CombinedData.getDataByIndex (dataIndex -1) si no se fija dataIndex = 0 (su LineData)
+// estandar subs: LineChart acepta highlightValue(x, 0); CombinedChart necesita
+// setDataIndex (el constructor Highlight(x, 0, 0) deja dataIndex -1 y CombinedData revienta)
 
 
 // ─── COMMON CHART SETUP ──────────────────────────────────────────────────────

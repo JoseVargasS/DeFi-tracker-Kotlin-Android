@@ -5,7 +5,6 @@ import kotlin.math.*
 import android.view.MotionEvent
 import com.defitracker.app.presentation.crypto_detail.*
 import com.github.mikephil.charting.components.YAxis
-import com.github.mikephil.charting.highlight.Highlight
 
 internal enum class ChartTouchMode {
     UNDECIDED,
@@ -495,8 +494,14 @@ internal class ChartGestureController(
                     gestureMoved = true
                     lastTouchYPx = event.y
                     lastTouchXPx = event.x
-                    // fuera de datos no hay highlight: se guarda el ultimo valido
-                    getHighlightByTouchPoint(event.x, event.y)?.let { highlightValue(it, true) }
+                    // la cruz sigue al dedo: se recalcula la vela bajo el puntero
+                    // (fuera del area de datos se conserva la ultima valida)
+                    val candles = stateRef.value.candles
+                    if (candles.isNotEmpty()) {
+                        touchToCandleIndex(event.x, event.y, candles.size)?.let { idx ->
+                            highlightSafe(idx.toFloat())
+                        }
+                    }
                     syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     lastGestureX = event.x
                     lastGestureY = event.y
@@ -565,13 +570,16 @@ internal class ChartGestureController(
                         lastTouchXPx = -1f
                         syncHighlights(this, stochChartRef.value, rsiChartRef.value, macdChartRef.value, takerChartRef.value)
                     } else {
-                        // Toggle ON: en la zona virtual no hay highlight, se ancla a la ultima vela
+                        // Toggle ON: la cruz se ancla a la vela tocada; fuera del area de
+                        // datos (o en la zona virtual) se ancla a la ultima vela
                         lastTouchYPx = event.y
                         lastTouchXPx = event.x
-                        val h = getHighlightByTouchPoint(event.x, event.y)
-                            ?: stateRef.value.candles.lastIndex.takeIf { it >= 0 }
-                                ?.let { Highlight(it.toFloat(), 0, 0) }
-                        if (h != null) highlightValue(h, true)
+                        val candles = stateRef.value.candles
+                        if (candles.isNotEmpty()) {
+                            val idx = touchToCandleIndex(event.x, event.y, candles.size)
+                                ?: candles.lastIndex
+                            highlightSafe(idx.toFloat())
+                        }
                     }
                     invalidate()
                     touchMode = ChartTouchMode.UNDECIDED

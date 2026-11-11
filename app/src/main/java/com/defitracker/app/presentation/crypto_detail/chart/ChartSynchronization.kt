@@ -100,7 +100,6 @@ import com.github.mikephil.charting.components.YAxis
 import com.github.mikephil.charting.data.*
 import com.defitracker.app.presentation.crypto_detail.CandleData
 import com.github.mikephil.charting.formatter.ValueFormatter
-import com.github.mikephil.charting.highlight.Highlight
 import com.github.mikephil.charting.listener.ChartTouchListener
 import com.github.mikephil.charting.listener.OnChartGestureListener
 import com.github.mikephil.charting.renderer.XAxisRenderer
@@ -345,11 +344,7 @@ internal fun syncHighlights(priceChart: CombinedChart, stochChart: LineChart?, r
 
 internal fun BarLineChartBase<*>.highlightXSafe(x: Float) {
     try {
-        if (this is CombinedChart) {
-            highlightValue(Highlight(x, 0, 0), false)
-        } else {
-            highlightValue(x, 0, false)
-        }
+        if (this is CombinedChart) highlightSafe(x, notify = false) else highlightValue(x, 0, false)
     } catch (_: Exception) {
         highlightValues(null)
     }

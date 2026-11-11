@@ -298,6 +298,7 @@ Full recipes (build, install, screenshots, counters) live in `docs/DEVELOPMENT.m
 | `chart/ChartRendering.kt` | shared axes, renderers, typography, datasets, MA labels, initial candle window. |
 | `chart/ChartUpdates.kt` | in-place live-tick updates (candles, MAs, StochRSI, RSI, MACD). |
 | `chart/ChartSynchronization.kt` | subchart refs, pan forwarding, viewport/zoom sync, highlight propagation, `highlightXSafe`. |
+| `chart/ChartHighlight.kt` | safe crosshair highlights: `dataIndex` fix, block lookup, `highlightSafe`. |
 
 ### 9.3 Gestures
 
@@ -357,8 +358,12 @@ chart component goes in its own focused file; never grow `CryptoDetailScreen.kt`
    update) in its own file. If it needs bars, use `CombinedChart` like `MacdChart`.
 5. **Highlight rule (crash standard)**: never call `highlightValue(x, 0)` directly on a
    `CombinedChart` sub — `CombinedData` throws `IndexOutOfBoundsException`
-   (`dataIndex -1`). Always go through `highlightXSafe(x)`, which pins `dataIndex = 0`
-   (its `LineData`), with the `try/catch` fallback that clears the highlight.
+   (`dataIndex -1`). The cause is MPAndroidChart's constructor
+   `Highlight(x, dataSetIndex, stackIndex)`: it never sets `dataIndex`, so it stays `-1`.
+   The only valid way is `setDataIndex(...)`, and the block must be the real one
+   (candles for the price chart, lines for MACD). Always go through `highlightXSafe(x)`
+   or `highlightSafe(x)` from `chart/ChartHighlight.kt`, with the `try/catch` fallback
+   that clears the highlight. `ChartHighlightTest` pins the crash and the contract.
 6. **Wiring**: integrate through the extracted chart wiring (`PriceChart` refs, `sync*`
    helpers, layout weights/dividers, `IndicatorsSheet` grid). Do not append wiring to
    `CryptoDetailScreen.kt`.
