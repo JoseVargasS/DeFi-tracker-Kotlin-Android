@@ -82,6 +82,7 @@ class RsiDivLiveCandleTest {
     @Test
     fun `el cambio se concentra en el pivote del indice size - 6`() {
         // el único pivote que puede cambiar es el de n-6: ningún otro usa la vela viva
+        var checked = 0
         for (seed in 1..400) {
             for (factor in doubleArrayOf(1.002, 1.01, 0.998, 0.99)) {
                 val before = candles(120, seed)
@@ -89,6 +90,7 @@ class RsiDivLiveCandleTest {
                 val after = movedLast(before, factor)
                 val confirmedAfter = detectRsiDivergences(after, calculateRsi(after))
                 if (confirmedBefore == confirmedAfter) continue
+                checked++
                 val differing = (confirmedBefore + confirmedAfter)
                     .filter { it !in confirmedBefore || it !in confirmedAfter }
                 assertEquals(
@@ -99,5 +101,7 @@ class RsiDivLiveCandleTest {
                 return
             }
         }
+        // si no se encontro ningun caso, el test no verifico nada: tiene que fallar
+        assertTrue("el test debe encontrar al menos un caso que cambie", checked > 0)
     }
 }
