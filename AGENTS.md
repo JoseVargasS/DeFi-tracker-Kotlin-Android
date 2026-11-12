@@ -67,6 +67,7 @@ not just "BUILD SUCCESSFUL". Build, device and measurement recipes: `docs/DEVELO
 - `di`: Hilt module.
 - `ui/theme`: colors/theme, including the shared `ChartColors` palette.
 - `core/Timeframes.kt`: single catalog for chart labels, durations, Binance/MEXC/TradingView mappings, alert intervals, MA timeframes, and chart aggregation rules.
+- `core/Brokers.kt`: single catalog for the `source` strings (`Bitunix`, `BingX`, `Binance`, `MEXC`, `TV`), the search chip order, futures/spot classification and source labels. Do not write the source strings by hand elsewhere.
 - `presentation/crypto_detail`: chart screen, chart ViewModel, pure indicator calculations, chart preferences, and per-symbol overlays.
 
 Navigation: `app/src/main/java/com/defitracker/app/MainActivity.kt`.
@@ -78,12 +79,18 @@ Which file owns which chart responsibility: `docs/CHART_PIPELINE.md` §9.
 ## API Behavior
 
 - Binance powers symbol discovery, 24h stats, prices, and klines.
-- `BinanceTickerStream` and `MexcTickerStream` provide reconnecting WebSocket live-price flows consumed by `CryptoRepositoryImpl.observeLivePrices()`, the Pairs screen and the detail screen. That flow is **shared** (one socket pair for the whole app); never collect a cold copy of it.
+- Bitunix and BingX power the same for their USDⓈ-M futures (USDT pairs only). Their symbols differ: `BTCUSDT` (Bitunix) vs `BTC-USDT` (BingX).
+- **Every source must hand the app klines in ascending time order.** Binance and MEXC already return them oldest-first inside each page; Bitunix and BingX return them newest-first, so the repository sorts them (`ascendingRows()` in `FuturesKlineMapping.kt`). Reversing the *page* order is not enough for those two: it leaves the list non-chronological, which reverses the chart's time axis, saturates the SMC and makes the tail sync append duplicate candles (the chart then jumps left on every refresh).
+- **Bitunix publishes closed candles only**, so the in-progress bucket is synthesized in the ViewModel (`withLiveCandle`) after the load and after every tail merge. Without it the tick treats the last candle as closed, runs `syncTail` every 2 s and forces a full reload every third pass: the chart reloads by itself and the last closed candle is overwritten with the live price. Never remove it, and never hand a source's list to the chart without the current bucket.
+- `BinanceTickerStream`, `MexcTickerStream`, `BitunixTickerStream` and `BingxTickerStream` feed `CryptoRepositoryImpl.observeLivePrices()` with reconnecting WebSocket live prices. That flow is **shared** (one socket per exchange, four in total, for the whole app); never collect a cold copy of it.
+- All four ticker sockets are **per-symbol**: they follow the **tracked pairs of that source** and reconnect when that set changes. Binance asks for them in one combined URL (`stream?streams=<sym>@miniTicker/...`), MEXC with one `sub.ticker` message per symbol. A pair that is not tracked has no live price (it falls back to REST), and a source with no tracked pairs does not open a socket at all.
+- BingX's socket sends **gzip binary frames** and closes without a ping: `BingxTickerStream` decompresses with `GZIPInputStream` and pings every 4 s. Do not "simplify" either away.
 - The detail screen takes the live price from that shared socket and falls back to REST when the socket is stale (>15 s without a tick). The price and the in-progress candle still update every 2 s in **every** timeframe; only the taker ratio has a per-timeframe cadence.
 - `TradingViewClient` is a WebSocket client for the `TV` chart source, with timeframe resolution mapping and a short memo cache.
 - `BinanceFuturesApi` provides unauthenticated taker buy/sell volume. The detail ViewModel aligns it to candle timestamps and exposes it as the optional `C/V Taker` subchart; it is not part of `ChartComputation`.
-- Retrofit's Binance, Binance Futures, CoinStats, and MEXC clients share the named REST `OkHttpClient` from `AppModule`; the WebSocket client remains separate with its long-lived timeout and ping settings.
+- Retrofit's Binance, Binance Futures, CoinStats, MEXC, Bitunix and BingX clients share the named REST `OkHttpClient` from `AppModule`; the WebSocket client remains separate with its long-lived timeout and ping settings.
 - Price list refresh should stay conservative. Avoid very short intervals or per-item busy loops.
+- The Pairs screen's REST fallback is **selective**: it only asks for what the socket does not cover (TradingView pairs, pairs with no tick for >30 s, pairs still at `0.00`). A tracked-pair change refreshes **only the new pairs**, and a removal is **optimistic** (the pair leaves the UI at once and comes back only if the `DELETE` fails). Prices are applied to the **current** list, never to a captured copy, so a pair deleted mid-request does not come back.
 - The chart's price and the in-progress candle update every 2 s in **every** timeframe. Do not slow that down per timeframe; only the taker ratio has a per-timeframe cadence.
 
 Endpoints, sockets, caches and their costs: `docs/DATA_SOURCES.md`.
@@ -166,10 +173,10 @@ Channel ids, notification ids, the throttle and silent-alert triage: `docs/ALERT
 | `applySyncAndInitialZoom` / `alignViewportXWith` | `post { }` ordering and offsets-vs-margins | `docs/CHART_PIPELINE.md` §3 |
 | the measure tool (`measureContextKey`) | keying it on `viewportKey()` erases the drawing on every candle close | `docs/CHART_PIPELINE.md` §7 |
 | `DivAlertNotifier.priceChannelIdFor` + `resolveSound` | a silent alert with no error at all | `docs/ALERTS_NOTIFICATIONS.md` §2–3 |
-| `observeLivePrices()` | it is **shared** (`shareIn` on the repository's app scope): one socket pair for the whole app. Collecting a cold copy opens a second pair | `docs/DATA_SOURCES.md` §2.1 |
+| `observeLivePrices()` | it is **shared** (`shareIn` on the repository's app scope): one socket per exchange for the whole app. Collecting a cold copy opens a second one | `docs/DATA_SOURCES.md` §2.1 |
 | the detail's live price | the socket wins, but only while its tick is fresh (>15 s = dead); without the guard a dead socket freezes the price silently | `docs/DATA_SOURCES.md` §4.1 |
 | the taker endpoint | the ratio endpoint only publishes closed buckets; the klines endpoint carries the live candle | `docs/DATA_SOURCES.md` §6 |
-| `Timeframes.kt`, `ChartColors`, `PriceFormat.kt` | shared sources of truth | this file |
+| `Timeframes.kt`, `Brokers.kt`, `ChartColors`, `BrokerColors`, `PriceFormat.kt` | shared sources of truth | this file |
 
 ## UI Guidelines
 
@@ -195,18 +202,22 @@ Tokens, hand-tuned chart values and known visual debt: `docs/DESIGN.md`.
 - Use cached/remembered derived UI state in Compose when grouping/filtering large lists.
 - Avoid excessive background/service updates.
 - Chart indicators must stay incremental: the 2 s tick should only move the last point (plus the cached SMC). A full `toChartComputation` per tick is the regression this project already paid for.
-- The live-price sockets are shared state: cap the **visual** publish rate in the ViewModel (do not re-emit with `sample()`), and never open a second socket pair for the same data.
+- The live-price sockets are shared state: cap the **visual** publish rate in the ViewModel (do not re-emit with `sample()`), and never open a second socket per exchange for the same data.
 
 ## Database Notes
 
 Room database version is in `app/src/main/java/com/defitracker/app/data/local/AppDatabase.kt`.
 
 ```kotlin
-version = 6
+version = 7
 MIGRATION_5_6
+MIGRATION_6_7
 ```
 
-`MIGRATION_5_6` adds the `price_alerts` table without touching existing data. `AppModule` registers that migration and still keeps `fallbackToDestructiveMigration()` as a last-resort development fallback. Do not bump schema casually; add and register an explicit migration for every production-facing schema change.
+`MIGRATION_5_6` adds the `price_alerts` table without touching existing data. `MIGRATION_6_7` rebuilds `tracked_pairs` with the composite `(symbol, source)` key, copying every row (new table → copy → drop → rename). `AppModule` registers both migrations and still keeps `fallbackToDestructiveMigration()` as a last-resort development fallback. Do not bump schema casually; add and register an explicit migration for every production-facing schema change.
+
+- `tracked_pairs` is keyed by `(symbol, source)`, not by `symbol`: the same `AVAXUSDT` exists on Binance and Bitunix, and `AVAX-USDT` on BingX. A symbol-only key silently replaces the other broker's row on upsert and makes deleting one pair delete all of them, so every insert and every delete must carry both fields.
+- The Room `PRIMARY KEY` column order in a migration must match the entity's `primaryKeys` order, or Room fails schema validation at open time.
 
 `PriceAlertDao` stores point/range LONG/SHORT alerts. `DivScanService` checks enabled price alerts sequentially, notifies on a hit, and throttles repeat notifications to five minutes.
 
@@ -248,7 +259,7 @@ Recipes and counters: `docs/DEVELOPMENT.md`.
 - Rebuilding the chart dataset on every tick, or patching in place on a dataset whose size does not match the state.
 - Caching anything that depends on the live candle (RSI divergences) or skipping a `closedCandleVersion` bump.
 - Clearing the measure tool on every `viewportKey()` change (the drawing dies at every candle close).
-- Opening a second socket pair because `observeLivePrices()` was collected cold (it is shared now).
+- Opening a second socket because `observeLivePrices()` was collected cold (it is shared now).
 - Validating the alert sound URI from the app instead of letting the system play it.
 - Chasing `MediaPlayer` NPE lines in logcat: they come from MIUI, not from this app.
 - Assuming unit tests can touch Android framework classes.

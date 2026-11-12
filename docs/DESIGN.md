@@ -3,7 +3,7 @@
 Audience: agents (or humans) touching any UI, especially the chart. This app is a dark
 trading UI: information density and numeric legibility come before decoration.
 
-State: reflects `main` at `ce22db7`.
+State: reflects `main` after the Bitunix/BingX sources (2026-11-11).
 
 > Rules live in `AGENTS.md`. This document is the inventory behind them: which token exists,
 > where it lives, what is tuned by hand, and what is known visual debt. If the two disagree,
@@ -67,6 +67,24 @@ FVG `32`, zone borders `120`, premium/discount `12`, equilibrium `170`; volume p
 `92 / 70,222,226`, down `92 / 255,88,142`, POC `145 / 255,193,7`; measure fill `38` and
 stroke `230` of `#1ECB81`.
 
+### 2.1 Broker colors (search results)
+
+`ui/theme/Color.kt` → `BrokerColors`, used by the broker chips in the search row. Order and
+`source` strings live in `core/Brokers.kt`; these hexes live here only.
+
+| Broker | Token | Hex |
+|---|---|---|
+| Bitunix | `BrokerColors.Bitunix` | `#06B6D4` |
+| BingX | `BrokerColors.BingX` | `#6366F1` |
+| Binance | `BrokerColors.Binance` | `#F0B90B` |
+| MEXC | `BrokerColors.Mexc` | `#2EBD85` |
+
+These are UI tokens, not official brand colors. Chip recipe: background
+`color.copy(alpha = .18f)`, text the pure color at `9.sp` semibold, rounded `6.dp`; a pair
+that is already tracked shows `.08f` background and `.45f` text and is not clickable.
+Search rows are `44.dp` tall (one row per pair, chips on the right) so ~10 results fit
+without scrolling; do not grow them back into two-line rows.
+
 ---
 
 ## 3. Typography (`ui/theme/Type.kt`)
@@ -121,6 +139,9 @@ stroke `230` of `#1ECB81`.
 
 - Price labels: `formatPriceForChart` / `formatAxisPrice` from `PriceFormat.kt`. Never
   hand-roll decimals or thousands separators: tiny tokens need adaptive precision.
+- Decimals scale with the price, not fixed per band: `priceDecimals` keeps 6 below `$1` and
+  opens to 8 under `0.0001` (PEPE at `0.00000812` must not read `0.000008`). The axis
+  derives its decimals from the current price and caps at 8 too.
 - Number formatting for the Pulse/analysis: `PriceFormat.kt` too.
 - The candle countdown repaints only its own tag area (`invalidateCountdownIfChanged`); do not
   move it into the general invalidation path.

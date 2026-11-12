@@ -4,8 +4,8 @@ Audience: any agent (or human) touching the price chart. Read this before editin
 `CryptoDetailScreen.kt` (the `PriceChart` block), `chart/*`, `IndicatorTail.kt`,
 `ClosedCandleCache.kt`, `MarketChart` wiring or the chart-related parts of the ViewModel.
 
-State: reflects `main` at `ce22db7` + the docs pass + the socket-fed detail — 72 unit
-tests green.
+State: reflects `main` after the Bitunix/BingX sources (2026-11-11, 127 unit tests /
+22 classes green). Read the count from the test results, not from this line.
 
 > Rules live in `AGENTS.md`. This document explains them: why each one exists, the
 > measurements behind it, and how to verify it. If the two disagree, `AGENTS.md` wins.
@@ -59,6 +59,16 @@ val rebuildData = !tfSwitching && (
 
 Rules:
 
+- `state.candles` is **always in ascending time order** (oldest first, newest last). The
+  chart indexes candles by position, the SMC walks them as a timeline and the tail sync
+  appends to the end, so a non-chronological list reverses the time axis, saturates the SMC
+  and makes every refresh append duplicates and shift the chart left. Sources that deliver
+  candles newest-first (Bitunix, BingX) are sorted by the repository
+  (`ascendingRows()` in `FuturesKlineMapping.kt`); see `docs/DATA_SOURCES.md` §5.
+- `state.candles` must end with the **in-progress bucket**, not the last closed candle. The
+  2 s tick decides "a candle closed" with `now >= last.time + duration`; if the last candle
+  is already closed, every tick runs `syncTail` and the third one forces a full reload. The
+  source that omits it (Bitunix) gets a flat live bucket from `withLiveCandle`.
 - Never patch in place while `tfSwitching` (the in-place branch is guarded with `!tfSwitching`).
 - `updateLastCandleInPlace` writes only when `ds.entryCount == state.candles.size`
   (`ChartUpdates.kt`). Do not relax it back to `>`, that is what wrote today's price into a
@@ -217,6 +227,11 @@ instead of staying painted forever. The confirmed list is untouched by this rule
 | `ClosedCandleCacheTest` (3) | cache hit/miss semantics |
 | `RsiCalcTest`, `MacdCalcTest`, `SignalsTest`, `SmcTest`, `RsiDivTest` (5) | the pure math the chart depends on |
 | `DrawOverlayCodecTest` (4) | drawing overlay persistence codec (text annotations included) |
+| `ChartHighlightTest` (6) | highlights carry a real `dataIndex` (`setDataIndex`, never the 3-arg constructor), so `CombinedData` lookup cannot throw (§3) |
+| `LiveCandleBucketTest` (5) | the synthesized in-progress bucket: phase, UTC month start for `1mo`, no-op for sources that already publish it |
+| `PriceFormatTest` (4) | the chart decimal bands (`priceDecimals`, `formatRepositoryPrice`) |
+| `FuturesKlineMappingTest` (4) | `ascendingRows()` / `toAscendingRows()` keep Bitunix and BingX pages chronological |
+| `TradingViewBarTest` (4) | `tvBar()` accepts 5- and 6-field bars (dominance has no volume) |
 | `LivePriceFeedTest` (7) | the socket freshness guard: a dead socket must fall back to REST instead of freezing the price |
 
 Any change to the tail, the gate or a series shape must keep these green; if a new series

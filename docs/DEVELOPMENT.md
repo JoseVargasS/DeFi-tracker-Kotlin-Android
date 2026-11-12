@@ -4,8 +4,8 @@ Audience: any agent (or human) that needs to build, install, measure or profile 
 app. Read this before adding a temporary probe, running adb, or reporting a
 performance claim.
 
-State: reflects `main` at `ce22db7` + the docs pass + the socket-fed detail
-(72 unit tests green).
+State: reflects `main` after the Bitunix/BingX sources (2026-11-11, 127 unit tests /
+22 classes green). Read the count from the test results, not from this line.
 
 > Rules live in `AGENTS.md`. This document has the recipes.
 
@@ -26,8 +26,8 @@ wrapper cannot run, use Android Studio or an installed Gradle with JDK 17.
 
 **Always report the real per-class test counts** (read
 `app/build/test-results/testDebugUnitTest/*.xml`), not just "BUILD SUCCESSFUL". The
-suite covers the chart caches, the incremental tail, the key contracts, the alert math
-and the pure indicator maths.
+suite covers the chart caches, the incremental tail, the key contracts, the alert math,
+the socket parsers, the kline order and the list price merge, plus the pure indicator maths.
 
 Unit tests run on the JVM **without Robolectric and without `returnDefaultValues`**:
 `Uri`, `Settings` and `Context` throw. Keep decision logic in pure Kotlin if it has to

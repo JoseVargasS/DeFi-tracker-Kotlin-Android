@@ -4,7 +4,8 @@ Audience: agents modifying `alerts/*`, `PriceAlertSheet.kt` or anything that pos
 notification. Read this before touching the sound flow — it is small, it has burned us
 before, and a wrong change makes alerts **silent** with no visible error.
 
-State: reflects `main` at `ce22db7`. No uncommitted changes in this area.
+State: reflects `main` after the Bitunix/BingX sources (2026-11-11). No uncommitted
+changes in this area.
 
 > Rules live in `AGENTS.md`. This document explains them: why each one exists and how to
 > diagnose the failure mode it prevents. If the two disagree, `AGENTS.md` wins.
