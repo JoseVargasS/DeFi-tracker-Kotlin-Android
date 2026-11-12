@@ -16,6 +16,18 @@ class PriceFormatTest {
     }
 
     @Test
+    fun `sub-dollar prices keep six decimals until they lose resolution`() {
+        // 0.0001 y arriba: la banda de siempre no se mueve
+        assertEquals("0.000500", formatPriceForChart(0.0005, extended = true))
+        assertEquals("0.000500", formatRepositoryPrice(0.0005))
+        // abajo de 0.0001 se abren a 8 pa' que PEPE no se vea congelao
+        assertEquals("0.00000812", formatPriceForChart(0.00000812, extended = true))
+        assertEquals("0.00000812", formatRepositoryPrice(0.00000812))
+        // precio sin cargar conserva su banda
+        assertEquals("0.000000", formatRepositoryPrice(0.0))
+    }
+
+    @Test
     fun `axis formatter follows reference precision and volume formatter uses suffixes`() {
         assertEquals("1.23", formatAxisPrice(1.234, 2.5))
         assertEquals("0.123457", formatAxisPrice(0.1234567, 0.123456))
