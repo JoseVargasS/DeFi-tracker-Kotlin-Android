@@ -15,7 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.defitracker.app.R
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.domain.model.CryptoPair
 import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
 import com.defitracker.app.presentation.crypto_detail.toDoubleValue
@@ -64,14 +68,21 @@ fun CryptoPairItem(
         formatPriceForChart(pair.price.toDoubleValue(), extended)
     }
 
-    val iconRequest = remember(pair.baseAsset) {
-        ImageRequest.Builder(context)
-            .data("https://assets.coincap.io/assets/icons/${pair.baseAsset.lowercase()}@2x.png")
-            .crossfade(false)
-            .memoryCacheKey("coin-${pair.baseAsset}")
-            .diskCacheKey("coin-${pair.baseAsset}")
-            .build()
+    // coincap no tiene logos de listados nuevos ni de indices TV; el logo de binance cubre casi
+    // todos, y si tampoco existe se cae a la inicial del par (nunca queda el circulo vacio).
+    // 1000PEPE usa el mismo logo que PEPE, por eso el prefijo tambien se prueba.
+    val iconUrls = remember(pair.baseAsset) {
+        val bases = listOf(pair.baseAsset) +
+            listOfNotNull(pair.baseAsset.removePrefix("1000").takeIf { it != pair.baseAsset })
+        bases.flatMap { base ->
+            listOf(
+                "https://assets.coincap.io/assets/icons/${base.lowercase()}@2x.png",
+                "https://bin.bnbstatic.com/static/assets/logos/${base.uppercase()}.png"
+            )
+        }
     }
+    var iconIdx by remember(pair.baseAsset) { mutableIntStateOf(0) }
+    var iconFailed by remember(pair.baseAsset) { mutableStateOf(false) }
 
     Surface(
         color = Color.Transparent,
@@ -93,19 +104,37 @@ fun CryptoPairItem(
                     .background(Color(0xFF181A20))
                     .padding(4.dp)
             ) {
-                AsyncImage(
-                    model = iconRequest,
-                    contentDescription = pair.baseAsset,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
+                if (iconFailed) {
+                    Text(
+                        text = pair.baseAsset.take(1).uppercase(),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFAAAAAA),
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(iconUrls[iconIdx])
+                            .crossfade(false)
+                            .memoryCacheKey("coin-${pair.baseAsset}-$iconIdx")
+                            .diskCacheKey("coin-${pair.baseAsset}-$iconIdx")
+                            .build(),
+                        contentDescription = pair.baseAsset,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                        onError = {
+                            if (iconIdx < iconUrls.lastIndex) iconIdx++ else iconFailed = true
+                        }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 // una sola linea con ellipsis, nunca parte el simbolo en dos
-                if (pair.source == "MEXC") {
+                if (Brokers.isFutures(pair.source)) {
                     // perps sin slash (ETHUSDT)
                     Text(
                         text = pair.baseAsset + pair.quoteAsset,
@@ -187,11 +216,12 @@ fun CryptoPairItem(
 }
 
 // nota: banda $1-10 con 4 decimales del repo; si el sparkline (24h) va todo sobre $1, recorta a 2
-private fun pairSourceLabel(pair: CryptoPair): String = when (pair.source) {
-    "MEXC" -> "MEXC · Futuros"
-    "TV" -> if (pair.symbol.endsWith(".D")) "TradingView · Dominancia" else "TradingView · Market cap"
-    else -> "Binance · Spot"
-}
+private fun pairSourceLabel(pair: CryptoPair): String =
+    if (pair.source == Brokers.TV) {
+        if (pair.symbol.endsWith(".D")) "TradingView · Dominancia" else "TradingView · Market cap"
+    } else {
+        Brokers.label(pair.source)
+    }
 
 @Composable
 private fun Sparkline(values: List<Double>, positive: Boolean) {

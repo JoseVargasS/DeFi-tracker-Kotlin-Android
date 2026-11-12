@@ -133,19 +133,8 @@ class TradingViewClient(
         val out = ArrayList<List<Any>>(series.length())
         for (i in 0 until series.length()) {
             val v = series.optJSONObject(i)?.optJSONArray("v") ?: continue
-            if (v.length() < 6) continue
-            val timeMs = (v.optDouble(0) * 1000.0).toLong()
-            out.add(
-                listOf<Any>(
-                    timeMs,
-                    v.optDouble(1),
-                    v.optDouble(2),
-                    v.optDouble(3),
-                    v.optDouble(4),
-                    v.optDouble(5),
-                    0L, 0.0, 0, 0.0
-                )
-            )
+            val values = (0 until v.length()).map { v.optDouble(it) }
+            tvBar(values)?.let { out.add(it) }
         }
         return out
     }
@@ -188,3 +177,20 @@ class TradingViewClient(
 // nota: el VM ya manda la resolucion resuelta; si llega otra vez aca no se
 // vuelve a mapear (antes "5" caia al default "60" y todo TV quedaba en 1h)
 fun tvResolution(interval: String): String = Timeframes.tradingViewResolution(interval)
+
+// una barra de TradingView: [time, open, high, low, close, volumen]
+// las series de dominancia (BTC.D, USDT.D) llegan SIN volumen (5 campos) y las de
+// market cap con 6. Exigir 6 campos descartaba todas las barras de dominancia:
+// el par se quedaba en 0.00 y sin minigrafica.
+internal fun tvBar(raw: List<Double>): List<Any>? {
+    if (raw.size < 5) return null
+    return listOf<Any>(
+        (raw[0] * 1000.0).toLong(),
+        raw[1],
+        raw[2],
+        raw[3],
+        raw[4],
+        raw.getOrElse(5) { 0.0 },
+        0L, 0.0, 0, 0.0
+    )
+}

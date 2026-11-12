@@ -1112,7 +1112,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                 val chartData = withContext(Dispatchers.Default) {
                     val candles = rawKlines.toCandleList().let {
                         if (source == "MEXC") it else it.aggregateForInterval(normalizedInterval)
-                    }
+                    }.withLiveCandle(normalizedInterval)
 
                     if (candles.isEmpty()) {
                         return@withContext ChartComputation()
@@ -1189,7 +1189,11 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         for (c in fresh) {
             if (c.time > oldLast) merged.add(c)
         }
-        if (merged.size == current.candles.size && merged.lastOrNull()?.time == oldLast) {
+        // Bitunix publica solo velas cerradas: el bucket vivo se sintetiza para que el
+        // tick no tome la ultima por cerrada (si no, syncTail cada 2s y full reload
+        // cada 3 cierres). Fuera de Bitunix ya viene del exchange y es no-op.
+        val mergedWithLive = merged.withLiveCandle(interval)
+        if (mergedWithLive.size == current.candles.size && mergedWithLive.lastOrNull()?.time == oldLast) {
             // TV es snapshot: su ultima barra no avanza al ritmo del tick.
             // Recargar ahi es quemar red y flashear el chart en loop, se sale sin strike.
             if (source == "TV") {
@@ -1209,7 +1213,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         closedCandleVersion++
         val tailClosedVersion = closedCandleVersion
         val chartData = withContext(Dispatchers.Default) {
-            val comp = merged.toChartComputation(
+            val comp = mergedWithLive.toChartComputation(
                 interval, _prefs.value.mas, extraTfCandles.toMap(),
                 closedVersion = tailClosedVersion
             )
@@ -1551,6 +1555,41 @@ data class CryptoDetailState(
     val isLoading: Boolean = false,
     val error: String = ""
 )
+
+// Bitunix no publica la vela en curso (solo las cerradas). Sin el bucket vivo el tick
+// la toma por cerrada: syncTail cada 2s y full reload cada 3 cierres, o sea el chart
+// recargandose solo. Se sintetiza plana y el tick la forma con el precio del socket.
+// Binance/MEXC/BingX ya la traen, asi que ahi es no-op.
+internal fun List<CandleData>.withLiveCandle(
+    interval: String,
+    nowMs: Long = System.currentTimeMillis()
+): List<CandleData> {
+    val last = lastOrNull() ?: return this
+    val dur = candleDurationMs(interval)
+    if (dur <= 0L) return this
+    val bucket = when {
+        // el mes no tiene duracion fija: primer dia del mes UTC, igual que el exchange
+        interval == "1mo" -> monthStartUtc(nowMs)
+        // solo series alineadas a la duracion: se avanza en pasos del mismo bucket
+        // (asi la vela sintetica conserva la fase de la serie, 1w incluido)
+        getOrNull(size - 2)?.let { last.time - it.time == dur } == true ->
+            last.time + (nowMs - last.time) / dur * dur
+        else -> return this
+    }
+    if (bucket <= last.time) return this
+    return this + CandleData(bucket, last.close, last.close, last.close, last.close)
+}
+
+private fun monthStartUtc(ms: Long): Long {
+    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+    cal.timeInMillis = ms
+    cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    cal.set(java.util.Calendar.MINUTE, 0)
+    cal.set(java.util.Calendar.SECOND, 0)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
 
 data class CandleData(
     val time: Long,

@@ -2,6 +2,8 @@ package com.defitracker.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+import com.defitracker.app.core.Brokers
+
 val Black = Color(0xFF000000)
 val DarkGray = Color(0xFF0A0A0A)
 val LightGray = Color(0xFF1A1A1A)
@@ -44,4 +46,20 @@ object ChartColors {
     const val WHITE_HEX = "#FFFFFF"
     const val APP_GREEN_HEX = "#1ECB81"
     const val APP_RED_HEX = "#F6465D"
+}
+
+// colores de los chips de broker del buscador. No son colores oficiales: son tokens de UI,
+// el orden y los strings viven en core/Brokers.kt
+object BrokerColors {
+    val Bitunix = Color(0xFF06B6D4)
+    val BingX = Color(0xFF6366F1)
+    val Binance = Color(0xFFF0B90B)
+    val Mexc = Color(0xFF2EBD85)
+
+    fun of(source: String?): Color = when (source) {
+        Brokers.BITUNIX -> Bitunix
+        Brokers.BINGX -> BingX
+        Brokers.MEXC -> Mexc
+        else -> Binance
+    }
 }

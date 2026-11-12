@@ -8,6 +8,8 @@ import com.defitracker.app.data.local.TrackedPairDao
 import com.defitracker.app.data.local.WalletDao
 import com.defitracker.app.data.remote.BinanceApi
 import com.defitracker.app.data.remote.BinanceFuturesApi
+import com.defitracker.app.data.remote.BingxApi
+import com.defitracker.app.data.remote.BitunixApi
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
@@ -72,6 +74,28 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideBitunixApi(@Named("rest") okHttpClient: OkHttpClient): BitunixApi {
+        return Retrofit.Builder()
+            .baseUrl(Constants.BITUNIX_FUTURES_BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(BitunixApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBingxApi(@Named("rest") okHttpClient: OkHttpClient): BingxApi {
+        return Retrofit.Builder()
+            .baseUrl(Constants.BINGX_FUTURES_BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(BingxApi::class.java)
+    }
+
+    @Provides
+    @Singleton
     @Named("rest")
     fun provideRestOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
@@ -119,12 +143,31 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideBitunixTickerStream(
+        okHttpClient: okhttp3.OkHttpClient
+    ): com.defitracker.app.data.remote.BitunixTickerStream {
+        return com.defitracker.app.data.remote.BitunixTickerStream(okHttpClient)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBingxTickerStream(
+        okHttpClient: okhttp3.OkHttpClient
+    ): com.defitracker.app.data.remote.BingxTickerStream {
+        return com.defitracker.app.data.remote.BingxTickerStream(okHttpClient)
+    }
+
+    @Provides
+    @Singleton
     fun provideAppDatabase(app: Application): AppDatabase {
         return Room.databaseBuilder(
             app,
             AppDatabase::class.java,
             Constants.DATABASE_NAME
-        ).addMigrations(com.defitracker.app.data.local.MIGRATION_5_6)
+        ).addMigrations(
+            com.defitracker.app.data.local.MIGRATION_5_6,
+            com.defitracker.app.data.local.MIGRATION_6_7
+        )
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -152,15 +195,21 @@ object AppModule {
         binanceFuturesApi: BinanceFuturesApi,
         coinStatsApi: CoinStatsApi,
         mexcFuturesApi: MexcFuturesApi,
+        bitunixApi: BitunixApi,
+        bingxApi: BingxApi,
         tradingViewClient: com.defitracker.app.data.remote.tv.TradingViewClient,
         binanceTickerStream: com.defitracker.app.data.remote.BinanceTickerStream,
         mexcTickerStream: com.defitracker.app.data.remote.MexcTickerStream,
+        bitunixTickerStream: com.defitracker.app.data.remote.BitunixTickerStream,
+        bingxTickerStream: com.defitracker.app.data.remote.BingxTickerStream,
         trackedPairDao: TrackedPairDao,
         walletDao: WalletDao
     ): CryptoRepositoryImpl {
         return CryptoRepositoryImpl(
             binanceApi, binanceFuturesApi, coinStatsApi, mexcFuturesApi,
-            tradingViewClient, binanceTickerStream, mexcTickerStream, trackedPairDao, walletDao
+            bitunixApi, bingxApi,
+            tradingViewClient, binanceTickerStream, mexcTickerStream,
+            bitunixTickerStream, bingxTickerStream, trackedPairDao, walletDao
         )
     }
 }

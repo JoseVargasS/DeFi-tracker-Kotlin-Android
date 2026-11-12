@@ -2,6 +2,7 @@ package com.defitracker.app.data.repository
 
 import android.util.Log
 import com.defitracker.app.BuildConfig
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.core.Constants
 import com.defitracker.app.core.Timeframes
 import com.defitracker.app.data.local.TrackedPairDao
@@ -11,6 +12,10 @@ import com.defitracker.app.data.local.WalletEntity
 import com.defitracker.app.data.remote.BinanceApi
 import com.defitracker.app.data.remote.BinanceFuturesApi
 import com.defitracker.app.data.remote.BinanceTickerStream
+import com.defitracker.app.data.remote.BingxApi
+import com.defitracker.app.data.remote.BingxTickerStream
+import com.defitracker.app.data.remote.BitunixApi
+import com.defitracker.app.data.remote.BitunixTickerStream
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
 import com.defitracker.app.data.remote.MexcTickerStream
@@ -38,6 +43,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import retrofit2.HttpException
@@ -53,9 +59,13 @@ class CryptoRepositoryImpl @Inject constructor(
     private val binanceFuturesApi: BinanceFuturesApi,
     private val coinStatsApi: CoinStatsApi,
     private val mexcFuturesApi: MexcFuturesApi,
+    private val bitunixApi: BitunixApi,
+    private val bingxApi: BingxApi,
     private val tradingViewClient: TradingViewClient,
     private val binanceTickerStream: BinanceTickerStream,
     private val mexcTickerStream: MexcTickerStream,
+    private val bitunixTickerStream: BitunixTickerStream,
+    private val bingxTickerStream: BingxTickerStream,
     private val trackedPairDao: TrackedPairDao,
     private val walletDao: WalletDao
 ) {
@@ -78,6 +88,10 @@ class CryptoRepositoryImpl @Inject constructor(
 
     private var cachedSymbols: List<AvailableCryptoPair> = emptyList()
     private var cachedMexcSymbols: List<AvailableCryptoPair> = emptyList()
+    private var cachedBitunixSymbols: List<AvailableCryptoPair> = emptyList()
+    private var cachedBingxSymbols: List<AvailableCryptoPair> = emptyList()
+    // open de 24h por par de BingX: el socket no lo manda, se refresca cada 5 min
+    private val bingxOpenCache = HashMap<String, Pair<Double, Long>>()
     private val klineCache = object : LinkedHashMap<String, CachedKlines>(
         KLINE_CACHE_MAX_ENTRIES,
         0.75f,
@@ -114,8 +128,10 @@ class CryptoRepositoryImpl @Inject constructor(
         }
         return try {
             val rows = when (source) {
-                "MEXC" -> getMexcFuturesKlines(symbol, interval, singlePage = true)
-                "TV" -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), 1000)
+                Brokers.MEXC -> getMexcFuturesKlines(symbol, interval, singlePage = true)
+                Brokers.BITUNIX -> getBitunixKlines(symbol, interval, singlePage = true)
+                Brokers.BINGX -> getBingxKlines(symbol, interval, limit = cleanLimit)
+                Brokers.TV -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), cleanLimit.coerceAtMost(1000))
                 else -> binanceApi.getKlines(symbol = symbol, interval = interval, limit = cleanLimit.coerceAtMost(1000))
             }
             if (rows.isNotEmpty()) sparkCache[cacheKey] = CachedKlines(System.currentTimeMillis(), rows)
@@ -161,15 +177,17 @@ class CryptoRepositoryImpl @Inject constructor(
         )
     }
 
-    suspend fun removeTrackedPair(symbol: String) {
-        trackedPairDao.deleteTrackedPairBySymbol(symbol)
+    suspend fun removeTrackedPair(symbol: String, source: String) {
+        trackedPairDao.deleteTrackedPair(symbol, source)
     }
 
     suspend fun getPairDetail(symbol: String, source: String): PairDetail {
         return try {
             when (source) {
-                "MEXC" -> getMexcFuturesPairDetail(symbol)
-                "TV" -> getTvPairDetail(symbol)
+                Brokers.MEXC -> getMexcFuturesPairDetail(symbol)
+                Brokers.BITUNIX -> getBitunixPairDetail(symbol)
+                Brokers.BINGX -> getBingxPairDetail(symbol)
+                Brokers.TV -> getTvPairDetail(symbol)
                 else -> getBinancePairDetail(symbol)
             }
         } catch (e: CancellationException) {
@@ -179,17 +197,19 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // junta ambos sockets en un mapa key "$symbol-$source"; si un socket falla emite vacio
+    // junta los cuatro sockets en un mapa key "$symbol-$source"; si un socket falla emite vacio
     fun observeLivePrices(): Flow<Map<String, LiveQuote>> = sharedLivePrices
 
     private fun buildLivePrices(): Flow<Map<String, LiveQuote>> {
-        val binance = binanceTickerStream.observe()
+        // los cuatro sockets son por simbolo: se pide solo lo trackeado de cada fuente.
+        // sin pares de esa fuente, no se abre socket
+        val binance = binanceTickerStream.observe(trackedSymbolsFor(Brokers.BINANCE))
             .map { batch ->
                 val now = System.currentTimeMillis()
                 batch.mapNotNull { (symbol, t) ->
                     if (t.close <= 0 || t.open24h <= 0) return@mapNotNull null
                     val pct = (t.close - t.open24h) / t.open24h * 100.0
-                    "$symbol-Binance" to LiveQuote(
+                    "$symbol-${Brokers.BINANCE}" to LiveQuote(
                         price = formatRepositoryPrice(t.close),
                         priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
                         isPositive = pct >= 0,
@@ -200,26 +220,90 @@ class CryptoRepositoryImpl @Inject constructor(
                 }.toMap()
             }
             .catch { logNonFatal("Binance live stream failed", it); emit(emptyMap()) }
-        val mexc = mexcTickerStream.observe()
+        val mexc = mexcTickerStream.observe(trackedSymbolsFor(Brokers.MEXC))
             .map { batch ->
                 val now = System.currentTimeMillis()
                 batch.mapNotNull { (symbol, t) ->
                     if (t.lastPrice <= 0) return@mapNotNull null
                     val pct = t.riseFallRate * 100.0
-                    "$symbol-MEXC" to LiveQuote(
+                    "$symbol-${Brokers.MEXC}" to LiveQuote(
                         price = formatRepositoryPrice(t.lastPrice),
                         priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
                         isPositive = pct >= 0,
-                        // el push no trae amount24: precio*contratos como aprox, el REST lo corrige
-                        quoteVolume = t.lastPrice * t.volume24,
+                        // el push trae amount24 (monto real en quote); si no, precio*contratos
+                        quoteVolume = if (t.amount24 > 0.0) t.amount24 else t.lastPrice * t.volume24,
                         priceValue = t.lastPrice,
                         receivedAtMs = now
                     )
                 }.toMap()
             }
             .catch { logNonFatal("MEXC live stream failed", it); emit(emptyMap()) }
-        return combine(binance, mexc) { b, m -> b + m }
+        // Bitunix/BingX solo aceptan suscripcion por simbolo
+        val bitunix = bitunixTickerStream.observe(trackedSymbolsFor(Brokers.BITUNIX))
+            .map { batch ->
+                val now = System.currentTimeMillis()
+                batch.mapNotNull { (symbol, t) ->
+                    if (t.lastPrice <= 0 || t.open24h <= 0) return@mapNotNull null
+                    val pct = (t.lastPrice - t.open24h) / t.open24h * 100.0
+                    "$symbol-${Brokers.BITUNIX}" to LiveQuote(
+                        price = formatRepositoryPrice(t.lastPrice),
+                        priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+                        isPositive = pct >= 0,
+                        quoteVolume = t.quoteVolume,
+                        priceValue = t.lastPrice,
+                        receivedAtMs = now
+                    )
+                }.toMap()
+            }
+            .catch { logNonFatal("Bitunix live stream failed", it); emit(emptyMap()) }
+        val bingx: Flow<Map<String, LiveQuote>> = bingxTickerStream.observe(trackedSymbolsFor(Brokers.BINGX))
+            .map { batch ->
+                val now = System.currentTimeMillis()
+                val out = HashMap<String, LiveQuote>(batch.size)
+                for ((symbol, t) in batch) {
+                    if (t.lastPrice <= 0) continue
+                    val open = bingxOpen24h(symbol)
+                    if (open <= 0.0) continue
+                    val pct = (t.lastPrice - open) / open * 100.0
+                    out["$symbol-${Brokers.BINGX}"] = LiveQuote(
+                        price = formatRepositoryPrice(t.lastPrice),
+                        priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+                        isPositive = pct >= 0,
+                        quoteVolume = t.quoteVolume,
+                        priceValue = t.lastPrice,
+                        receivedAtMs = now
+                    )
+                }
+                out
+            }
+            .catch { logNonFatal("BingX live stream failed", it); emit(HashMap()) }
+        return combine(binance, mexc, bitunix, bingx) { b, m, bu, bg -> b + m + bu + bg }
     }
+
+    // el push de BingX no trae el open de 24h: se toma del REST una vez cada 5 min por par.
+    // secuencial y solo para pares trackeados, para no castigar el rate limit
+    private suspend fun bingxOpen24h(symbol: String): Double {
+        val now = System.currentTimeMillis()
+        bingxOpenCache[symbol]?.let { (open, at) ->
+            if (now - at <= BINGX_OPEN_TTL_MS) return open
+        }
+        return try {
+            val open = bingxApi.getTicker(symbol).data?.openPrice.toDoubleValue()
+            if (open > 0.0) bingxOpenCache[symbol] = open to now
+            open
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // no cortar el socket por un fallo del REST: ese par se cae y el REST lo repinta
+            logNonFatal("BingX open 24h failed for $symbol", e)
+            0.0
+        }
+    }
+
+    private fun trackedSymbolsFor(source: String): Flow<List<String>> =
+        trackedPairDao.getAllTrackedPairs()
+            .map { list -> list.filter { it.source == source }.map { it.symbol }.distinct().sorted() }
+            .distinctUntilChanged()
 
     suspend fun getKlines(
         symbol: String,
@@ -235,8 +319,10 @@ class CryptoRepositoryImpl @Inject constructor(
 
         return try {
             val klines = when (source) {
-                "MEXC" -> getMexcFuturesKlines(symbol, interval)
-                "TV" -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), tvCountbackFor(interval))
+                Brokers.MEXC -> getMexcFuturesKlines(symbol, interval)
+                Brokers.BITUNIX -> getBitunixKlines(symbol, interval)
+                Brokers.BINGX -> getBingxKlines(symbol, interval)
+                Brokers.TV -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), tvCountbackFor(interval))
                 else -> getBinanceKlines(symbol, interval)
             }
             if (klines.isNotEmpty()) {
@@ -261,13 +347,20 @@ class CryptoRepositoryImpl @Inject constructor(
         val limit = 10
         return try {
             when (source) {
-                "MEXC" -> getMexcFuturesKlines(
+                Brokers.MEXC -> getMexcFuturesKlines(
                     symbol,
                     interval,
                     startSec = if (sinceTimeMs > 0L) sinceTimeMs / 1000L else null,
                     singlePage = true
                 )
-                "TV" -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), TAIL_SYNC_LIMIT * 5)
+                Brokers.BITUNIX -> getBitunixKlines(
+                    symbol,
+                    interval,
+                    startMs = sinceTimeMs.takeIf { it > 0L },
+                    singlePage = true
+                )
+                Brokers.BINGX -> getBingxKlines(symbol, interval, limit = limit)
+                Brokers.TV -> tradingViewClient.getKlines(tvTicker(symbol), tvResolution(interval), TAIL_SYNC_LIMIT * 5)
                     .let { rows -> if (sinceTimeMs > 0L) rows.filter { (it[0] as? Number)?.toLong() ?: it[0].toString().toLong() >= sinceTimeMs } else rows.takeLast(limit) }
                 else -> binanceApi.getKlines(
                     symbol = symbol,
@@ -293,9 +386,10 @@ class CryptoRepositoryImpl @Inject constructor(
         limit: Int = 500
     ): List<TakerVolume> {
         if (interval.trim() !in TAKER_NATIVE_INTERVALS) return emptyList()
-        if (source == "TV") return emptyList()
+        if (source == Brokers.TV) return emptyList()
         return try {
-            val binSymbol = if (source == "MEXC") symbol.replace("_", "") else symbol
+            // MEXC usa "_" y BingX "-": el taker siempre es Binance Futuros
+            val binSymbol = symbol.replace("_", "").replace("-", "")
             binanceFuturesApi.getKlines(
                 symbol = binSymbol,
                 interval = interval.trim(),
@@ -319,10 +413,58 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    suspend fun getAvailableSymbols(source: String = "Binance"): List<AvailableCryptoPair> {
+    suspend fun getAvailableSymbols(source: String = Brokers.BINANCE): List<AvailableCryptoPair> {
         return when (source) {
-            "MEXC" -> getMexcFuturesSymbols()
+            Brokers.MEXC -> getMexcFuturesSymbols()
+            Brokers.BITUNIX -> getBitunixSymbols()
+            Brokers.BINGX -> getBingxSymbols()
             else -> getBinanceSymbols()
+        }
+    }
+
+    // solo perps USDT operativos: la API tambien lista USD/USDC y simbolos en preview
+    private suspend fun getBitunixSymbols(): List<AvailableCryptoPair> {
+        if (cachedBitunixSymbols.isNotEmpty()) return cachedBitunixSymbols
+        return try {
+            val list = bitunixApi.getTradingPairs().data.orEmpty()
+                .filter { it.quote == "USDT" && it.symbolStatus == "OPEN" }
+                .map {
+                    AvailableCryptoPair(
+                        symbol = it.symbol,
+                        baseAsset = it.base,
+                        quoteAsset = it.quote
+                    )
+                }
+            if (list.isNotEmpty()) cachedBitunixSymbols = list
+            list
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logNonFatal("Bitunix trading_pairs failed", e)
+            emptyList()
+        }
+    }
+
+    // status 25 son perps de acciones: solo status 1 y contratos abiertos por API
+    private suspend fun getBingxSymbols(): List<AvailableCryptoPair> {
+        if (cachedBingxSymbols.isNotEmpty()) return cachedBingxSymbols
+        return try {
+            val list = bingxApi.getContracts().data.orEmpty()
+                .filter { it.currency == "USDT" && it.status == 1 && it.apiStateOpen == "true" }
+                .map {
+                    AvailableCryptoPair(
+                        symbol = it.symbol,
+                        baseAsset = it.asset,
+                        quoteAsset = it.currency
+                    )
+                }
+            if (list.isNotEmpty()) cachedBingxSymbols = list
+            list
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logNonFatal("BingX contracts failed", e)
+            emptyList()
         }
     }
 
@@ -725,6 +867,42 @@ class CryptoRepositoryImpl @Inject constructor(
         )
     }
 
+    // el ticker no trae porcentaje: se calcula contra el open de 24h
+    private suspend fun getBitunixPairDetail(symbol: String): PairDetail {
+        val t = bitunixApi.getTickers(symbol).data?.firstOrNull()
+            ?: throw IllegalStateException("Bitunix ticker vacio para $symbol")
+        val last = t.lastPrice.toDoubleValue()
+        val open = t.open.toDoubleValue()
+        val pct = if (open > 0.0) (last - open) / open * 100.0 else 0.0
+        return PairDetail(
+            symbol = symbol,
+            price = formatRepositoryPrice(last),
+            priceChange = formatRepositoryPrice(last - open),
+            priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+            highPrice = formatRepositoryPrice(t.high.toDoubleValue()),
+            lowPrice = formatRepositoryPrice(t.low.toDoubleValue()),
+            volume = t.baseVol.orEmpty(),
+            quoteVolume = t.quoteVol.orEmpty(),
+            isPositive = pct >= 0
+        )
+    }
+
+    private suspend fun getBingxPairDetail(symbol: String): PairDetail {
+        val t = bingxApi.getTicker(symbol).data
+            ?: throw IllegalStateException("BingX ticker vacio para $symbol")
+        return PairDetail(
+            symbol = symbol,
+            price = formatRepositoryPrice(t.lastPrice.toDoubleValue()),
+            priceChange = t.priceChange.orEmpty(),
+            priceChangePercent = t.priceChangePercent.orEmpty(),
+            highPrice = t.highPrice.orEmpty(),
+            lowPrice = t.lowPrice.orEmpty(),
+            volume = t.volume.orEmpty(),
+            quoteVolume = t.quoteVolume.orEmpty(),
+            isPositive = t.priceChangePercent.toDoubleValue() >= 0
+        )
+    }
+
     // kline columnar (segundos) -> filas estilo Binance + agregacion en repo
     private suspend fun getMexcFuturesKlines(
         symbol: String,
@@ -774,6 +952,49 @@ class CryptoRepositoryImpl @Inject constructor(
         if (factor <= 1) return allRows
         return aggregateRows(allRows, factor, mexcInterval)
     }
+
+    // topea en 200 velas por request y las devuelve de la mas nueva a la mas vieja:
+    // se pagina hacia atras con endTime y se ordena al final (la app espera ascendente)
+    private suspend fun getBitunixKlines(
+        symbol: String,
+        interval: String,
+        startMs: Long? = null,
+        singlePage: Boolean = false
+    ): List<List<Any>> {
+        val pages = ArrayList<List<List<Any>>>(BITUNIX_KLINE_PAGES)
+        var end: Long? = null
+        var fetched = 0
+        val maxPages = if (singlePage) 1 else BITUNIX_KLINE_PAGES
+
+        while (fetched < maxPages) {
+            val data = bitunixApi.getKlines(
+                symbol = symbol,
+                interval = interval,
+                limit = BITUNIX_KLINE_PAGE_SIZE,
+                startTime = startMs,
+                endTime = end
+            ).data.orEmpty()
+            if (data.isEmpty()) break
+
+            pages.add(data.map { it.toBinanceRow() })
+            // endTime es inclusivo: reusarlo repetiria la ultima vela de la pagina
+            end = data.lastOrNull()?.time?.toLongOrNull()?.minus(1) ?: break
+            fetched++
+            if (data.size < BITUNIX_KLINE_PAGE_SIZE) break
+        }
+
+        return pages.pagesToAscendingRows()
+    }
+
+    // hasta 1000 velas en una sola llamada, tambien descendente
+    private suspend fun getBingxKlines(
+        symbol: String,
+        interval: String,
+        limit: Int = BINGX_KLINE_LIMIT
+    ): List<List<Any>> =
+        bingxApi.getKlines(symbol, interval, limit.coerceIn(2, BINGX_KLINE_LIMIT))
+            .data.orEmpty()
+            .toAscendingRows()
 
     private fun aggregateRows(rows: List<List<Any>>, factor: Int, mexcInterval: String): List<List<Any>> {
         if (factor <= 1 || rows.isEmpty()) return rows
@@ -866,6 +1087,11 @@ class CryptoRepositoryImpl @Inject constructor(
         const val TAG = "CryptoRepository"
         const val CHART_KLINE_PAGE_SIZE = 1000
         const val MEXC_KLINE_PAGE_SIZE = 2000
+        // la API de Bitunix topa en 200 velas: 3 paginas = 600, suficiente y sin castigar el rate
+        const val BITUNIX_KLINE_PAGE_SIZE = 200
+        const val BITUNIX_KLINE_PAGES = 3
+        const val BINGX_KLINE_LIMIT = 1000
+        const val BINGX_OPEN_TTL_MS = 300_000L
         const val KLINE_CACHE_MAX_ENTRIES = 24
         const val SPARK_CACHE_MAX_ENTRIES = 60
         const val SPARK_CACHE_TTL_MS = 300_000L

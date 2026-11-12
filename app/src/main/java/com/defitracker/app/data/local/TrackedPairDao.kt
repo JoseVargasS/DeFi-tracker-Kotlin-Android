@@ -11,7 +11,7 @@ interface TrackedPairDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrackedPair(pair: TrackedPairEntity)
 
-    @Query("DELETE FROM tracked_pairs WHERE symbol = :symbol")
-    suspend fun deleteTrackedPairBySymbol(symbol: String)
+    @Query("DELETE FROM tracked_pairs WHERE symbol = :symbol AND source = :source")
+    suspend fun deleteTrackedPair(symbol: String, source: String)
 
 }

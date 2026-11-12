@@ -175,7 +175,7 @@ fun TakerChart(
                     val density = context.resources.displayMetrics.density
                     var textX = viewPortHandler.contentLeft() + (density * 5f)
                     val textY = viewPortHandler.contentTop() + (density * 11f)
-                    val base = splitTradingPair(currentState.symbol, currentState.source).baseAsset
+                    val base = splitTradingPair(currentState.symbol).baseAsset
 
                     canvas.drawText("C/V del tomador  ", textX, textY, titlePaint)
                     textX += titlePaint.measureText("C/V del tomador  ")

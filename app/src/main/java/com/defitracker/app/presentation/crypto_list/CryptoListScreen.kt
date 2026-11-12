@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.defitracker.app.core.Brokers
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.alerts.DivScanService
@@ -100,31 +101,15 @@ fun CryptoListScreen(
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val filteredSymbols = remember(searchQuery, state.availableSymbols) {
+    val searchGroups = remember(searchQuery, state.availableSymbols) {
         val query = searchQuery.trim()
         if (query.isEmpty()) emptyList()
-        else {
-            val matches = (state.availableSymbols + tvIndexSymbols).filter {
-                it.symbol.contains(query, ignoreCase = true) ||
-                it.baseAsset.contains(query, ignoreCase = true) ||
-                it.quoteAsset.contains(query, ignoreCase = true) ||
-                it.displayName.contains(query, ignoreCase = true) ||
-                it.keywords.contains(query, ignoreCase = true)
-            }
-            // intercalado por fuente: Binance ya no entierra a MEXC en el top 10
-            val bySource = matches.groupBy { it.source ?: "Binance" }
-            val out = mutableListOf<AvailableCryptoPair>()
-            var i = 0
-            while (out.size < 12) {
-                var added = false
-                for (list in bySource.values) {
-                    list.getOrNull(i)?.let { out.add(it); added = true }
-                }
-                if (!added) break
-                i++
-            }
-            out
-        }
+        else groupSearchPairs(
+            (state.availableSymbols + tvIndexSymbols).filter { it.matchesQuery(query) }
+        )
+    }
+    val trackedKeys = remember(state.pairs) {
+        state.pairs.map { trackedKey(it.symbol, it.source) }.toSet()
     }
 
     val showSymbolError = state.availableSymbols.isEmpty() && state.symbolsError.isNotEmpty()
@@ -135,7 +120,7 @@ fun CryptoListScreen(
         pairOrder.withIndex().associate { it.value to it.index }
     }
     val visiblePairs = remember(state.pairs, orderIndex) {
-        state.pairs.sortedBy { orderIndex["${it.symbol}-${it.source}"] ?: Int.MAX_VALUE }
+        state.pairs.sortedBy { orderIndex[trackedKey(it.symbol, it.source)] ?: Int.MAX_VALUE }
     }
 
     // drag con long-press, vive en copia local hasta soltar
@@ -166,7 +151,7 @@ fun CryptoListScreen(
                 SortMode.DEFAULT -> basePairs
                 SortMode.VOL_DESC -> {
                     val vols = volumesState.value
-                    basePairs.sortedByDescending { vols["${it.symbol}-${it.source}"] ?: 0.0 }
+                    basePairs.sortedByDescending { vols[trackedKey(it.symbol, it.source)] ?: 0.0 }
                 }
                 SortMode.CHG_DESC -> basePairs.sortedByDescending { it.priceChangePercent.toDoubleValue() }
             }
@@ -301,7 +286,7 @@ fun CryptoListScreen(
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 280.dp),
+                                    .heightIn(max = 380.dp),
                                 color = CardBg,
                                 shape = RoundedCornerShape(8.dp),
                                 tonalElevation = 2.dp
@@ -318,10 +303,10 @@ fun CryptoListScreen(
                                     }
                                 } else {
                                     Column(modifier = Modifier.fillMaxWidth()) {
-                                    // si MEXC no cargo, se avisa en vez de esconderlo
-                                    if (!state.mexcAvailable) {
+                                    // una fuente caida se avisa; el resto de brokers sigue usable
+                                    if (state.unavailableSources.isNotEmpty()) {
                                         Text(
-                                            text = "MEXC no disponible ahorita — jala la lista para reintentar",
+                                            text = "${state.unavailableSources.joinToString()} no disponible(a) ahorita — jala la lista para reintentar",
                                             color = AppGold,
                                             fontSize = 12.sp,
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -329,35 +314,23 @@ fun CryptoListScreen(
                                     }
                                     LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                         items(
-                                            items = filteredSymbols,
-                                            key = { pair -> pair.symbol }
-                                        ) { pair ->
-                                            ListItem(
-                                                headlineContent = {
-                                                    Text(
-                                                        // perps sin slash tambien al buscar
-                                                        if (pair.source == "MEXC") pair.baseAsset + pair.quoteAsset
-                                                        else pair.displayName,
-                                                        color = Color.White,
-                                                        fontSize = 14.sp
+                                            items = searchGroups,
+                                            key = { group -> group.key }
+                                        ) { group ->
+                                            SearchPairRow(
+                                                group = group,
+                                                trackedKeys = trackedKeys,
+                                                onPick = { entry ->
+                                                    viewModel.onAddPair(
+                                                        symbol = entry.symbol,
+                                                        baseAsset = entry.baseAsset,
+                                                        quoteAsset = entry.quoteAsset,
+                                                        source = entry.source ?: Brokers.BINANCE
                                                     )
-                                                },
-                                                supportingContent = { Text("${pair.symbol} · ${pair.source ?: "Binance"}", color = Color.Gray, fontSize = 11.sp) },
-                                                modifier = Modifier
-                                                    .clickable {
-                                                        viewModel.onAddPair(
-                                                            symbol = pair.symbol,
-                                                            baseAsset = pair.baseAsset,
-                                                            quoteAsset = pair.quoteAsset,
-                                                            source = pair.source ?: "Binance"
-                                                        )
-                                                        isSearchMode = false
-                                                        searchQuery = ""
-                                                    }
-                                                    .background(Color.Transparent),
-                                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                                                    isSearchMode = false
+                                                    searchQuery = ""
+                                                }
                                             )
-                                            Divider(color = MaterialTheme.colorScheme.outlineVariant)
                                         }
                                     }
                                     }
@@ -448,9 +421,9 @@ fun CryptoListScreen(
                         ) {
                             items(
                                 items = displayPairs,
-                                key = { pair -> "${pair.symbol}-${pair.source}" }
+                                key = { pair -> trackedKey(pair.symbol, pair.source) }
                             ) { pair ->
-                                val key = "${pair.symbol}-${pair.source}"
+                                val key = trackedKey(pair.symbol, pair.source)
                                 val dragging = dragKey.value == key
                                 // fila con handle a la izquierda: unico punto de arrastre
                                 Row(
@@ -485,7 +458,7 @@ fun CryptoListScreen(
                                                     stopAutoScroll()
                                                     lastDropAt = System.currentTimeMillis()
                                                     localOrder.value?.let { ordered ->
-                                                        viewModel.savePairOrder(ordered.map { "${it.symbol}-${it.source}" })
+                                                        viewModel.savePairOrder(ordered.map { trackedKey(it.symbol, it.source) })
                                                     }
                                                     dragKey.value = null
                                                     dragOffsetY.value = 0f
@@ -513,7 +486,7 @@ fun CryptoListScreen(
                                                     val current = localOrder.value?.toMutableList()
                                                         ?: return@detectDragGesturesAfterLongPress
                                                     val dragId = dragKey.value ?: return@detectDragGesturesAfterLongPress
-                                                    val from = current.indexOfFirst { "${it.symbol}-${it.source}" == dragId }
+                                                    val from = current.indexOfFirst { trackedKey(it.symbol, it.source) == dragId }
                                                     if (from < 0) return@detectDragGesturesAfterLongPress
                                                     // destino por posicion real del dedo, sin asumir altos
                                                     var target = slots.last().index.coerceIn(0, current.size - 1)
@@ -587,7 +560,12 @@ fun CryptoListScreen(
                                             )
                                             onNavigateToDetail(pair.symbol, pair.source, "", seed)
                                         },
-                                        onDelete = { viewModel.onRemovePair(pair.symbol) }
+                                        onDelete = {
+                                            // la copia local del drag puede quedarse con el par
+                                            // borrado en pantalla: se suelta antes de borrar
+                                            localOrder.value = null
+                                            viewModel.onRemovePair(pair.symbol, pair.source)
+                                        }
                                         )
                                     }
                                 }

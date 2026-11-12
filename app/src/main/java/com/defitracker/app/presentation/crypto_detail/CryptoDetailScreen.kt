@@ -82,6 +82,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.toColorInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.defitracker.app.R
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.core.Timeframes
 import com.defitracker.app.ui.theme.AppGold
 import com.defitracker.app.ui.theme.AppGreen
@@ -171,7 +172,7 @@ fun CryptoDetailScreen(
     )
     // modo expandir, el chart manda y los TFs bajan
     val chartExpanded = remember { mutableStateOf(true) }
-    val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol, state.source)
+    val tradingPair = splitTradingPair(state.detail?.symbol ?: state.symbol)
 
     Scaffold(
         topBar = {
@@ -698,20 +699,22 @@ internal data class TradingPairParts(
     val displayName: String = if (quoteAsset.isBlank()) baseAsset else "$baseAsset/$quoteAsset"
 }
 
-private fun sourceLabel(source: String): String = when (source) {
-    "MEXC" -> "MEXC · Futuros"
-    "TV" -> "TradingView · CRYPTOCAP"
-    else -> "Binance · Spot"
-}
+internal fun sourceLabel(source: String): String = Brokers.label(source)
 
-internal fun splitTradingPair(symbol: String, source: String = "Binance"): TradingPairParts {
+internal fun splitTradingPair(symbol: String): TradingPairParts {
     if (symbol.isBlank()) return TradingPairParts("", "")
 
-    // futuros MEXC usan BTC_USDT con guion bajo
-    if (source == "MEXC" && "_" in symbol) {
-        val base = symbol.substringBefore("_")
-        val quote = symbol.substringAfter("_")
-        return TradingPairParts(base, quote)
+    // futuros: MEXC usa BTC_USDT y BingX BTC-USDT
+    val separator = when {
+        "_" in symbol -> "_"
+        "-" in symbol -> "-"
+        else -> null
+    }
+    if (separator != null) {
+        return TradingPairParts(
+            baseAsset = symbol.substringBefore(separator),
+            quoteAsset = symbol.substringAfter(separator)
+        )
     }
 
     val quoteAsset = knownQuoteAssets.firstOrNull { symbol.endsWith(it) }.orEmpty()
