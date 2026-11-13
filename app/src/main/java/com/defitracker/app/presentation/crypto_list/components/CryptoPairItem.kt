@@ -15,10 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,8 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -37,8 +32,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.defitracker.app.R
 import com.defitracker.app.core.Brokers
 import com.defitracker.app.domain.model.CryptoPair
@@ -57,7 +50,6 @@ fun CryptoPairItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val context = LocalContext.current
     val changeColor by animateColorAsState(
         targetValue = if (pair.isPositive) AppGreen else AppRed,
         animationSpec = tween(durationMillis = 180),
@@ -68,22 +60,7 @@ fun CryptoPairItem(
         formatPriceForChart(pair.price.toDoubleValue(), extended)
     }
 
-    // coincap no tiene logos de listados nuevos ni de indices TV; el logo de binance cubre casi
-    // todos, y si tampoco existe se cae a la inicial del par (nunca queda el circulo vacio).
-    // 1000PEPE usa el mismo logo que PEPE, por eso el prefijo tambien se prueba.
-    val iconUrls = remember(pair.baseAsset) {
-        val bases = listOf(pair.baseAsset) +
-            listOfNotNull(pair.baseAsset.removePrefix("1000").takeIf { it != pair.baseAsset })
-        bases.flatMap { base ->
-            listOf(
-                "https://assets.coincap.io/assets/icons/${base.lowercase()}@2x.png",
-                "https://bin.bnbstatic.com/static/assets/logos/${base.uppercase()}.png"
-            )
-        }
-    }
-    var iconIdx by remember(pair.baseAsset) { mutableIntStateOf(0) }
-    var iconFailed by remember(pair.baseAsset) { mutableStateOf(false) }
-
+    // el icono lo resuelve PairIcon: logo real (CoinCap/Binance) o badge con monograma
     Surface(
         color = Color.Transparent,
         modifier = Modifier
@@ -97,38 +74,7 @@ fun CryptoPairItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Coin Icon
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF181A20))
-                    .padding(4.dp)
-            ) {
-                if (iconFailed) {
-                    Text(
-                        text = pair.baseAsset.take(1).uppercase(),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFAAAAAA),
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                } else {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(iconUrls[iconIdx])
-                            .crossfade(false)
-                            .memoryCacheKey("coin-${pair.baseAsset}-$iconIdx")
-                            .diskCacheKey("coin-${pair.baseAsset}-$iconIdx")
-                            .build(),
-                        contentDescription = pair.baseAsset,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                        onError = {
-                            if (iconIdx < iconUrls.lastIndex) iconIdx++ else iconFailed = true
-                        }
-                    )
-                }
-            }
+            PairIcon(pair.baseAsset)
 
             Spacer(modifier = Modifier.width(12.dp))
 

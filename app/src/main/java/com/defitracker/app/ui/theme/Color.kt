@@ -63,3 +63,16 @@ object BrokerColors {
         else -> Binance
     }
 }
+
+// Monograma del par cuando no hay logo en ninguna fuente (commodities, indices de TradingView).
+// El badge lo dibuja presentation/crypto_list/components/PairIcon.kt
+object MonogramColors {
+    val surface = Color(0xFF181A20)
+    val text = Color(0xFFF2F4F8)
+    val gold = Color(0xFFD8A64A)
+    val violet = Color(0xFF8B7BE8)
+    val cyan = Color(0xFF3FA7C4)
+    val rose = Color(0xFFC65A7A)
+    val slate = Color(0xFF74839A)
+    val accents = listOf(cyan, violet, rose, slate, gold)
+}
