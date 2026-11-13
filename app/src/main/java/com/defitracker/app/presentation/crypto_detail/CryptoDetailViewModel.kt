@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.core.Timeframes
 import com.defitracker.app.data.repository.CryptoRepositoryImpl
 import com.defitracker.app.domain.model.LiveQuote
@@ -370,9 +371,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         return smc.copy(confluence = detectFvgConfluenceMultiTF(smc.zones, higher))
     }
 
-    private fun intervalForSource(tf: String): String =
-                if (source == "MEXC") tf else if (source == "TV") Timeframes.tradingViewResolution(tf) else tf.toBinanceInterval()
-
     // trae las velas de los TFs que piden las MAs visibles, luego re-alinea sin tocar zoom
     fun refreshExtraMas(force: Boolean = false) {
         val chartInterval = _state.value.selectedInterval
@@ -409,12 +407,10 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
     }
 
     private suspend fun fetchExtraCandles(tf: String, force: Boolean): List<CandleData> {
-        val rows = repository.getKlines(symbol, intervalForSource(tf), source, forceRefresh = force)
+        val rows = repository.getKlines(symbol, intervalForSource(source, tf), source, forceRefresh = force)
         if (rows.isEmpty()) return emptyList()
         return withContext(Dispatchers.Default) {
-            rows.toCandleList().let { list ->
-                if (source == "MEXC") list else list.aggregateForInterval(tf)
-            }
+            rows.toCandleList().forSourceInterval(source, tf)
         }
     }
 
@@ -921,8 +917,22 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                             if (baseVol24 > 0.0) lastBaseVol24 = baseVol24
                         }
                         val liveVol = (tickLast?.volume ?: 0.0) + volDelta
+                        // Bitunix no publica la vela en curso: el socket de trades trae el
+                        // O/H/L/C/V real del bucket y se usa en vez de la vela plana
+                        val bucket = if (source == Brokers.BITUNIX) {
+                            repository.liveBucket(symbol, tickInterval)
+                        } else null
+                        // solo si el bucket es el de la vela en curso del chart
+                        val liveBucket = bucket?.takeIf { tickLast != null && it.startMs == tickLast.time }
+                        val bucketVol = liveBucket?.volume ?: 0.0
+                        val shownVol = if (liveBucket != null) bucketVol else liveVol
+                        // el bucket va en la clave: un high/low nuevo del trade tiene que
+                        // disparar el update aunque el precio no se mueva
+                        val bucketKey = if (liveBucket != null) {
+                            "${liveBucket.open}:${liveBucket.high}:${liveBucket.low}:$bucketVol"
+                        } else ""
                         val tickKey = if (tickLast == null) "empty"
-                        else "${tickLast.time}:${tickLast.open}:${tickLast.high}:${tickLast.low}:$currentPrice:$liveVol:${tickCandles.size}"
+                        else "${tickLast.time}:${tickLast.open}:${tickLast.high}:${tickLast.low}:$currentPrice:$shownVol:${tickCandles.size}:$bucketKey"
                         // nada se movio: ni recalculo ni estado nuevo, el chart ni se entera
                         if (currentPrice == lastTickPrice && tickKey == lastTickCandleKey) continue
                         lastTickPrice = currentPrice
@@ -930,17 +940,42 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                         val updatedCandles = tickCandles.toMutableList()
                         if (updatedCandles.isNotEmpty()) {
                             val lastCandle = updatedCandles.last()
-                            // el split buy/sell conserva su proporcion al crecer
-                            val buyRatio = if (lastCandle.volume > 0.0) {
-                                (lastCandle.takerBuyVol / lastCandle.volume).coerceIn(0.0, 1.0)
-                            } else 0.5
-                            val newLastCandle = lastCandle.copy(
-                                close = currentPrice,
-                                high = currentPrice.coerceAtLeast(lastCandle.high),
-                                low = currentPrice.coerceAtMost(lastCandle.low),
-                                volume = liveVol,
-                                takerBuyVol = lastCandle.takerBuyVol + volDelta * buyRatio
-                            )
+                            val newLastCandle = if (liveBucket != null) {
+                                // el open real solo se conoce si el socket alcanzo el inicio
+                                // del bucket; si no, se usa el cierre de la vela anterior
+                                val prevClose = tickCandles.getOrNull(tickCandles.size - 2)?.close ?: lastCandle.open
+                                val open = if (liveBucket.firstTradeMs - liveBucket.startMs <= 3_000L) {
+                                    liveBucket.open
+                                } else {
+                                    prevClose
+                                }
+                                // la proporcion buy/sell se escala al volumen real del bucket
+                                // (si no, la barra de volumen queda de un solo color)
+                                val ratioCandle = tickCandles.lastOrNull { it.volume > 0.0 }
+                                val buyRatio = if (ratioCandle != null) {
+                                    (ratioCandle.takerBuyVol / ratioCandle.volume).coerceIn(0.0, 1.0)
+                                } else 0.0
+                                lastCandle.copy(
+                                    open = open,
+                                    close = currentPrice,
+                                    high = maxOf(liveBucket.high, currentPrice),
+                                    low = minOf(liveBucket.low, currentPrice),
+                                    volume = bucketVol,
+                                    takerBuyVol = bucketVol * buyRatio
+                                )
+                            } else {
+                                // el split buy/sell conserva su proporcion al crecer
+                                val buyRatio = if (lastCandle.volume > 0.0) {
+                                    (lastCandle.takerBuyVol / lastCandle.volume).coerceIn(0.0, 1.0)
+                                } else 0.5
+                                lastCandle.copy(
+                                    close = currentPrice,
+                                    high = currentPrice.coerceAtLeast(lastCandle.high),
+                                    low = currentPrice.coerceAtMost(lastCandle.low),
+                                    volume = liveVol,
+                                    takerBuyVol = lastCandle.takerBuyVol + volDelta * buyRatio
+                                )
+                            }
                             updatedCandles[updatedCandles.size - 1] = newLastCandle
                         }
 
@@ -1034,7 +1069,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                     repository.getKlines(
                         symbol,
                         // MEXC mapea+agrega en repo, Binance usa su formato
-                        intervalForSource(normalizedInterval),
+                        intervalForSource(source, normalizedInterval),
                         source,
                         // force (init/pull) siempre fresco; cambio de TF reusa cache de 30s
                         forceRefresh = force
@@ -1110,9 +1145,9 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
                 }
                 if (gen != chartGen) return@launch
                 val chartData = withContext(Dispatchers.Default) {
-                    val candles = rawKlines.toCandleList().let {
-                        if (source == "MEXC") it else it.aggregateForInterval(normalizedInterval)
-                    }.withLiveCandle(normalizedInterval)
+                    val candles = rawKlines.toCandleList()
+                        .forSourceInterval(source, normalizedInterval)
+                        .withLiveCandle(normalizedInterval)
 
                     if (candles.isEmpty()) {
                         return@withContext ChartComputation()
@@ -1166,7 +1201,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         val sinceMs = current.candles.lastOrNull()?.time ?: 0L
         val rows = repository.getLatestKlines(
             symbol,
-            intervalForSource(interval),
+            intervalForSource(source, interval),
             source,
             sinceTimeMs = sinceMs
         )
@@ -1174,9 +1209,7 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         // si cambiaste de TF mientras viajaba la red, esa cola ya no sirve
         if (_state.value.selectedInterval != interval) return
         val fresh = withContext(Dispatchers.Default) {
-            rows.toCandleList().let {
-                if (source == "MEXC") it else it.aggregateForInterval(interval)
-            }
+            rows.toCandleList().forSourceInterval(source, interval)
         }
         if (fresh.isEmpty()) return
         if (_state.value.selectedInterval != interval) return
@@ -1476,39 +1509,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         return out.ifEmpty { null }
     }
 
-    private fun String.toBinanceInterval(): String {
-        return Timeframes.binanceInterval(this)
-    }
-
-    private fun List<CandleData>.aggregateForInterval(interval: String): List<CandleData> {
-        val chunkDurMs = Timeframes.calendarAggregation(interval) ?: return this
-        if (isEmpty()) return this
-        // buckets anclados a calendario, no al indice; si no los times bailan cada fetch
-        val weekAnchored = Timeframes.find(interval)?.weekAnchored == true
-        val buckets = LinkedHashMap<Long, MutableList<CandleData>>()
-        for (c in this) {
-            val key = if (weekAnchored) {
-                c.time - ((c.time - WEEK_ANCHOR_MS) % chunkDurMs)
-            } else {
-                c.time - (c.time % chunkDurMs)
-            }
-            buckets.getOrPut(key) { mutableListOf() }.add(c)
-        }
-        return buckets.map { (key, bucket) ->
-            val first = bucket.first()
-            val last = bucket.last()
-            CandleData(
-                time = key,
-                open = first.open,
-                high = bucket.maxOf { it.high },
-                low = bucket.minOf { it.low },
-                close = last.close,
-                volume = bucket.sumOf { it.volume },
-                takerBuyVol = bucket.sumOf { it.takerBuyVol }
-            )
-        }
-    }
-
     private companion object {
         const val TAG = "CryptoDetailVM"
         // el precio y la vela en curso se refrescan siempre a este ritmo
@@ -1524,8 +1524,6 @@ class CryptoDetailViewModel @Inject constructor(    private val repository: Cryp
         // pulso: throttle entre recomputos + TTL de las 15m
         const val ANALYSIS_THROTTLE_MS = 15_000L
         const val ANALYSIS_TF_TTL_MS = 300_000L
-        // lunes 2020-01-06T00:00Z, ancla de buckets semanales (la epoca cae jueves)
-        const val WEEK_ANCHOR_MS = 1_578_182_400_000L
     }
 
 }

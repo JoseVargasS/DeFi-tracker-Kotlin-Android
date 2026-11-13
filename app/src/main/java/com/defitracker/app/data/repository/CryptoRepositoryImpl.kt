@@ -15,6 +15,7 @@ import com.defitracker.app.data.remote.BinanceTickerStream
 import com.defitracker.app.data.remote.BingxApi
 import com.defitracker.app.data.remote.BingxTickerStream
 import com.defitracker.app.data.remote.BitunixApi
+import com.defitracker.app.data.remote.BitunixEvent
 import com.defitracker.app.data.remote.BitunixTickerStream
 import com.defitracker.app.data.remote.CoinStatsApi
 import com.defitracker.app.data.remote.MexcFuturesApi
@@ -28,6 +29,7 @@ import com.defitracker.app.data.remote.dto.CoinStatsTransactionSyncWalletDto
 import com.defitracker.app.data.remote.dto.EtherscanTransactionDto
 import com.defitracker.app.domain.model.AvailableCryptoPair
 import com.defitracker.app.domain.model.CryptoPair
+import com.defitracker.app.domain.model.LiveBucket
 import com.defitracker.app.domain.model.LiveQuote
 import com.defitracker.app.domain.model.PairDetail
 import com.defitracker.app.domain.model.TakerVolume
@@ -46,6 +48,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.transform
 import retrofit2.HttpException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -92,6 +95,9 @@ class CryptoRepositoryImpl @Inject constructor(
     private var cachedBingxSymbols: List<AvailableCryptoPair> = emptyList()
     // open de 24h por par de BingX: el socket no lo manda, se refresca cada 5 min
     private val bingxOpenCache = HashMap<String, Pair<Double, Long>>()
+    // vela en curso real de Bitunix: el exchange solo publica velas cerradas, asi que
+    // el chart la arma con los trades del socket
+    private val bitunixLiveBuckets = BitunixLiveBuckets()
     private val klineCache = object : LinkedHashMap<String, CachedKlines>(
         KLINE_CACHE_MAX_ENTRIES,
         0.75f,
@@ -200,6 +206,11 @@ class CryptoRepositoryImpl @Inject constructor(
     // junta los cuatro sockets en un mapa key "$symbol-$source"; si un socket falla emite vacio
     fun observeLivePrices(): Flow<Map<String, LiveQuote>> = sharedLivePrices
 
+    // vela en curso real de Bitunix (O/H/L/C/V del bucket en curso). null si el socket
+    // todavia no trajo trades de ese par
+    fun liveBucket(symbol: String, tf: String): LiveBucket? =
+        bitunixLiveBuckets.bucket(symbol, tf)
+
     private fun buildLivePrices(): Flow<Map<String, LiveQuote>> {
         // los cuatro sockets son por simbolo: se pide solo lo trackeado de cada fuente.
         // sin pares de esa fuente, no se abre socket
@@ -240,20 +251,30 @@ class CryptoRepositoryImpl @Inject constructor(
             .catch { logNonFatal("MEXC live stream failed", it); emit(emptyMap()) }
         // Bitunix/BingX solo aceptan suscripcion por simbolo
         val bitunix = bitunixTickerStream.observe(trackedSymbolsFor(Brokers.BITUNIX))
-            .map { batch ->
-                val now = System.currentTimeMillis()
-                batch.mapNotNull { (symbol, t) ->
-                    if (t.lastPrice <= 0 || t.open24h <= 0) return@mapNotNull null
-                    val pct = (t.lastPrice - t.open24h) / t.open24h * 100.0
-                    "$symbol-${Brokers.BITUNIX}" to LiveQuote(
-                        price = formatRepositoryPrice(t.lastPrice),
-                        priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
-                        isPositive = pct >= 0,
-                        quoteVolume = t.quoteVolume,
-                        priceValue = t.lastPrice,
-                        receivedAtMs = now
-                    )
-                }.toMap()
+            .transform { event ->
+                when (event) {
+                    // los trades arman la vela en curso real: no cambian el precio, asi que
+                    // no se emite (no se despierta la UI por cada trade)
+                    is BitunixEvent.Trades -> bitunixLiveBuckets.onTrades(event.symbol, event.trades)
+                    is BitunixEvent.Price -> {
+                        val t = event.tick
+                        if (t.lastPrice > 0 && t.open24h > 0) {
+                            val pct = (t.lastPrice - t.open24h) / t.open24h * 100.0
+                            emit(
+                                mapOf(
+                                    "${event.symbol}-${Brokers.BITUNIX}" to LiveQuote(
+                                        price = formatRepositoryPrice(t.lastPrice),
+                                        priceChangePercent = String.format(java.util.Locale.US, "%.2f", pct),
+                                        isPositive = pct >= 0,
+                                        quoteVolume = t.quoteVolume,
+                                        priceValue = t.lastPrice,
+                                        receivedAtMs = System.currentTimeMillis()
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
             }
             .catch { logNonFatal("Bitunix live stream failed", it); emit(emptyMap()) }
         val bingx: Flow<Map<String, LiveQuote>> = bingxTickerStream.observe(trackedSymbolsFor(Brokers.BINGX))
@@ -376,9 +397,11 @@ class CryptoRepositoryImpl @Inject constructor(
         }
     }
 
-    // nota: taker siempre de Binance Futuros (klines, sin auth); MEXC se mapea quitando el "_".
-    // El kline en curso si trae volumen parcial (indice 9 = taker buy base), por eso
-    // la vela se forma en vivo aunque el TF sea de 1d.
+    // nota: el taker siempre viene de Binance Futuros (klines, sin auth) para TODAS las fuentes:
+    // ni MEXC ni Bitunix ni BingX publican volumen taker buy/sell en su API publica
+    // (verificado 2026-11-12: Bitunix kline trae open/high/low/close/baseVol/quoteVol y BingX
+    // open/close/high/low/volume; ningun endpoint taker). El kline en curso si trae volumen
+    // parcial (indice 9 = taker buy base), por eso la vela se forma en vivo aunque el TF sea de 1d.
     suspend fun getTakerVolumes(
         symbol: String,
         interval: String,

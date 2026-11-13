@@ -21,6 +21,11 @@ object Timeframes {
     const val CHART_KEY = "chart"
     const val DEFAULT_CHART_KEY = "5m"
 
+    // el exchange abre la semana en lunes (2020-01-06T00:00Z): ancla de los buckets 1w
+    const val WEEK_MONDAY_ANCHOR_MS = 1_578_268_800_000L
+    // la app agrupa las velas 1w en 2w con este ancla (2020-01-05T00:00Z)
+    const val WEEK_ANCHOR_MS = 1_578_182_400_000L
+
     val ALL: List<TimeframeDefinition> = listOf(
         definition("1m", 60_000L, "Min1", 60_000L, "1", 2, 3000, false),
         definition("5m", 300_000L, "Min5", 300_000L, "5", 2, 3000, true),
@@ -53,6 +58,37 @@ object Timeframes {
     fun durationMs(key: String): Long = find(key.trim())?.durationMs ?: 0L
 
     fun calendarAggregation(key: String): Long? = find(key)?.calendarAggregationMs
+
+    // inicio del bucket en curso de un TF: la misma fase que publica el exchange
+    // (duracion fija alineada al epoch, semana en lunes, mes en el dia 1 UTC).
+    // la vela en curso se arma con esta regla para que caiga en el bucket que le toca.
+    fun bucketStartMs(key: String, timeMs: Long): Long {
+        val def = find(key.trim()) ?: return timeMs
+        if (def.key == "1mo") return monthStartUtc(timeMs)
+        val dur = def.calendarAggregationMs ?: def.durationMs
+        if (dur <= 0L) return timeMs
+        val anchor = when {
+            // 2w: la app agrupa las velas 1w con este ancla
+            def.weekAnchored -> WEEK_ANCHOR_MS
+            // 1w: el exchange abre la semana en lunes
+            def.key == "1w" -> WEEK_MONDAY_ANCHOR_MS
+            else -> 0L
+        }
+        val offset = ((timeMs - anchor) % dur + dur) % dur
+        return timeMs - offset
+    }
+
+    // el mes en UTC: el exchange etiqueta el bucket con el dia 1 del mes
+    fun monthStartUtc(ms: Long): Long {
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        cal.timeInMillis = ms
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
 
     // el taker crece local; la red solo corrige la proporcion, asi que la cadencia va por TF
     fun takerRefreshMs(key: String): Long = when (key.trim()) {

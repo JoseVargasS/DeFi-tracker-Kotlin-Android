@@ -17,6 +17,9 @@ class TickerStreamParsingTest {
 
     private val bitunixTicker = """{"ch":"ticker","symbol":"BTCUSDT","ts":1794422844302,"data":{"s":"BTCUSDT","o":"73466.6","la":"74474.6","h":"74750.1","l":"73185.6","b":"25777.952","q":"1903872210.76466","r":"1.3720520618"}}"""
 
+    // frame real del canal de trades: es lo que arma la vela en curso de Bitunix
+    private val bitunixTrade = """{"ch":"trade","symbol":"BTCUSDT","ts":1794520229052,"data":[{"t":"2026-11-12T21:50:28Z","p":"71569.8","v":"0.0186","s":"sell"},{"t":"2026-11-12T21:50:28Z","p":"71572.8","v":"0.0002","s":"sell"}]}"""
+
     // ack de suscripcion de BingX, sin comprimir y con data en null
     private val bingxAck = """{"id":"1","code":0,"msg":"","dataType":"","data":null}"""
 
@@ -26,25 +29,38 @@ class TickerStreamParsingTest {
 
     @Test
     fun `bitunix ignores the connect frame`() {
-        assertNull(BitunixTickerStream.parseTick(bitunixConnect))
+        assertNull(BitunixTickerStream.parseEvent(bitunixConnect))
     }
 
     @Test
     fun `bitunix reads last price 24h open and quote volume`() {
-        val (symbol, tick) = BitunixTickerStream.parseTick(bitunixTicker)!!
+        val event = BitunixTickerStream.parseEvent(bitunixTicker) as BitunixEvent.Price
 
-        assertEquals("BTCUSDT", symbol)
-        assertEquals(74474.6, tick.lastPrice, 0.0)
-        assertEquals(73466.6, tick.open24h, 0.0)
-        assertEquals(1_903_872_210.76466, tick.quoteVolume, 0.0)
+        assertEquals("BTCUSDT", event.symbol)
+        assertEquals(74474.6, event.tick.lastPrice, 0.0)
+        assertEquals(73466.6, event.tick.open24h, 0.0)
+        assertEquals(1_903_872_210.76466, event.tick.quoteVolume, 0.0)
     }
 
     @Test
-    fun `bitunix subscribe message carries every symbol in one frame`() {
+    fun `bitunix reads the trades that build the live candle`() {
+        val event = BitunixTickerStream.parseEvent(bitunixTrade) as BitunixEvent.Trades
+
+        assertEquals("BTCUSDT", event.symbol)
+        assertEquals(2, event.trades.size)
+        val first = event.trades[0]
+        assertEquals(71569.8, first.price, 0.0)
+        assertEquals(0.0186, first.volume, 0.0)
+        // 2026-11-12T21:50:28Z en epoch millis
+        assertEquals(1_794_520_228_000L, first.timeMs)
+    }
+
+    @Test
+    fun `bitunix subscribe message carries ticker and trade in one frame`() {
         val msg = BitunixTickerStream.subscribeMessage(listOf("BTCUSDT", "AVAXUSDT"))
 
         assertEquals(
-            """{"op":"subscribe","args":[{"symbol":"BTCUSDT","ch":"ticker"},{"symbol":"AVAXUSDT","ch":"ticker"}]}""",
+            """{"op":"subscribe","args":[{"symbol":"BTCUSDT","ch":"ticker"},{"symbol":"BTCUSDT","ch":"trade"},{"symbol":"AVAXUSDT","ch":"ticker"},{"symbol":"AVAXUSDT","ch":"trade"}]}""",
             msg
         )
     }
