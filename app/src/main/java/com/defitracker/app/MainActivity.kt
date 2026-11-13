@@ -26,6 +26,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.presentation.crypto_detail.CryptoDetailScreen
 import com.defitracker.app.presentation.crypto_detail.DetailSeed
 import com.defitracker.app.presentation.crypto_detail.toDoubleValue
@@ -68,7 +69,7 @@ class MainActivity : ComponentActivity() {
     private fun consumeAlertIntent(intent: Intent?) {
         if (intent?.action == ACTION_OPEN_ALERT) {
             val symbol = intent.getStringExtra(EXTRA_ALERT_SYMBOL).orEmpty()
-            val source = intent.getStringExtra(EXTRA_ALERT_SOURCE).orEmpty().ifEmpty { "MEXC" }
+            val source = intent.getStringExtra(EXTRA_ALERT_SOURCE).orEmpty().ifEmpty { Brokers.MEXC }
             val interval = intent.getStringExtra(EXTRA_ALERT_INTERVAL).orEmpty()
             if (symbol.isNotEmpty()) {
                 pendingAlert = Triple(symbol, source, interval)

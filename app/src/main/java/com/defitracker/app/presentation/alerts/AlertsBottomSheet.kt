@@ -57,6 +57,7 @@ import com.defitracker.app.presentation.components.PillOption
 import com.defitracker.app.ui.theme.AppGold
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
+import com.defitracker.app.ui.theme.BrokerColors
 import com.defitracker.app.ui.theme.CardBg
 import com.defitracker.app.ui.theme.SheetBg
 import java.text.SimpleDateFormat
@@ -348,11 +349,15 @@ private fun AlertRow(
                 fontWeight = if (alert.seen) FontWeight.Normal else FontWeight.Bold
             )
             Spacer(Modifier.height(2.dp))
-            Text(
-                text = "${alert.kindLabel()} · ${formatTime(alert.createdAt)}${if (alert.seen) "" else " · nuevo"}",
-                color = if (alert.seen) Color.Gray else accent,
-                fontSize = 11.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrokerChip(alert.source)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "${alert.kindLabel()} · ${formatTime(alert.createdAt)}${if (alert.seen) "" else " · nuevo"}",
+                    color = if (alert.seen) Color.Gray else accent,
+                    fontSize = 11.sp
+                )
+            }
         }
         if (!alert.seen) {
             Box(
@@ -363,6 +368,22 @@ private fun AlertRow(
             )
         }
     }
+}
+
+// chip del broker: la alerta dice de que exchange salio
+@Composable
+private fun BrokerChip(source: String) {
+    val color = BrokerColors.of(source)
+    Text(
+        text = source,
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = 0.16f))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    )
 }
 
 private fun DivAlertEntity.kindLabel(): String = when (kind) {

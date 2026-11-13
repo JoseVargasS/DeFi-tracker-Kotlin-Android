@@ -17,6 +17,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.compose.ui.graphics.toArgb
 import com.defitracker.app.MainActivity
 import com.defitracker.app.R
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.ui.theme.AppGold
 import com.defitracker.app.ui.theme.AppGreen
 import com.defitracker.app.ui.theme.AppRed
@@ -187,8 +188,9 @@ class DivAlertNotifier @Inject constructor(
         tag: String,
         pre: Boolean = false
     ) {
-        // MEXC usa DOGE_USDT, pero se muestra junto DOGEUSDT
-        val displaySymbol = symbol.replace("_", "")
+        // cada broker escribe el simbolo a su modo (BTCUSDT, BTC_USDT, BTC-USDT):
+        // en pantalla va siempre sin separador
+        val displaySymbol = Brokers.displaySymbol(symbol)
         val message = "¡$tag en $interval en $displaySymbol!"
         val text = "$kindLabel · Toca para ver la gráfica en $interval"
         post(
@@ -217,7 +219,7 @@ class DivAlertNotifier @Inject constructor(
         alertIdHash: Int,
         soundUri: String = ""
     ) {
-        val displaySymbol = symbol.replace("_", "")
+        val displaySymbol = Brokers.displaySymbol(symbol)
         val dir = direction.uppercase().takeIf { it == "SHORT" } ?: "LONG"
         val priceTxt = if (touchedPrice > 0) com.defitracker.app.presentation.crypto_detail.formatPriceForChart(touchedPrice) else "tu zona"
         val title = "$displaySymbol llegó a tu zona de $dir!"

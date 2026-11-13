@@ -26,4 +26,8 @@ object Brokers {
     // posicion del chip; las fuentes desconocidas van al final
     fun rank(source: String?): Int =
         CHIP_ORDER.indexOf(source).let { if (it < 0) CHIP_ORDER.size else it }
+
+    // cada broker escribe el simbolo a su modo: BTCUSDT, BTC_USDT, BTC-USDT.
+    // en pantalla va siempre sin separador.
+    fun displaySymbol(symbol: String): String = symbol.replace("_", "").replace("-", "")
 }

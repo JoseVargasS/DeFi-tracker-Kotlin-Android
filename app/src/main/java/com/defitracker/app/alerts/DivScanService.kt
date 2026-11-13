@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
+import com.defitracker.app.core.Brokers
 import com.defitracker.app.data.local.DivAlertDao
 import com.defitracker.app.data.local.DivAlertEntity
 import com.defitracker.app.data.local.TrackedPairDao
@@ -18,9 +19,12 @@ import com.defitracker.app.presentation.crypto_detail.detectFvgTap
 import com.defitracker.app.presentation.crypto_detail.detectMaWickRejection
 import com.defitracker.app.presentation.crypto_detail.detectRsiDivergences
 import com.defitracker.app.presentation.crypto_detail.detectSweepReclaim
+import com.defitracker.app.presentation.crypto_detail.forSourceInterval
 import com.defitracker.app.presentation.crypto_detail.formatPriceForChart
+import com.defitracker.app.presentation.crypto_detail.intervalForSource
 import com.defitracker.app.presentation.crypto_detail.toCandleList
 import com.defitracker.app.presentation.crypto_detail.toDoubleValue
+import com.defitracker.app.presentation.crypto_detail.withLiveCandlePrice
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -96,7 +100,7 @@ class DivScanService : Service() {
         if (intervals.isEmpty()) return
         val pairs = try {
             trackedPairDao.getAllTrackedPairs().first()
-                .filter { it.source == "MEXC" }
+                .filter { it.source in SCANNED_SOURCES }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) { return }
@@ -104,32 +108,42 @@ class DivScanService : Service() {
 
         for (pair in pairs) {
             if (!scope.isActive) return
+            // Bitunix no publica la vela en curso: el precio REST la llena igual que el socket la
+            // llena en el chart, para que el escaner vea lo mismo que la pantalla.
+            val livePrice = if (pair.source == Brokers.BITUNIX) pairLivePrice(pair.symbol, pair.source) else 0.0
             // divis frescas por TF para la confluencia multi-TF
             val fresh = ArrayList<Triple<String, RsiDiv, Long>>()
             for (interval in intervals) {
                 if (!scope.isActive) return
                 try {
-                    // MEXC mapea el TF dentro del repo, force fresca pa' detectar al toque
-                    val rows = repository.getKlines(pair.symbol, interval, "MEXC", forceRefresh = true)
+                    // el repo mapea el TF por fuente; el scanner usa el mismo mapeo que el chart
+                    val rows = repository.getKlines(
+                        pair.symbol,
+                        intervalForSource(pair.source, interval),
+                        pair.source,
+                        forceRefresh = true
+                    )
                     if (rows.size < MIN_CANDLES) {
-                        delay(PAIR_TF_DELAY_MS)
+                        delay(pairDelayMs(pair.source))
                         continue
                     }
                     val candles = rows.toCandleList()
+                        .forSourceInterval(pair.source, interval)
+                        .withLiveCandlePrice(interval, livePrice)
                     if (candles.size < MIN_CANDLES) {
-                        delay(PAIR_TF_DELAY_MS)
+                        delay(pairDelayMs(pair.source))
                         continue
                     }
                     val rsi = calculateRsi(candles)
                     if (rsi.size != candles.size) {
-                        delay(PAIR_TF_DELAY_MS)
+                        delay(pairDelayMs(pair.source))
                         continue
                     }
                     // temprana (lookback 2) + confirmada (lookback 5) sobre las mismas velas
                     val earlyDivs = detectRsiDivergences(candles, rsi, RSI_DIV_EARLY_LOOKBACK)
                     val confDivs = detectRsiDivergences(candles, rsi)
-                    processDivs(pair.symbol, interval, candles, earlyDivs, pre = true)
-                    processDivs(pair.symbol, interval, candles, confDivs, pre = false)
+                    processDivs(pair.symbol, pair.source, interval, candles, earlyDivs, pre = true)
+                    processDivs(pair.symbol, pair.source, interval, candles, confDivs, pre = false)
                     // la mas reciente fresca de este TF cuenta para confluencia
                     (earlyDivs + confDivs).maxByOrNull { it.idx2 }?.let { d ->
                         val recency = candles.size - 1 - d.idx2
@@ -139,18 +153,27 @@ class DivScanService : Service() {
                     }
                     // señales de entrada sobre las velas ya traidas, sin red extra
                     if (candles.size >= MIN_SIGNAL_CANDLES) {
-                        processSignals(pair.symbol, interval, candles, config.signals)
+                        processSignals(pair.symbol, pair.source, interval, candles, config.signals)
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w(TAG, "Scan failed ${pair.symbol}/$interval", e)
+                    Log.w(TAG, "Scan failed ${pair.symbol}/${pair.source}/$interval", e)
                 }
                 // secuencial con pausa, no paralelizar terceros
-                delay(PAIR_TF_DELAY_MS)
+                delay(pairDelayMs(pair.source))
             }
-            processConfluence(pair.symbol, fresh, config.confluence)
+            processConfluence(pair.symbol, pair.source, fresh, config.confluence)
         }
+    }
+
+    // precio actual del par: solo Bitunix lo necesita (las otras fuentes ya traen la vela viva)
+    private suspend fun pairLivePrice(symbol: String, source: String): Double = try {
+        repository.getPairDetail(symbol, source).price.toDoubleValue()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        0.0
     }
 
     // alertas de precio LONG/SHORT: secuencial con pausa, renotifica cada 5 min.
@@ -200,6 +223,7 @@ class DivScanService : Service() {
     // la mas reciente de la tanda; la pre crea la fila y la confirmada la actualiza a Bull/Bear
     private suspend fun processDivs(
         symbol: String,
+        source: String,
         interval: String,
         candles: List<CandleData>,
         divs: List<RsiDiv>,
@@ -209,18 +233,18 @@ class DivScanService : Service() {
         val recency = candles.size - 1 - last.idx2
         if (recency < 0 || recency > FRESH_CANDLES) return
         val candleTime = candles[last.idx2].time
-        val displaySymbol = symbol.replace("_", "")
+        val displaySymbol = Brokers.displaySymbol(symbol)
         val tag = (if (pre) "Pre-" else "") + (if (last.bullish) "Bull" else "Bear")
         val message = "¡$tag en $interval en $displaySymbol!"
-        val baseId = "$symbol|$interval|${last.kind}|$candleTime"
+        val baseId = divAlertId(source, symbol, interval, last.kind.name, candleTime)
         if (pre) {
             if (divAlertDao.getById(baseId) != null) return
-            if (findNearby(symbol, interval, last.kind.name, candleTime, "CONFIRMED") != null) return
+            if (findNearby(symbol, source, interval, last.kind.name, candleTime, "CONFIRMED") != null) return
             divAlertDao.insert(
                 DivAlertEntity(
                     id = baseId,
                     symbol = symbol,
-                    source = "MEXC",
+                    source = source,
                     interval = interval,
                     kind = last.kind.name,
                     bullish = last.bullish,
@@ -229,26 +253,26 @@ class DivScanService : Service() {
                     status = "PRE"
                 )
             )
-            notifier.notifyDivergence(symbol, "MEXC", interval, last.bullish, kindLabelEs(last.kind.name), baseId.hashCode(), tag, pre = true)
+            notifier.notifyDivergence(symbol, source, interval, last.bullish, kindLabelEs(last.kind.name), baseId.hashCode(), tag, pre = true)
             return
         }
         val existing = divAlertDao.getById(baseId)
         if (existing != null) {
             if (existing.status == "CONFIRMED") return
             divAlertDao.upgradeToConfirmed(existing.id, message, candleTime, System.currentTimeMillis())
-            notifier.notifyDivergence(symbol, "MEXC", interval, last.bullish, kindLabelEs(last.kind.name), existing.id.hashCode(), tag)
+            notifier.notifyDivergence(symbol, source, interval, last.bullish, kindLabelEs(last.kind.name), existing.id.hashCode(), tag)
             return
         }
-        findNearby(symbol, interval, last.kind.name, candleTime, "PRE")?.let { match ->
+        findNearby(symbol, source, interval, last.kind.name, candleTime, "PRE")?.let { match ->
             divAlertDao.upgradeToConfirmed(match.id, message, candleTime, System.currentTimeMillis())
-            notifier.notifyDivergence(symbol, "MEXC", interval, last.bullish, kindLabelEs(last.kind.name), match.id.hashCode(), tag)
+            notifier.notifyDivergence(symbol, source, interval, last.bullish, kindLabelEs(last.kind.name), match.id.hashCode(), tag)
             return
         }
         divAlertDao.insert(
             DivAlertEntity(
                 id = baseId,
                 symbol = symbol,
-                source = "MEXC",
+                source = source,
                 interval = interval,
                 kind = last.kind.name,
                 bullish = last.bullish,
@@ -257,28 +281,29 @@ class DivScanService : Service() {
                 status = "CONFIRMED"
             )
         )
-        notifier.notifyDivergence(symbol, "MEXC", interval, last.bullish, kindLabelEs(last.kind.name), baseId.hashCode(), tag)
+        notifier.notifyDivergence(symbol, source, interval, last.bullish, kindLabelEs(last.kind.name), baseId.hashCode(), tag)
     }
 
     // doble confirmacion: misma direccion fresca en 2+ TFs
     private suspend fun processConfluence(
         symbol: String,
+        source: String,
         fresh: List<Triple<String, RsiDiv, Long>>,
         enabled: Boolean
     ) {
         if (!enabled || fresh.isEmpty()) return
         val now = System.currentTimeMillis()
-        val displaySymbol = symbol.replace("_", "")
+        val displaySymbol = Brokers.displaySymbol(symbol)
         listOf(true, false).forEach { bull ->
             val tfs = fresh.filter { it.second.bullish == bull }.map { it.first }.distinct()
             if (tfs.size < 2) return@forEach
             val kind = if (bull) "CONF_BULL" else "CONF_BEAR"
             try {
-                if (divAlertDao.countSince(symbol, kind, now - CONF_COOLDOWN_MS) > 0) return@forEach
+                if (divAlertDao.countSince(symbol, source, kind, now - CONF_COOLDOWN_MS) > 0) return@forEach
             } catch (_: Exception) { return@forEach }
             val best = tfs.maxByOrNull { candleDurationMs(it) } ?: tfs.first()
             val candleTime = fresh.filter { it.second.bullish == bull }.maxOfOrNull { it.third } ?: now
-            val id = "$symbol|CONF|${if (bull) "BULL" else "BEAR"}|$candleTime"
+            val id = confluenceAlertId(source, symbol, bull, candleTime)
             try {
                 if (divAlertDao.getById(id) != null) return@forEach
                 val dir = if (bull) "alcista" else "bajista"
@@ -288,7 +313,7 @@ class DivScanService : Service() {
                     DivAlertEntity(
                         id = id,
                         symbol = symbol,
-                        source = "MEXC",
+                        source = source,
                         interval = best,
                         kind = kind,
                         bullish = bull,
@@ -298,7 +323,7 @@ class DivScanService : Service() {
                     )
                 )
                 notifier.notifySignal(
-                    symbol, "MEXC", best, bull, message,
+                    symbol, source, best, bull, message,
                     "Doble confirmación $dir · $tfLabel · Toca para ver la gráfica",
                     id.hashCode()
                 )
@@ -313,13 +338,14 @@ class DivScanService : Service() {
     // gatillos de entrada sobre las velas ya traidas, con cooldown 4h por señal
     private suspend fun processSignals(
         symbol: String,
+        source: String,
         interval: String,
         candles: List<CandleData>,
         enabled: Set<String>
     ) {
         if (enabled.isEmpty()) return
         val now = System.currentTimeMillis()
-        val displaySymbol = symbol.replace("_", "")
+        val displaySymbol = Brokers.displaySymbol(symbol)
         val found = ArrayList<Triple<String, Boolean, String>>()
         if ("MA_REJECT" in enabled) {
             try {
@@ -344,16 +370,16 @@ class DivScanService : Service() {
         }
         for ((kind, bull, title) in found) {
             try {
-                if (divAlertDao.countSince(symbol, kind, now - SIGNAL_COOLDOWN_MS) > 0) continue
+                if (divAlertDao.countSince(symbol, source, kind, now - SIGNAL_COOLDOWN_MS) > 0) continue
                 val candleTime = candles[candles.size - 2].time
-                val id = "$symbol|$interval|$kind|$candleTime"
+                val id = divAlertId(source, symbol, interval, kind, candleTime)
                 if (divAlertDao.getById(id) != null) continue
                 val message = "¡$title · $interval en $displaySymbol!"
                 divAlertDao.insert(
                     DivAlertEntity(
                         id = id,
                         symbol = symbol,
-                        source = "MEXC",
+                        source = source,
                         interval = interval,
                         kind = kind,
                         bullish = bull,
@@ -363,7 +389,7 @@ class DivScanService : Service() {
                     )
                 )
                 notifier.notifySignal(
-                    symbol, "MEXC", interval, bull, message,
+                    symbol, source, interval, bull, message,
                     "$title · $interval · Toca para ver la gráfica",
                     id.hashCode()
                 )
@@ -374,11 +400,11 @@ class DivScanService : Service() {
     }
 
     // pres/confirmadas del mismo evento con el pivote hasta 2 velas corrido
-    private suspend fun findNearby(symbol: String, interval: String, kind: String, candleTime: Long, status: String): DivAlertEntity? {
+    private suspend fun findNearby(symbol: String, source: String, interval: String, kind: String, candleTime: Long, status: String): DivAlertEntity? {
         val step = candleDurationMs(interval)
         if (step <= 0L) return null
         val span = 2 * step
-        return divAlertDao.findNearby(symbol, interval, kind, candleTime - span, candleTime + span, status)
+        return divAlertDao.findNearby(symbol, source, interval, kind, candleTime - span, candleTime + span, status)
     }
 
     private fun kindLabelEs(kind: String): String = when (kind) {
@@ -393,6 +419,15 @@ class DivScanService : Service() {
         private const val TAG = "DivScanService"
         private const val SCAN_INTERVAL_MS = 60_000L
         private const val PAIR_TF_DELAY_MS = 400L
+        // MEXC es la fuente con el limite mas ajustado: se separa un poco mas.
+        private const val MEXC_PAIR_TF_DELAY_MS = 500L
+        // los 4 brokers se escanean igual; TV no (no es broker y su socket es carisimo)
+        private val SCANNED_SOURCES = setOf(
+            Brokers.BINANCE,
+            Brokers.MEXC,
+            Brokers.BITUNIX,
+            Brokers.BINGX
+        )
         private const val MIN_CANDLES = 60
         // solo avisa si el pivote cerro hace <= 3 velas, si no es historia vieja
         private const val FRESH_CANDLES = 3
@@ -403,6 +438,10 @@ class DivScanService : Service() {
         // precio: retoca cada 5 min si ya quitaste la noti de la barra
         private const val PRICE_RENOTIFY_MS = 5L * 60 * 1000
         private const val PRICE_ALERT_DELAY_MS = 800L
+
+        // pausa entre par y TF: mas larga en MEXC, que es la que se respeta primero
+        private fun pairDelayMs(source: String): Long =
+            if (source == Brokers.MEXC) MEXC_PAIR_TF_DELAY_MS else PAIR_TF_DELAY_MS
 
         fun start(context: Context) {
             val intent = Intent(context, DivScanService::class.java)
