@@ -4,8 +4,8 @@ Audience: any agent (or human) touching the price chart. Read this before editin
 `CryptoDetailScreen.kt` (the `PriceChart` block), `chart/*`, `IndicatorTail.kt`,
 `ClosedCandleCache.kt`, `MarketChart` wiring or the chart-related parts of the ViewModel.
 
-State: reflects `main` after the Bitunix/BingX sources (2026-11-11, 127 unit tests /
-22 classes green). Read the count from the test results, not from this line.
+State: reflects `main` after the multi-broker scanner (2026-11-12, 144 unit tests /
+26 classes green). Read the count from the test results, not from this line.
 
 > Rules live in `AGENTS.md`. This document explains them: why each one exists, the
 > measurements behind it, and how to verify it. If the two disagree, `AGENTS.md` wins.
@@ -69,6 +69,11 @@ Rules:
   2 s tick decides "a candle closed" with `now >= last.time + duration`; if the last candle
   is already closed, every tick runs `syncTail` and the third one forces a full reload. The
   source that omits it (Bitunix) gets a flat live bucket from `withLiveCandle`.
+- The live bucket of Bitunix is **not** flat: it is built from the WS `trade` channel
+  (`BitunixLiveBuckets` in the repository, read by the 2 s tick). The O/H/L/C/V come from the
+  real trades of the bucket, so the candle in progress is drawn with its true shape instead of
+  a line at the previous close. The bucket only applies when its start time is the last
+  candle's time; otherwise the tick falls back to the previous flat behaviour.
 - Never patch in place while `tfSwitching` (the in-place branch is guarded with `!tfSwitching`).
 - `updateLastCandleInPlace` writes only when `ds.entryCount == state.candles.size`
   (`ChartUpdates.kt`). Do not relax it back to `>`, that is what wrote today's price into a
@@ -233,6 +238,7 @@ instead of staying painted forever. The confirmed list is untouched by this rule
 | `FuturesKlineMappingTest` (4) | `ascendingRows()` / `toAscendingRows()` keep Bitunix and BingX pages chronological |
 | `TradingViewBarTest` (4) | `tvBar()` accepts 5- and 6-field bars (dominance has no volume) |
 | `LivePriceFeedTest` (7) | the socket freshness guard: a dead socket must fall back to REST instead of freezing the price |
+| `ChartIntervalsTest` (6) | the timeframe mapping and the calendar aggregation shared by the chart and the alert scanner: the scanner must ask for the same candles the chart shows |
 
 Any change to the tail, the gate or a series shape must keep these green; if a new series
 is added, extend `IndicatorTailTest` with its last-value comparison.

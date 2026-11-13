@@ -4,7 +4,7 @@ Audience: any agent (or human) touching `data/remote/**`, `data/repository/**`, 
 detail tick loop, or the Pairs screen price flow. Read this before changing an
 endpoint, a cadence, a cache or a fallback.
 
-State: reflects `main` after the Bitunix/BingX sources (2026-11-11).
+State: reflects `main` after the multi-broker scanner (2026-11-12).
 
 > Rules live in `AGENTS.md`. This document explains them: what each source is used
 > for, why an endpoint was chosen, and what it costs. If the two disagree, `AGENTS.md`
@@ -58,7 +58,7 @@ retries the bare name.
 |---|---|---|---|
 | `BinanceTickerStream` | `wss://stream.binance.com:9443/stream?streams=<sym>@miniTicker/…` (combined URL) | ~1 s | `close`, `open24h`, `quoteVolume` |
 | `MexcTickerStream` | `wss://contract.mexc.com/edge` (`sub.ticker`, one message per symbol) | ~2 s | `lastPrice`, `riseFallRate`, `volume24` (contracts), `amount24` (quote) |
-| `BitunixTickerStream` | `wss://fapi.bitunix.com/public/` (`ch: ticker`, one message with N symbols) | ~1 s | `la` (last), `o` (open 24h), `q` (quote volume) |
+| `BitunixTickerStream` | `wss://fapi.bitunix.com/public/` (`ch: ticker` + `ch: trade`, one message with N symbols) | ~1 s | `la` (last), `o` (open 24h), `q` (quote volume); trades: `t` (time), `p` (price), `v` (base volume) |
 | `BingxTickerStream` | `wss://open-api-swap.bingx.com/swap-market` (`@ticker`) | ~1 s | `c` (last), `o` (open 24h), `q` (quote volume); gzip frames |
 
 All four reconnect on their own with exponential backoff capped at 30 s. MEXC kills idle
@@ -92,6 +92,14 @@ that does nothing but subscribe, so it is not the app and not the client's `ping
 (removing it did not change the rate; MEXC in the same window had 0 drops). The streams
 reconnect on their own, so the user-facing effect is a few seconds without a tick, not a
 frozen price. Do not chase this as a bug; a `dropped` line every ~30–60 s is the baseline.
+
+**Bitunix is the exception since 2026-11-12: it also closes at ~61 s, but a plain text
+`PING` every 20 s keeps the connection open** (measured with a bare Node client: the socket
+survived 75 s with PING and died at 63 s without it). That matters because the live candle
+is built from the trades of the socket: every second without it is a second of missing
+trades. `BitunixTickerStream` sends that `PING`; do not remove it. The backoff also resets
+when a connection lasted more than 10 s, so a normal cut does not leave the socket down for
+the 30 s cap.
 
 BingX needs two things that are easy to delete by accident:
 
@@ -298,6 +306,35 @@ fills it with the socket price. It is a no-op for the sources that already publi
 synthetic bucket keeps the series phase (steps of the same duration), and `1mo` uses the
 UTC month start because months are 28-31 days. Covered by `LiveCandleBucketTest`.
 
+**The Bitunix live bucket is built from the WS `trade` channel, not from the price.**
+Filling the flat bucket with the sampled price gave a candle whose high/low were off by up
+to ~95 USD (1m) and ~84 USD (5m): the price is sampled every 2 s and the exchange moves
+inside the bucket. The `trade` channel of the same socket carries every fill (`t`, `p`, `v`),
+and accumulating them reproduces the exchange's own candle exactly — measured 2026-11-12,
+the O/H/L/C of the accumulated bucket matched the published candle of that minute to the
+cent and the volume within 0.2 %:
+
+```
+22:26 ws bucket      O=71446.9 H=71491.7 L=71446.9 C=71486.4 V=6.4096
+22:26 exchange candle O=71446.9 H=71491.7 L=71446.9 C=71486.4 V=6.421
+```
+
+Rules:
+
+- The subscribe message carries **two args per symbol** (`ticker` + `trade`). The shape with
+  one arg and an array of channels (`"ch":["ticker","trade"]`) is accepted silently and
+  never pushes anything.
+- The accumulator lives in the repository (`BitunixLiveBuckets`), app-wide, and is fed by the
+  same flow that feeds the prices: it survives opening and closing the detail and there is
+  no second socket.
+- The bucket phase is the exchange's own phase: epoch-aligned for everything intraday,
+  **Monday** for `1w` and the first day of the month (UTC) for `1mo`
+  (`Timeframes.bucketStartMs`). `2w` is aggregated by the app, so it keeps the app's own
+  anchor. If the phase does not match the candle's time, the tick ignores the bucket.
+- The bucket only knows what the socket saw: if the app connects in the middle of a bucket,
+  that bucket misses its first trades (the open falls back to the previous close and the
+  high/low can miss the extremes of the missed part). From the next bucket on it is exact.
+
 `klineCache` is an LRU of 24 entries with a 30 s TTL; `sparkCache` is an LRU of 60
 entries with a 5 min TTL.
 
@@ -340,6 +377,17 @@ That means a Bitunix `AVAXUSDT` and a BingX `AVAX-USDT` both read Binance's `AVA
 taker series: the same underlying market, so the subchart stays meaningful without a
 second taker source per broker.
 
+**Checked 2026-11-12: none of the futures exchanges publishes its own taker buy/sell
+volume**, so this stays Binance Futures for every source (Binance spot included):
+
+| Source | Its own kline fields | Own taker endpoint |
+|---|---|---|
+| Bitunix | `open, high, low, close, quoteVol, baseVol, time` | none |
+| BingX | `open, close, high, low, volume, time` | none (`takerBuySellVol` → `100400 this api is not exist`) |
+| MEXC | no taker field | none |
+
+Do not try to build a per-broker C/V subchart: the data does not exist in those APIs.
+
 ---
 
 ## 7. CoinStats (wallet + history)
@@ -357,8 +405,9 @@ second taker source per broker.
 ## 8. What to check after touching any of this
 
 - `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug`
-- Socket parsing and candle order are guarded: `TickerStreamParsingTest` (13),
-  `FuturesKlineMappingTest` (4), `TradingViewBarTest` (4) and `LiveCandleBucketTest` (5).
+- Socket parsing and candle order are guarded: `TickerStreamParsingTest` (14),
+  `FuturesKlineMappingTest` (4), `TradingViewBarTest` (4), `LiveCandleBucketTest` (5),
+  `BitunixLiveBucketsTest` (5) and `TimeframesBucketTest` (3).
   Keep them green; they encode the newest-first quirks of each exchange.
 - On a device: the list price moves every second, the chart candle moves every 2 s in
   1m **and** in 1d, and the taker bar shows the in-progress candle.
@@ -369,9 +418,10 @@ second taker source per broker.
 - Socket count: `adb shell dumpsys connectivity | grep -i websocket` is not reliable;
   instead check the app does not open a second socket per exchange (see §2.1).
 - `adb logcat -s BitunixStream:* BingxStream:*`: a `dropped` line every ~30–60 s is the
-  baseline (§2), **not** a loop. A loop is several per minute or a drop right after every
-  reconnect; there the string to grep first is the one causing the reconnect, not the
-  reconnect itself.
+  baseline for BingX (§2), **not** a loop. A loop is several per minute or a drop right after
+  every reconnect; there the string to grep first is the one causing the reconnect, not the
+  reconnect itself. **Bitunix should not drop at all** while the PING is in place: a drop
+  every ~61 s means the `PING` stopped being sent and the live candle is losing trades.
 - A pair is `(symbol, source)`: adding `AVAXUSDT` on Bitunix must not overwrite or hide
   `AVAXUSDT` on Binance. Check `My Pairs` after adding the same base asset on two brokers,
   and check that deleting one leaves the other. The upsert is `OnConflictStrategy.REPLACE`

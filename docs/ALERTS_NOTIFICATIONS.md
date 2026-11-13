@@ -4,11 +4,46 @@ Audience: agents modifying `alerts/*`, `PriceAlertSheet.kt` or anything that pos
 notification. Read this before touching the sound flow — it is small, it has burned us
 before, and a wrong change makes alerts **silent** with no visible error.
 
-State: reflects `main` after the Bitunix/BingX sources (2026-11-11). No uncommitted
+State: reflects `main` after the multi-broker scanner (2026-11-12). No uncommitted
 changes in this area.
 
 > Rules live in `AGENTS.md`. This document explains them: why each one exists and how to
 > diagnose the failure mode it prevents. If the two disagree, `AGENTS.md` wins.
+
+---
+
+## 0. The divergence scanner watches every broker
+
+`DivScanService.scanOnce` walks the tracked pairs of **all four brokers** (`Binance`,
+`MEXC`, `Bitunix`, `BingX`) and applies the same maths to each one: RSI divergences
+(pre and confirmed), the entry signals (MA rejection, FVG tap, sweep + reclaim) and the
+multi-timeframe confluence. Before 2026-11-12 it filtered `source == "MEXC"` and nothing
+else was scanned, so a Bitunix pair never produced an alert.
+
+Rules that keep the result identical across brokers:
+
+- **Same candles as the chart.** The interval mapping and the calendar aggregation live in
+  `presentation/crypto_detail/ChartIntervals.kt` (`intervalForSource`, `forSourceInterval`)
+  and both the chart and the scanner call them. Do not re-map the timeframe in the scanner.
+- **Same live candle.** Binance, MEXC and BingX publish the in-progress candle; Bitunix does
+  not, so the scanner synthesizes it and fills it with the REST price
+  (`withLiveCandlePrice`), the same way the chart fills it with the socket price.
+- **The id carries the source.** `divAlertId(source, symbol, interval, kind, candleTime)`:
+  Binance and Bitunix share the symbol (`BTCUSDT`), so without the source one broker's
+  divergence suppressed the other's. The same applies to the dedupe queries
+  (`DivAlertDao.findNearby` / `countSince` filter by `source`).
+- **The symbol is shown without a separator.** `Brokers.displaySymbol` turns `BTC_USDT` and
+  `BTC-USDT` into `BTCUSDT`.
+- **Sequential, never parallel.** One request at a time, 400 ms between pair and timeframe,
+  500 ms for MEXC (the strictest limit). The cycle can take longer than the 60 s timer; the
+  loop waits for the cycle to finish, it does not overlap.
+- **TV is not scanned.** It is not a broker and its socket is too expensive for a background
+  loop.
+- The alert row shows the broker chip (`BrokerColors.of(source)`) so you can see which
+  exchange fired it, and tapping it opens the chart of that broker.
+
+Guarded by `DivAlertIdTest` (ids per source) and `ChartIntervalsTest` (interval mapping and
+aggregation for every source).
 
 ---
 

@@ -3,7 +3,7 @@
 Audience: agents (or humans) touching any UI, especially the chart. This app is a dark
 trading UI: information density and numeric legibility come before decoration.
 
-State: reflects `main` after the Bitunix/BingX sources (2026-11-11).
+State: reflects `main` after the multi-broker scanner (2026-11-12).
 
 > Rules live in `AGENTS.md`. This document is the inventory behind them: which token exists,
 > where it lives, what is tuned by hand, and what is known visual debt. If the two disagree,
@@ -109,6 +109,12 @@ without scrolling; do not grow them back into two-line rows.
   `sheets/WideColorPicker.kt`.
 - Bottom sheets: title (`SheetSectionTitle`) + `PillGrid`/`PillOption` rows + actions, on
   `SheetBg`. Keep them compact; long forms scroll, they do not shrink the chart.
+- Pair icon (`PairIcon.kt`, list rows): the real logo first (CoinCap, then Binance static, and
+  the bare name for `1000PEPE`-style symbols). When **no source has a logo** (commodities like
+  `XAU`, TradingView indexes like `BTC.D` or `TOTAL3`), it falls back to a **monogram badge**:
+  circle with a soft gradient, an accent ring and a 1–2 character monogram (`Au`, `Oil`, `B%`,
+  `T3`). The accents live in `MonogramColors` (`ui/theme/Color.kt`); the rules are
+  `pairMonogram` / `monogramAccent` in `PairIcon.kt`. Never a bare letter on a flat circle.
 - Increment on charts only through `AndroidView`; do not recreate the chart views (see
   `docs/CHART_PIPELINE.md`).
 
@@ -167,5 +173,6 @@ without scrolling; do not grow them back into two-line rows.
 - Numbers still tabular and readable at the smallest size used in the app.
 - Nothing new hard-codes a width that a narrow phone would clip.
 - Loading / empty / error states still distinguishable and unchanged in tone.
+- A pair without a real logo shows the monogram badge, never a lone letter.
 - The chart still paints with `px` paints and `dp` axes (§5).
 - Screenshot before/after on the device for anything visual; the user reviews visuals closely.

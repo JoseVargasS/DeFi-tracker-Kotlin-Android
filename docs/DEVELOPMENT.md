@@ -4,8 +4,8 @@ Audience: any agent (or human) that needs to build, install, measure or profile 
 app. Read this before adding a temporary probe, running adb, or reporting a
 performance claim.
 
-State: reflects `main` after the Bitunix/BingX sources (2026-11-11, 127 unit tests /
-22 classes green). Read the count from the test results, not from this line.
+State: reflects `main` after the multi-broker scanner (2026-11-12, 144 unit tests /
+26 classes green). Read the count from the test results, not from this line.
 
 > Rules live in `AGENTS.md`. This document has the recipes.
 
